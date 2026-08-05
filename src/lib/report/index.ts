@@ -1,5 +1,8 @@
 import { EquityResearchData } from '@/types';
 
+export * from './types';
+export * from './mapper';
+
 /**
  * Report Orchestrator Service.
  */

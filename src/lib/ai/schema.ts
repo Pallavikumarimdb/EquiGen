@@ -23,7 +23,10 @@ export const AIExtractionSchema = z.object({
   risks: z.array(z.string()),
   outlook: z.string().nullable(),
   investmentThesis: z.string().nullable(),
-  futureGrowth: z.string().nullable()
+  futureGrowth: z.string().nullable(),
+  narrativeSummary: z.string().nullable(),
+  industryOverview: z.string().nullable(),
+  businessOverview: z.string().nullable()
 });
 
 export type AIExtractionResult = z.infer<typeof AIExtractionSchema>;

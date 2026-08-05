@@ -41,7 +41,11 @@ export const EquityResearchDataSchema = z.object({
     weaknesses: z.array(z.string()),
     opportunities: z.array(z.string()),
     threats: z.array(z.string())
-  })
+  }),
+  narrativeSummary: z.string().nullable().optional(),
+  industryOverview: z.string().nullable().optional(),
+  businessOverview: z.string().nullable().optional(),
+  futureGrowth: z.string().nullable().optional()
 });
 
 export const ReportUploadInputSchema = z.object({

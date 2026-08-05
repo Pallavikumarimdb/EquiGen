@@ -40,6 +40,10 @@ export interface EquityResearchData {
     opportunities: string[];
     threats: string[];
   };
+  narrativeSummary?: string | null;
+  industryOverview?: string | null;
+  businessOverview?: string | null;
+  futureGrowth?: string | null;
 }
 
 export interface ParseResult {

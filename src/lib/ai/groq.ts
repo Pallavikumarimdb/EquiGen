@@ -74,7 +74,11 @@ function mapToEquityResearchData(aiResult: AIExtractionResult): EquityResearchDa
       weaknesses: aiResult.risks.slice(0, 4),
       opportunities: aiResult.futureGrowth ? [aiResult.futureGrowth] : [],
       threats: []
-    }
+    },
+    narrativeSummary: aiResult.narrativeSummary,
+    industryOverview: aiResult.industryOverview,
+    businessOverview: aiResult.businessOverview,
+    futureGrowth: aiResult.futureGrowth
   };
 }
 
