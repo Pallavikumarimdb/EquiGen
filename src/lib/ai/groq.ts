@@ -107,6 +107,8 @@ export class GroqAIService {
           messages,
           temperature: 0.1,
           response_format: { type: 'json_object' }
+        }, {
+          timeout: 25000 // 25s timeout limit for API response
         });
 
         const rawContent = response.choices[0]?.message?.content || '';

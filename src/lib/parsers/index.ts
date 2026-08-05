@@ -14,14 +14,23 @@ export class ParserService {
    */
   public async parseFile(buffer: Buffer, fileName: string, mimeType: string): Promise<ExtractedDocument> {
     const lowerName = fileName.toLowerCase();
+    let result: ExtractedDocument;
     
     if (lowerName.endsWith('.pdf') || mimeType === 'application/pdf') {
-      return pdfExtractor.extract(buffer, fileName);
+      result = await pdfExtractor.extract(buffer, fileName);
     } else if (lowerName.endsWith('.csv') || mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-      return csvExtractor.extract(buffer, fileName);
+      result = await csvExtractor.extract(buffer, fileName);
+    } else if (lowerName.endsWith('.txt') || mimeType === 'text/plain') {
+      result = await txtExtractor.extract(buffer, fileName);
     } else {
-      return txtExtractor.extract(buffer, fileName);
+      throw new Error(`Unsupported file type: ${fileName}. Please upload a PDF, CSV, or TXT document.`);
     }
+
+    if (!result || !result.text || result.text.trim().length === 0) {
+      throw new Error(`The uploaded file "${fileName}" appears to be empty or contains no readable text.`);
+    }
+
+    return result;
   }
 }
 

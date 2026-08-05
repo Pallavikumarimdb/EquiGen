@@ -15,23 +15,41 @@ export class PDFGenerationService {
     // 1. Map raw/AI data to report structure
     const compiledReport = ReportMapper.mapToCompiledReport(data);
 
-    // 2. Generate trend charts
-    const chartPaths = await chartGenerationService.generateChartsForReport(data);
+    // 2. Generate trend charts with graceful error fallback
+    let chartPaths = {
+      revenueTrendPath: '',
+      patTrendPath: '',
+      ebitdaMarginPath: '',
+      revenueCagrPath: ''
+    };
+    try {
+      chartPaths = await chartGenerationService.generateChartsForReport(data);
+    } catch (chartError) {
+      console.error('Robustness Warning: Chart generation failed, falling back to text-only report:', chartError);
+    }
 
     // 3. Compile A4 HTML layout
     const htmlContent = renderReportTemplate(compiledReport, chartPaths);
 
-    // 4. Launch headless browser to print to PDF
-    const browser = await chromium.launch({
-      headless: true
-    });
+    // 4. Launch headless browser to print to PDF with a strict timeout
+    let browser;
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        timeout: 20000 // 20s launch timeout
+      });
+    } catch (launchError) {
+      console.error('Playwright Chromium launch failure:', launchError);
+      throw new Error('PDF Generation Engine (Chromium) failed to initialize. Please try again.');
+    }
 
     try {
       const page = await browser.newPage();
       
-      // Load the HTML content directly
+      // Load the HTML content directly with a timeout
       await page.setContent(htmlContent, {
-        waitUntil: 'networkidle'
+        waitUntil: 'networkidle',
+        timeout: 15000 // 15s page loading timeout
       });
 
       // Render PDF with professional A4 print styling and dynamic header/footer templates

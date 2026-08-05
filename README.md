@@ -1,31 +1,32 @@
 # Bull AI Equity Research Report Generator
 
-A production-quality full-stack Next.js 15 (App Router) application designed to extract financial information using Groq (Llama 3.3 70B) and generate downloadable Geojit-style equity research reports as PDFs.
+A production-quality full-stack Next.js 15 (App Router) application designed to parse financial files (PDF, CSV, TXT), extract key metrics using Groq (Llama 3.3 70B), render high-DPI charts, and compile downloadable Geojit-style equity research reports as PDFs.
 
 ## Architecture & Project Structure
 
-The project implements a clean architecture and a modular folder structure to separate concerns between parser logic, AI extraction, PDF rendering templates, validation schemas, and Next.js routing endpoints.
+The project implements a clean architecture and a modular folder structure separating concerns between raw parser handlers, AI structured parsing, rendering templates, validation schemas, and Next.js Route Handlers.
 
 ```
 src/
-  app/                  # Next.js App Router (Layouts, Pages, and Route Handlers)
+  app/                  # Next.js App Router Pages, Layouts, and API Route Handlers
     api/
-      report/
-        generate/       # Route handler for file parsing & AI extraction
-        download/       # Route handler for PDF report rendering
-  components/           # Reusable UI React components (shadcn/ui layout)
+      upload/           # POST /api/upload - Accepts files, parses raw structure
+      extract/          # POST /api/extract - Submits raw text to Llama 3.3
+      report/           # POST /api/report - Generates charts and compiles PDF
+      download/         # GET /api/download - Streams the compiled A4 PDF file
+  components/           # Reusable UI React components (Dashboard, buttons, loaders)
   hooks/                # Custom React hooks managing states and API calls
   types/                # Core TypeScript interfaces defining domain models
   lib/                  # Core services, parsers, and utilities
-    ai/                 # Groq client connection, prompt templates, & extraction helper
+    ai/                 # Groq client configuration, system prompts, self-correction
     extractors/         # High-level business logic orchestrating extraction
-    parsers/            # File parser handlers for PDF, CSV, and TXT files
-    report/             # Post-processing calculations, ratio computations, etc.
-    charts/             # Formatting and QuickChart helper links for PDF embedding
-    pdf/                # PDF Generation Engine (using pdfkit or react-pdf)
-    templates/          # Geojit-style brand themes, colors, and layout tokens
-    validation/         # Zod schema definitions for API inputs and LLM outputs
-    utils/              # Utility helpers (Tailwind class merges, currency formatters)
+    parsers/            # Raw text extractors for PDF (pdf-parse), CSV, and TXT files
+    report/             # Valuation calculations, metric presentation mapping
+    charts/             # High-DPI vertical bar and EBITDA Margin line chart generators
+    pdf/                # PDF Generation Engine using Playwright chromium printing
+    templates/          # Geojit-style HTML/CSS A4 page templates
+    validation/         # Zod schemas validating API payloads and AI responses
+    utils/              # Tailwind class merges and string helpers
 ```
 
 ## Getting Started
@@ -40,16 +41,21 @@ npm install -g pnpm
 
 ### Installation
 
-1. Clone the repository and install dependencies:
+1. Install dependencies:
    ```bash
    pnpm install
    ```
 
-2. Copy the environment variables:
+2. Copy the environment template:
    ```bash
    cp .env.example .env.local
    ```
-   Provide your `GROQ_API_KEY` in `.env.local`.
+   Insert your `GROQ_API_KEY` inside `.env.local`.
+
+3. Install Playwright browser dependencies:
+   ```bash
+   npx playwright install chromium
+   ```
 
 ### Running Locally
 
@@ -60,7 +66,26 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-## Key Design Principles
-- **Clean Architecture**: Domain model types are isolated from specific parser or AI implementations.
-- **Robust Schema Validation**: Every API request and AI JSON payload is validated using Zod.
-- **Geojit-Style Reports**: Brand design system tokens (primary dark blues/golds, professional metrics) are modularized under `src/lib/templates`.
+---
+
+## Running with Docker
+
+This application includes a multi-stage production Dockerfile utilizing the Microsoft Playwright Jammy base image, which comes precompiled with native canvas libraries and headless chromium binaries.
+
+### Using Docker Compose
+
+1. Build and launch the container:
+   ```bash
+   docker-compose up --build
+   ```
+
+2. The application will be live at [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Key Design & Reliability Features
+
+- **Self-Correcting LLM Parser**: Groq response validation retries up to 3 times, passing parsing/schema Zod error messages back to the model to correct outputs automatically.
+- **Fail-Safe Charting**: If the native `canvas` dependencies fail, the compiler falls back to a text-only PDF layout without crashing.
+- **Header & Footer Pagination**: Playwright injects professional running headers and footer page indicators (`Page X of Y`).
+- **Empty State & Timeout Guard**: All network fetches, Chromium page renders, and API completion streams are guarded with strict timeouts (15s - 25s) to prevent thread blockages.
