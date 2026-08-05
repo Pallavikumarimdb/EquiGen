@@ -48,7 +48,7 @@ export interface EquityResearchData {
 
 export interface ParseResult {
   rawText: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   fileName: string;
   fileType: 'pdf' | 'csv' | 'txt';
 }

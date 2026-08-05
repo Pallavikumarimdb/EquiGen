@@ -92,7 +92,7 @@ export class GroqAIService {
       throw new Error('GROQ_API_KEY is not configured in the environment variables.');
     }
 
-    const messages: any[] = [
+    const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: generateUserPrompt(companyName, rawText) }
     ];
@@ -114,17 +114,18 @@ export class GroqAIService {
         const rawContent = response.choices[0]?.message?.content || '';
         const cleanedJsonString = sanitizeJsonString(rawContent);
 
-        let parsedJson: any;
+        let parsedJson: unknown;
         try {
           parsedJson = JSON.parse(cleanedJsonString);
-        } catch (jsonError: any) {
-          console.warn(`Attempt ${attempt + 1}: JSON parsing failed. Error: ${jsonError.message}`);
+        } catch (jsonError: unknown) {
+          const errMsg = jsonError instanceof Error ? jsonError.message : 'Unknown parsing error';
+          console.warn(`Attempt ${attempt + 1}: JSON parsing failed. Error: ${errMsg}`);
           
           // Add error correction loop payload
           messages.push({ role: 'assistant', content: rawContent });
           messages.push({
             role: 'user',
-            content: `The response you provided was not valid JSON. Please fix it and return ONLY the valid JSON structure. Error: ${jsonError.message}`
+            content: `The response you provided was not valid JSON. Please fix it and return ONLY the valid JSON structure. Error: ${errMsg}`
           });
           
           attempt++;
@@ -147,9 +148,10 @@ export class GroqAIService {
 
           attempt++;
         }
-      } catch (apiError: any) {
+      } catch (apiError: unknown) {
         console.error('Groq SDK client error:', apiError);
-        throw new Error(`Failed to call Groq AI: ${apiError.message || apiError}`);
+        const errMsg = apiError instanceof Error ? apiError.message : String(apiError);
+        throw new Error(`Failed to call Groq AI: ${errMsg}`);
       }
     }
 

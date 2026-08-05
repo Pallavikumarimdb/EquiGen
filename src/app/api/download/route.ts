@@ -33,10 +33,11 @@ export async function GET(req: NextRequest) {
         'Content-Disposition': `attachment; filename="equity-report-${reportId.toLowerCase()}.pdf"`
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('API Error: /api/download failed:', error);
+    const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json(
-      { message: error.message || 'Internal Server Error' },
+      { message: errMsg },
       { status: 500 }
     );
   }

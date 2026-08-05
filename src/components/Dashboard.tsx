@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Upload, 
   FileText, 
@@ -12,7 +12,6 @@ import {
   Layers, 
   Trash2, 
   Sparkles,
-  TrendingUp,
   X,
   Loader2
 } from 'lucide-react';
@@ -134,10 +133,10 @@ export function Dashboard() {
     showToast('Starting report generation pipeline...', 'info');
 
     let rawText = '';
-    let extractedData: any = null;
+    let extractedData: EquityResearchData | null = null;
 
     try {
-      // Step 1: Upload & Extract Raw Text
+      // --- Step 1: Upload & Extract Raw Text ---
       setCurrentStepIndex(0);
       updatedSteps[0].status = 'running';
       setSteps([...updatedSteps]);
@@ -160,7 +159,7 @@ export function Dashboard() {
       updatedSteps[0].status = 'completed';
       setSteps([...updatedSteps]);
 
-      // Step 2: AI Metric Extraction
+      // --- Step 2: AI Metric Extraction ---
       setCurrentStepIndex(1);
       updatedSteps[1].status = 'running';
       setSteps([...updatedSteps]);
@@ -176,11 +175,11 @@ export function Dashboard() {
         throw new Error(errData.message || 'AI extraction failed.');
       }
 
-      extractedData = await extractRes.json();
+      extractedData = await extractRes.json() as EquityResearchData;
       updatedSteps[1].status = 'completed';
       setSteps([...updatedSteps]);
 
-      // Step 3: Format Financial Ratios & Generate Charts
+      // --- Step 3: Format Financial Ratios & Generate Charts ---
       setCurrentStepIndex(2);
       updatedSteps[2].status = 'running';
       setSteps([...updatedSteps]);
@@ -197,11 +196,13 @@ export function Dashboard() {
       }
 
       const reportResponse = await reportRes.json();
-      extractedData.company.ticker = reportResponse.reportId;
+      if (extractedData && extractedData.company) {
+        extractedData.company.ticker = reportResponse.reportId;
+      }
       updatedSteps[2].status = 'completed';
       setSteps([...updatedSteps]);
 
-      // Step 4: Compile Geojit PDF
+      // --- Step 4: Compile Geojit PDF ---
       setCurrentStepIndex(3);
       updatedSteps[3].status = 'running';
       setSteps([...updatedSteps]);
@@ -212,10 +213,11 @@ export function Dashboard() {
 
       setReportData(extractedData);
       showToast('Equity report compiled successfully!', 'success');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Generation pipeline failed:', err);
-      setError(err.message || 'An error occurred during report generation.');
-      showToast(err.message || 'Report generation failed.', 'error');
+      const errMsg = err instanceof Error ? err.message : 'An error occurred during report generation.';
+      setError(errMsg);
+      showToast(errMsg, 'error');
       
       if (updatedSteps[currentStepIndex]) {
         updatedSteps[currentStepIndex].status = 'failed';
@@ -233,7 +235,7 @@ export function Dashboard() {
       await new Promise((resolve) => setTimeout(resolve, 1500)); // Visual download transition
       window.open(`/api/download?id=${reportId}`, '_blank');
       showToast('PDF downloaded successfully!', 'success');
-    } catch (err) {
+    } catch {
       showToast('Failed to trigger download.', 'error');
     } finally {
       setIsDownloading(false);

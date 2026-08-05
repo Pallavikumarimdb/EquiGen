@@ -29,8 +29,9 @@ export function useReport() {
 
       const reportData: EquityResearchData = await response.json();
       setData(reportData);
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -38,8 +39,8 @@ export function useReport() {
 
   const downloadPDF = async (reportId: string) => {
     try {
-      window.open(`/api/report/download?id=${reportId}`, '_blank');
-    } catch (err: any) {
+      window.open(`/api/download?id=${reportId}`, '_blank');
+    } catch (err: unknown) {
       console.error('Failed to download PDF:', err);
     }
   };

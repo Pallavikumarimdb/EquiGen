@@ -44,10 +44,11 @@ export async function POST(req: NextRequest) {
       message: 'Report and charts generated successfully.'
     }, { status: 200 });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('API Error: /api/report failed:', error);
+    const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json(
-      { message: error.message || 'Internal Server Error' },
+      { message: errMsg },
       { status: 500 }
     );
   }

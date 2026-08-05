@@ -32,10 +32,10 @@ export class PDFExtractor implements DocumentExtractor {
       }
 
       // Extract info/metadata
-      let info: Record<string, any> = {};
+      let info: Record<string, unknown> = {};
       try {
         const infoResult = await pdfInstance.getInfo();
-        info = infoResult.info || {};
+        info = (infoResult.info || {}) as Record<string, unknown>;
       } catch (infoError) {
         console.warn('Info extraction warning:', infoError);
       }
@@ -56,7 +56,7 @@ export class PDFExtractor implements DocumentExtractor {
       if (pdfInstance) {
         try {
           await pdfInstance.destroy();
-        } catch (e) {
+        } catch {
           // Ignore destroy errors
         }
       }

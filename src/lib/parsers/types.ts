@@ -1,7 +1,7 @@
 export interface ExtractedDocument {
   text: string;
   tables: string[][][]; // Array of tables, where each table is string[][] (rows and columns)
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export interface DocumentExtractor {

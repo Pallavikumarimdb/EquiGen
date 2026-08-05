@@ -72,7 +72,7 @@ export class ReportMapper {
       groupedByLabel[metric.label].push(metric);
     }
 
-    for (const [label, items] of Object.entries(groupedByLabel)) {
+    for (const items of Object.values(groupedByLabel)) {
       // Sort to find the latest period (e.g. FY25 > FY24)
       const sorted = [...items].sort((a, b) => b.period.localeCompare(a.period));
       const latest = sorted[0];
