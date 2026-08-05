@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { PDFParse } = require('pdf-parse');
+import { PDFParse } from 'pdf-parse';
 import { DocumentExtractor, ExtractedDocument } from './types';
 
 export class PDFExtractor implements DocumentExtractor {

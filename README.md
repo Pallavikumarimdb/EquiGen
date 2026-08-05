@@ -38,29 +38,7 @@ graph TD
     K -->|Store Temp File| L[GET /api/download]
 ```
 
-### Folder Structure
 
-```
-src/
-  app/                  # Next.js App Router endpoints & page layouts
-    api/
-      upload/           # POST /api/upload - Accepts files, returns raw content structure
-      extract/          # POST /api/extract - Passes strings to LLM self-correcting parser
-      report/           # POST /api/report - Invokes chart canvas and Playwright PDF compilation
-      download/         # GET /api/download?id=CMPY - Streams compiled report buffers
-  components/           # Reusable UI React components (Dashboard, toasts, skeleton loaders)
-  types/                # Domain TypeScript models
-  lib/                  # Domain services and helpers
-    ai/                 # Groq client integration, prompts, self-correction
-    parsers/            # Raw extractors for PDF (ESM class-based), CSV, and TXT
-    report/             # Presentation formatting, margin and financial ratio calculators
-    charts/             # High-DPI Chart.js canvas renderers (PNG output)
-    pdf/                # Headless Chromium printing engine
-    templates/          # Geojit-style print-friendly A4 HTML report sheets
-    validation/         # API validation Zod structures
-```
-
----
 
 ## ⚡ Setup & Installation
 
