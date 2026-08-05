@@ -100,74 +100,113 @@ export function Dashboard() {
     setError(null);
     setReportData(null);
     
-    // Reset steps
-    const newSteps = steps.map(s => ({ ...s, status: 'idle' as ProgressStep['status'] }));
-    setSteps(newSteps);
+    // Reset steps to idle
+    const updatedSteps: ProgressStep[] = [
+      { label: 'Reading uploaded document structure', status: 'idle' },
+      { label: 'Extracting key metrics using Groq Llama 3.3 70B', status: 'idle' },
+      { label: 'Formatting financial sheets & ratios', status: 'idle' },
+      { label: 'Compiling Geojit-style PDF layout', status: 'idle' }
+    ];
+    setSteps(updatedSteps);
 
-    // Simulate backend steps (since backend is not implemented yet)
-    for (let i = 0; i < newSteps.length; i++) {
-      setCurrentStepIndex(i);
-      newSteps[i].status = 'running';
-      setSteps([...newSteps]);
-      
-      // Artificial delay for simulation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      newSteps[i].status = 'completed';
-      setSteps([...newSteps]);
-    }
+    let rawText = '';
+    let extractedData: any = null;
 
-    // Mock generated response representing EquityResearchData
-    const mockReport: EquityResearchData = {
-      company: {
-        name: companyName,
-        ticker: companyName.substring(0, 4).toUpperCase(),
-        sector: 'Technology & Services',
-        industry: 'Digital Transformation',
-        reportDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-      },
-      recommendation: {
-        rating: 'BUY',
-        currentPrice: 1420,
-        targetPrice: 1780,
-        upsidePotential: 25.35,
-        rationale: [
-          'Robust year-on-year revenue expansion driven by enterprise AI adoption.',
-          'Operating margins projected to expand by 150bps over next 2 fiscal years.',
-          'Solid cash conversion ratio exceeding 85%.'
-        ]
-      },
-      executiveSummary: `${companyName} exhibits strong market leadership in its operating segment with high recurring revenue streams and a robust balance sheet. The integration of advanced AI workflows is expected to accelerate client delivery margins.`,
-      keyFinancials: {
-        incomeStatement: [
-          { label: 'Revenue', value: '4,250', period: 'FY25' },
-          { label: 'EBITDA', value: '890', period: 'FY25' },
-          { label: 'PAT', value: '620', period: 'FY25' }
-        ],
-        balanceSheet: [
-          { label: 'Net Cash', value: '1,200', period: 'FY25' },
-          { label: 'Total Equity', value: '3,800', period: 'FY25' }
-        ],
-        cashFlow: [
-          { label: 'Operating Cash Flow', value: '780', period: 'FY25' },
-          { label: 'Free Cash Flow', value: '610', period: 'FY25' }
-        ]
-      },
-      valuationAnalysis: `Trading at a reasonable P/E multiple of 22.8x FY25 earnings, which represents a discount to historical 5-year averages despite superior return profiles (ROE of 18.5%). We assign a target multiple of 28x.`,
-      investmentRisks: [
-        'Geopolitical exposure in core international client locations.',
-        'High talent attrition rates inflating operational delivery costs.'
-      ],
-      swotAnalysis: {
-        strengths: ['Brand value', 'Cash liquidity', 'Scalable platforms'],
-        weaknesses: ['Concentrated revenue segments', 'Client churn rates'],
-        opportunities: ['Emerging markets expansion', 'AI consulting verticals'],
-        threats: ['Macroeconomic headwinds', 'Regulatory changes']
+    try {
+      // --- Step 1: Upload & Extract Raw Text ---
+      setCurrentStepIndex(0);
+      updatedSteps[0].status = 'running';
+      setSteps([...updatedSteps]);
+
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', file);
+
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        body: uploadFormData
+      });
+
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errData.message || 'Failed to read document structure.');
       }
-    };
 
-    setReportData(mockReport);
-    setLoading(false);
+      const uploadData = await uploadRes.json();
+      rawText = uploadData.text;
+
+      updatedSteps[0].status = 'completed';
+      setSteps([...updatedSteps]);
+
+      // --- Step 2: AI Metric Extraction ---
+      setCurrentStepIndex(1);
+      updatedSteps[1].status = 'running';
+      setSteps([...updatedSteps]);
+
+      const extractRes = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName, rawText })
+      });
+
+      if (!extractRes.ok) {
+        const errData = await extractRes.json().catch(() => ({}));
+        throw new Error(errData.message || 'AI extraction failed.');
+      }
+
+      extractedData = await extractRes.json();
+
+      updatedSteps[1].status = 'completed';
+      setSteps([...updatedSteps]);
+
+      // --- Step 3: Format Financial Ratios & Generate Charts ---
+      setCurrentStepIndex(2);
+      updatedSteps[2].status = 'running';
+      setSteps([...updatedSteps]);
+
+      const reportRes = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(extractedData)
+      });
+
+      if (!reportRes.ok) {
+        const errData = await reportRes.json().catch(() => ({}));
+        throw new Error(errData.message || 'Formatting financial ratios failed.');
+      }
+
+      const reportResponse = await reportRes.json();
+      
+      // Keep reportId stored on the extractedData object for dynamic downloads
+      extractedData.company.ticker = reportResponse.reportId;
+
+      updatedSteps[2].status = 'completed';
+      setSteps([...updatedSteps]);
+
+      // --- Step 4: Compile Geojit PDF ---
+      setCurrentStepIndex(3);
+      updatedSteps[3].status = 'running';
+      setSteps([...updatedSteps]);
+
+      // The PDF was successfully generated and saved by /api/report!
+      // Add a slight delay for visual transition satisfaction
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      updatedSteps[3].status = 'completed';
+      setSteps([...updatedSteps]);
+
+      setReportData(extractedData);
+    } catch (err: any) {
+      console.error('Generation pipeline failed:', err);
+      setError(err.message || 'An error occurred during report generation.');
+      
+      // Set failed status on the active step
+      if (updatedSteps[currentStepIndex]) {
+        updatedSteps[currentStepIndex].status = 'failed';
+        setSteps([...updatedSteps]);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -368,7 +407,7 @@ export function Dashboard() {
                   </div>
                 </div>
                 <button
-                  onClick={() => window.open(`/api/report/download?id=${reportData.company.ticker}`, '_blank')}
+                  onClick={() => window.open(`/api/download?id=${reportData.company.ticker}`, '_blank')}
                   className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
                 >
                   <Download className="w-4 h-4" />

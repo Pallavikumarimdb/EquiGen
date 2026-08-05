@@ -29,3 +29,5 @@ export const GEOJIT_THEME = {
 };
 
 export type GeojitTheme = typeof GEOJIT_THEME;
+
+export * from './report-template';
