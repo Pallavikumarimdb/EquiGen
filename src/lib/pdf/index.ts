@@ -70,7 +70,7 @@ export class PDFGenerationService {
         `,
         footerTemplate: `
           <div style="font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding-left: 36px; padding-right: 36px; color: #94a3b8; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 500;">
-            <span>BULL AI RESEARCH DIVISION</span>
+            <span>EQUIGEN RESEARCH DIVISION</span>
             <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
           </div>
         `

@@ -280,7 +280,7 @@ export function renderReportTemplate(report: CompiledReport, chartPaths: ChartPa
     <!-- Header -->
     <header>
       <div class="brand-container">
-        <span class="brand-name">BULL AI RESEARCH</span>
+        <span class="brand-name">EQUIGEN RESEARCH</span>
         <span class="brand-sub">Equity Research Division</span>
       </div>
       <div class="report-date">
@@ -389,7 +389,7 @@ export function renderReportTemplate(report: CompiledReport, chartPaths: ChartPa
 
     <!-- Disclaimer -->
     <footer>
-      <strong>Disclaimer:</strong> This report is compiled by Bull AI Research Division for information purposes only. The information contained herein is extracted using AI modules from public and corporate documentation and is subject to verification. It does not constitute investment advice, solicitation, or recommendation to buy or sell securities. Investors are advised to perform independent due diligence before making investment decisions.
+      <strong>Disclaimer:</strong> This report is compiled by EquiGen Research Division for information purposes only. The information contained herein is extracted using AI modules from public and corporate documentation and is subject to verification. It does not constitute investment advice, solicitation, or recommendation to buy or sell securities. Investors are advised to perform independent due diligence before making investment decisions.
     </footer>
   </div>
 </body>

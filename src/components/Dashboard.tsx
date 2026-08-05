@@ -279,7 +279,7 @@ export function Dashboard() {
             <span className="p-2 bg-gradient-to-tr from-blue-700 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-500/10">
               <BarChart3 className="w-6 h-6" />
             </span>
-            <span className="text-xs font-extrabold tracking-widest text-blue-600 uppercase">BULL AI SUITE</span>
+            <span className="text-xs font-extrabold tracking-widest text-blue-600 uppercase">EQUIGEN SUITE</span>
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mt-3">AI Equity Research Report Generator</h1>
           <p className="text-slate-500 mt-1.5 text-sm max-w-2xl leading-relaxed">
