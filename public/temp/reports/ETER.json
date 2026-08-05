@@ -1,0 +1,135 @@
+{
+  "company": {
+    "name": "Eternal Limited",
+    "ticker": "ETER",
+    "sector": "General Corporate",
+    "industry": "Unclassified Industry",
+    "reportDate": "5 August 2026"
+  },
+  "recommendation": {
+    "rating": "HOLD",
+    "targetPrice": 337,
+    "currentPrice": 306,
+    "upsidePotential": 10.13,
+    "rationale": [
+      "NOV growth in food delivery edged lower to 13% YoY in Q1FY26 from 14% in the previous quarter.",
+      "The long-term profitability of the Blinkit business is not a concern, as a significant portion of the business is already generating profits.",
+      "The company is transitioning its quick commerce business from a marketplace model to inventory ownership over the next 2-3 quarters."
+    ]
+  },
+  "executiveSummary": "No investment thesis provided.",
+  "keyFinancials": {
+    "incomeStatement": [
+      {
+        "label": "Revenue",
+        "value": 7167,
+        "period": "Q1FY26",
+        "unit": "Cr"
+      },
+      {
+        "label": "Revenue",
+        "value": 4206,
+        "period": "Q1FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "Revenue",
+        "value": 20243,
+        "period": "FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "Revenue",
+        "value": 35020,
+        "period": "FY26E",
+        "unit": "Cr"
+      },
+      {
+        "label": "Revenue",
+        "value": 54632,
+        "period": "FY27E",
+        "unit": "Cr"
+      },
+      {
+        "label": "EBITDA",
+        "value": 115,
+        "period": "Q1FY26",
+        "unit": "Cr"
+      },
+      {
+        "label": "EBITDA",
+        "value": 177,
+        "period": "Q1FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "EBITDA",
+        "value": 637,
+        "period": "FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "EBITDA",
+        "value": 1248,
+        "period": "FY26E",
+        "unit": "Cr"
+      },
+      {
+        "label": "EBITDA",
+        "value": 3575,
+        "period": "FY27E",
+        "unit": "Cr"
+      },
+      {
+        "label": "PAT",
+        "value": 25,
+        "period": "Q1FY26",
+        "unit": "Cr"
+      },
+      {
+        "label": "PAT",
+        "value": 253,
+        "period": "Q1FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "PAT",
+        "value": 527,
+        "period": "FY25",
+        "unit": "Cr"
+      },
+      {
+        "label": "PAT",
+        "value": 927,
+        "period": "FY26E",
+        "unit": "Cr"
+      },
+      {
+        "label": "PAT",
+        "value": 2643,
+        "period": "FY27E",
+        "unit": "Cr"
+      }
+    ],
+    "balanceSheet": [],
+    "cashFlow": []
+  },
+  "valuationAnalysis": "Eternal Limited is poised for long-term growth and improved profitability, driven by its strong market position and growth prospects in the quick commerce business.",
+  "investmentRisks": [],
+  "swotAnalysis": {
+    "strengths": [
+      "NOV growth in food delivery edged lower to 13% YoY in Q1FY26 from 14% in the previous quarter.",
+      "The long-term profitability of the Blinkit business is not a concern, as a significant portion of the business is already generating profits.",
+      "The company is transitioning its quick commerce business from a marketplace model to inventory ownership over the next 2-3 quarters."
+    ],
+    "weaknesses": [],
+    "opportunities": [
+      "The company's focus on inventory ownership and margin improvement is expected to drive profitability."
+    ],
+    "threats": []
+  },
+  "narrativeSummary": "Eternal Limited operates as an online food delivery company, with a strong market position and growth prospects in the quick commerce business.",
+  "industryOverview": null,
+  "businessOverview": "The company runs a B2C platform under the Zomato brand, and also operates Hyperpure and Blinkit, organises events, provides payment services and engages in investment activities.",
+  "futureGrowth": "The company's focus on inventory ownership and margin improvement is expected to drive profitability."
+}
