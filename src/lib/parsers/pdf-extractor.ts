@@ -4,7 +4,8 @@ import { DocumentExtractor, ExtractedDocument } from './types';
 export class PDFExtractor implements DocumentExtractor {
   public async extract(buffer: Buffer, fileName: string): Promise<ExtractedDocument> {
     try {
-      const uint8Array = new Uint8Array(buffer);
+      const cleanArrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+      const uint8Array = new Uint8Array(cleanArrayBuffer);
 
       // Extract text content using unpdf (pure JS, works in serverless environments)
       const { text, totalPages } = await extractText(uint8Array, { mergePages: true });
