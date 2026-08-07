@@ -6,7 +6,9 @@ import { pdfGenerationService } from '@/lib/pdf';
 
 /**
  * POST /api/report
- * Compiles a research report into Geojit PDF styling and generates required dynamic trend charts.
+ * Compiles a research report into a Geojit-style PDF and returns it inline
+ * (base64) so it works on serverless runtimes with a read-only filesystem.
+ * The file is also persisted to public/temp/reports when writable (local/Docker).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -22,26 +24,32 @@ export async function POST(req: NextRequest) {
 
     const reportData = parsedData.data;
     const ticker = reportData.company.ticker || reportData.company.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const reportId = ticker.toUpperCase();
 
-    // Generate the PDF buffer (handles mapping, charting and playwright HTML rendering internally)
+    // Generate the PDF buffer (mapping + vector charts + PDFKit rendering)
     const reportBuffer = await pdfGenerationService.generateReportPDF(reportData);
 
-    // Save the PDF file to public/temp/reports
-    const reportsDir = path.join(process.cwd(), 'public', 'temp', 'reports');
-    if (!fs.existsSync(reportsDir)) {
-      fs.mkdirSync(reportsDir, { recursive: true });
+    // Best-effort persistence for local/Docker deployments (read-only on Vercel)
+    try {
+      const reportsDir = path.join(process.cwd(), 'public', 'temp', 'reports');
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+
+      const pdfPath = path.join(reportsDir, `${reportId}.pdf`);
+      const jsonPath = path.join(reportsDir, `${reportId}.json`);
+
+      await fs.promises.writeFile(pdfPath, reportBuffer);
+      await fs.promises.writeFile(jsonPath, JSON.stringify(reportData, null, 2));
+    } catch (persistError) {
+      console.warn('Report persistence skipped (read-only filesystem):', persistError);
     }
-
-    const pdfPath = path.join(reportsDir, `${ticker.toUpperCase()}.pdf`);
-    const jsonPath = path.join(reportsDir, `${ticker.toUpperCase()}.json`);
-
-    await fs.promises.writeFile(pdfPath, reportBuffer);
-    await fs.promises.writeFile(jsonPath, JSON.stringify(reportData, null, 2));
 
     return NextResponse.json({
       success: true,
-      reportId: ticker.toUpperCase(),
-      message: 'Report and charts generated successfully.'
+      reportId,
+      pdfBase64: reportBuffer.toString('base64'),
+      message: 'Report compiled successfully.'
     }, { status: 200 });
 
   } catch (error: unknown) {
@@ -55,4 +63,4 @@ export async function POST(req: NextRequest) {
 }
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Allow sufficient time for Chromium rendering
+export const maxDuration = 60;

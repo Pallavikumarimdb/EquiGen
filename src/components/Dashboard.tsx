@@ -36,6 +36,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [reportData, setReportData] = useState<EquityResearchData | null>(null);
+  const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +123,7 @@ export function Dashboard() {
     setLoading(true);
     setError(null);
     setReportData(null);
+    setReportPdfBase64(null);
     
     const updatedSteps: ProgressStep[] = [
       { label: 'Reading uploaded document structure', status: 'idle' },
@@ -199,6 +201,9 @@ export function Dashboard() {
       if (extractedData && extractedData.company) {
         extractedData.company.ticker = reportResponse.reportId;
       }
+      if (typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
+        setReportPdfBase64(reportResponse.pdfBase64);
+      }
       updatedSteps[2].status = 'completed';
       setSteps([...updatedSteps]);
 
@@ -232,8 +237,20 @@ export function Dashboard() {
     setIsDownloading(true);
     showToast('Preparing PDF download...', 'info');
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Visual download transition
-      window.open(`/api/download?id=${reportId}`, '_blank');
+      if (reportPdfBase64) {
+        const bytes = Uint8Array.from(atob(reportPdfBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `equity-report-${reportId.toLowerCase()}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      } else {
+        window.open(`/api/download?id=${reportId}`, '_blank');
+      }
       showToast('PDF downloaded successfully!', 'success');
     } catch {
       showToast('Failed to trigger download.', 'error');

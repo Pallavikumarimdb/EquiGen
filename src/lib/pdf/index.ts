@@ -1,11 +1,23 @@
-import { chromium } from 'playwright';
+import fs from 'fs';
+import path from 'path';
+import PDFDocument from 'pdfkit';
 import { EquityResearchData } from '@/types';
 import { ReportMapper } from '@/lib/report/mapper';
-import { chartGenerationService } from '@/lib/charts';
-import { renderReportTemplate } from '@/lib/templates';
+import { renderReportPDF, renderRunningFrames } from '@/lib/templates';
 
 /**
- * PDF Generation Engine using Playwright for high fidelity print rendering.
+ * DejaVu Sans is committed under src/lib/pdf/fonts and included in the server
+ * function output via `outputFileTracingIncludes` in next.config.ts, so the
+ * files are present in every deployment (local, Docker, Vercel lambda).
+ */
+const FONTS_DIR = path.join(process.cwd(), 'src', 'lib', 'pdf', 'fonts');
+const REGULAR_FONT = path.join(FONTS_DIR, 'DejaVuSans.ttf');
+const BOLD_FONT = path.join(FONTS_DIR, 'DejaVuSans-Bold.ttf');
+
+/**
+ * PDF Generation Engine using PDFKit — pure JavaScript rendering, no headless
+ * browser or native canvas, so it runs on any Node runtime (incl. serverless).
+ * Fonts are embedded as base64 constants to avoid filesystem dependencies.
  */
 export class PDFGenerationService {
   /**
@@ -15,71 +27,49 @@ export class PDFGenerationService {
     // 1. Map raw/AI data to report structure
     const compiledReport = ReportMapper.mapToCompiledReport(data);
 
-    // 2. Generate trend charts with graceful error fallback
-    let chartPaths = {
-      revenueTrendPath: '',
-      patTrendPath: '',
-      ebitdaMarginPath: '',
-      revenueCagrPath: ''
-    };
-    try {
-      chartPaths = await chartGenerationService.generateChartsForReport(data);
-    } catch (chartError) {
-      console.error('Robustness Warning: Chart generation failed, falling back to text-only report:', chartError);
+    // 2. Compile A4 PDF layout
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({
+      size: 'A4',
+      margins: {
+        top: 51.02,
+        bottom: 51.02,
+        left: 34.02,
+        right: 34.02
+      },
+      info: {
+        Title: `${compiledReport.summary.companyName} Equity Research Report`,
+        Author: 'EquiGen Research Division',
+        Subject: 'Equity Research',
+        Creator: 'EquiGen'
+      },
+      bufferPages: true
+    });
+
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const done = new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
+
+    // 3. Register embedded fonts (DejaVu Sans covers the ₹ glyph)
+    if (!fs.existsSync(REGULAR_FONT) || !fs.existsSync(BOLD_FONT)) {
+      throw new Error('PDF fonts not found. Expected DejaVuSans.ttf and DejaVuSans-Bold.ttf in src/lib/pdf/fonts.');
     }
+    doc.registerFont('Body', REGULAR_FONT);
+    doc.registerFont('BodyBold', BOLD_FONT);
 
-    // 3. Compile A4 HTML layout
-    const htmlContent = renderReportTemplate(compiledReport, chartPaths);
+    // 4. Render content
+    renderReportPDF(doc, compiledReport);
 
-    // 4. Launch headless browser to print to PDF with a strict timeout
-    let browser;
-    try {
-      browser = await chromium.launch({
-        headless: true,
-        timeout: 20000 // 20s launch timeout
-      });
-    } catch (launchError) {
-      console.error('Playwright Chromium launch failure:', launchError);
-      throw new Error('PDF Generation Engine (Chromium) failed to initialize. Please try again.');
-    }
+    // 5. Apply running headers/footers + page numbers on every page
+    renderRunningFrames(doc, compiledReport);
 
-    try {
-      const page = await browser.newPage();
-      
-      // Load the HTML content directly with a timeout
-      await page.setContent(htmlContent, {
-        waitUntil: 'networkidle',
-        timeout: 15000 // 15s page loading timeout
-      });
+    // 6. Finalize and collect the buffer
+    doc.end();
+    const pdfBuffer = await done;
 
-      // Render PDF with professional A4 print styling and dynamic header/footer templates
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '1.8cm',
-          bottom: '1.8cm',
-          left: '1.2cm',
-          right: '1.2cm'
-        },
-        displayHeaderFooter: true,
-        headerTemplate: `
-          <div style="font-size: 8px; width: 100%; text-align: right; padding-right: 36px; color: #94a3b8; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 500;">
-            ${compiledReport.summary.companyName} Equity Research Report &mdash; Ticker: ${compiledReport.summary.ticker}
-          </div>
-        `,
-        footerTemplate: `
-          <div style="font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding-left: 36px; padding-right: 36px; color: #94a3b8; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 500;">
-            <span>EQUIGEN RESEARCH DIVISION</span>
-            <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
-          </div>
-        `
-      });
-
-      return Buffer.from(pdfBuffer);
-    } finally {
-      await browser.close();
-    }
+    return pdfBuffer;
   }
 }
 

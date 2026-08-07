@@ -1,212 +1,133 @@
-import fs from 'fs';
-import path from 'path';
-import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import { ChartConfiguration } from 'chart.js';
-import { EquityResearchData } from '@/types';
+/**
+ * Lightweight vector chart renderer for PDFKit.
+ * Draws publication-grade bar and line charts directly into the PDF — no
+ * native canvas or headless browser required (safe for serverless runtimes).
+ */
 
-// PDF-friendly dimensions (high DPI scale)
-const WIDTH = 800;
-const HEIGHT = 400;
-const BG_COLOR = '#ffffff';
-
-export interface ChartPaths {
-  revenueTrendPath: string;
-  patTrendPath: string;
-  ebitdaMarginPath: string;
-  revenueCagrPath: string;
+export interface ChartLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-export class ChartGenerationService {
-  private chartCanvas: ChartJSNodeCanvas;
-  private tempDir: string;
+const AXIS_COLOR = '#cbd5e1';
+const GRID_COLOR = '#eef2f7';
+const LABEL_COLOR = '#64748b';
+const VALUE_COLOR = '#475569';
 
-  constructor() {
-    this.chartCanvas = new ChartJSNodeCanvas({
-      width: WIDTH,
-      height: HEIGHT,
-      backgroundColour: BG_COLOR
-    });
-
-    // Save temporary charts in public/temp/charts
-    this.tempDir = path.join(process.cwd(), 'public', 'temp', 'charts');
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
-    }
-  }
-
-  /**
-   * Helper to parse numeric values from metrics.
-   */
-  private parseVal(val: string | number): number {
-    if (typeof val === 'number') return val;
-    return parseFloat(val.replace(/,/g, '')) || 0;
-  }
-
-  /**
-   * Generates all charts for the PDF report.
-   */
-  public async generateChartsForReport(data: EquityResearchData): Promise<ChartPaths> {
-    const incomeStatement = data.keyFinancials?.incomeStatement || [];
-
-    // Group metrics by period (e.g. FY23, FY24, FY25)
-    const periods = Array.from(new Set(incomeStatement.map(m => m.period))).sort();
-    
-    const revenueData = periods.map(p => {
-      const match = incomeStatement.find(m => m.label.toLowerCase() === 'revenue' && m.period === p);
-      return match ? this.parseVal(match.value) : 0;
-    });
-
-    const ebitdaData = periods.map(p => {
-      const match = incomeStatement.find(m => m.label.toLowerCase() === 'ebitda' && m.period === p);
-      return match ? this.parseVal(match.value) : 0;
-    });
-
-    const patData = periods.map(p => {
-      const match = incomeStatement.find(m => m.label.toLowerCase() === 'pat' && m.period === p);
-      return match ? this.parseVal(match.value) : 0;
-    });
-
-    // Calculate EBITDA Margin % = (EBITDA / Revenue) * 100
-    const ebitdaMarginData = periods.map((p, i) => {
-      const rev = revenueData[i];
-      const ebit = ebitdaData[i];
-      if (rev <= 0) return 0;
-      return parseFloat(((ebit / rev) * 100).toFixed(2));
-    });
-
-    // Calculate CAGR (latest vs earliest)
-    let cagr = 0;
-    if (periods.length > 1 && revenueData[0] > 0) {
-      const firstRev = revenueData[0];
-      const lastRev = revenueData[revenueData.length - 1];
-      const years = periods.length - 1;
-      cagr = parseFloat(((Math.pow(lastRev / firstRev, 1 / years) - 1) * 100).toFixed(2));
-    }
-
-    const companySlug = data.company.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-
-    // 1. Revenue Trend Chart Configuration
-    const revConfig: ChartConfiguration = {
-      type: 'bar',
-      data: {
-        labels: periods,
-        datasets: [{
-          label: 'Revenue (Cr)',
-          data: revenueData,
-          backgroundColor: '#0f172a', // primary deep navy
-          borderColor: '#1e293b',
-          borderWidth: 1,
-          barThickness: 40
-        }]
-      },
-      options: {
-        responsive: false,
-        plugins: {
-          title: { display: true, text: `${data.company.name} - Revenue Growth Trend`, font: { size: 16 } }
-        }
-      }
-    };
-
-    // 2. PAT Trend Chart Configuration
-    const patConfig: ChartConfiguration = {
-      type: 'bar',
-      data: {
-        labels: periods,
-        datasets: [{
-          label: 'Profit After Tax (Cr)',
-          data: patData,
-          backgroundColor: '#3b82f6', // Geojit blue
-          borderColor: '#2563eb',
-          borderWidth: 1,
-          barThickness: 40
-        }]
-      },
-      options: {
-        responsive: false,
-        plugins: {
-          title: { display: true, text: `${data.company.name} - Profit After Tax (PAT) Trend`, font: { size: 16 } }
-        }
-      }
-    };
-
-    // 3. EBITDA Margin Chart Configuration
-    const ebitdaConfig: ChartConfiguration = {
-      type: 'line',
-      data: {
-        labels: periods,
-        datasets: [{
-          label: 'EBITDA Margin (%)',
-          data: ebitdaMarginData,
-          borderColor: '#10b981', // green accent
-          backgroundColor: 'rgba(16, 185, 129, 0.1)',
-          fill: true,
-          tension: 0.3,
-          borderWidth: 3,
-          pointRadius: 6
-        }]
-      },
-      options: {
-        responsive: false,
-        plugins: {
-          title: { display: true, text: `${data.company.name} - EBITDA Margin (%) Trend`, font: { size: 16 } }
-        },
-        scales: {
-          y: {
-            ticks: {
-              callback: (value) => `${value}%`
-            }
-          }
-        }
-      }
-    };
-
-    // 4. Revenue CAGR Comparison Chart Configuration
-    const cagrConfig: ChartConfiguration = {
-      type: 'bar',
-      data: {
-        labels: ['Company CAGR', 'Industry Benchmark (Avg)'],
-        datasets: [{
-          label: 'Revenue CAGR (%)',
-          data: [cagr, 12.0], // Mock industry benchmark at 12%
-          backgroundColor: ['#10b981', '#cbd5e1'],
-          borderWidth: 1,
-          barThickness: 60
-        }]
-      },
-      options: {
-        responsive: false,
-        plugins: {
-          title: { display: true, text: `${data.company.name} - Revenue CAGR vs Industry Benchmark`, font: { size: 16 } }
-        },
-        scales: {
-          y: {
-            ticks: {
-              callback: (value) => `${value}%`
-            }
-          }
-        }
-      }
-    };
-
-    // Render & write to filesystem
-    const revenueTrendPath = path.join(this.tempDir, `${companySlug}_revenue_trend.png`);
-    const patTrendPath = path.join(this.tempDir, `${companySlug}_pat_trend.png`);
-    const ebitdaMarginPath = path.join(this.tempDir, `${companySlug}_ebitda_margin.png`);
-    const revenueCagrPath = path.join(this.tempDir, `${companySlug}_revenue_cagr.png`);
-
-    await fs.promises.writeFile(revenueTrendPath, await this.chartCanvas.renderToBuffer(revConfig));
-    await fs.promises.writeFile(patTrendPath, await this.chartCanvas.renderToBuffer(patConfig));
-    await fs.promises.writeFile(ebitdaMarginPath, await this.chartCanvas.renderToBuffer(ebitdaConfig));
-    await fs.promises.writeFile(revenueCagrPath, await this.chartCanvas.renderToBuffer(cagrConfig));
-
-    return {
-      revenueTrendPath,
-      patTrendPath,
-      ebitdaMarginPath,
-      revenueCagrPath
-    };
-  }
+function niceMax(value: number): number {
+  if (value <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
 }
 
-export const chartGenerationService = new ChartGenerationService();
-export type { ChartConfiguration };
+function formatAxisValue(value: number): string {
+  if (value >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(1);
+}
+
+function drawGridAndAxis(doc: PDFKit.PDFDocument, plot: { x: number; y: number; w: number; h: number }) {
+  doc.save();
+  for (let i = 0; i <= 4; i++) {
+    const gy = plot.y + plot.h - (plot.h * i) / 4;
+    doc.strokeColor(i === 0 ? AXIS_COLOR : GRID_COLOR).lineWidth(1).moveTo(plot.x, gy).lineTo(plot.x + plot.w, gy).stroke();
+  }
+  doc.restore();
+}
+
+/**
+ * Draws a grouped bar chart with value labels.
+ * `barColors` may be a single color or one per data point.
+ */
+export function drawBarChart(
+  doc: PDFKit.PDFDocument,
+  layout: ChartLayout,
+  labels: string[],
+  values: number[],
+  barColors: string | string[]
+): void {
+  const { x, y, width, height } = layout;
+  const plot = { x: x + 4, y: y + 6, w: width - 8, h: height - 30 };
+  const max = niceMax(Math.max(...values.map((v) => v || 0), 1));
+
+  drawGridAndAxis(doc, plot);
+
+  const slot = plot.w / Math.max(labels.length, 1);  const barWidth = Math.min(slot * 0.55, 44);
+
+  doc.save();
+  labels.forEach((label, i) => {
+    const value = values[i] || 0;
+    const barHeight = (value / max) * plot.h;
+    const cx = plot.x + slot * i + slot / 2;
+    const color = Array.isArray(barColors) ? barColors[i % barColors.length] : barColors;
+
+    doc.fillColor(color).roundedRect(cx - barWidth / 2, plot.y + plot.h - barHeight, barWidth, Math.max(barHeight, 1), 2).fill();
+
+    doc.font('Body').fontSize(8).fillColor(VALUE_COLOR).text(
+      formatAxisValue(value),
+      cx - slot / 2,
+      plot.y + plot.h - barHeight - 12,
+      { width: slot, align: 'center' }
+    );
+
+    doc.font('Body').fontSize(8.5).fillColor(LABEL_COLOR).text(
+      String(label),
+      cx - slot / 2,
+      plot.y + plot.h + 6,
+      { width: slot, align: 'center' }
+    );
+  });
+  doc.restore();
+}
+
+/**
+ * Draws a line chart with data points and value labels.
+ */
+export function drawLineChart(
+  doc: PDFKit.PDFDocument,
+  layout: ChartLayout,
+  labels: string[],
+  values: number[],
+  color: string
+): void {
+  const { x, y, width, height } = layout;
+  const plot = { x: x + 4, y: y + 6, w: width - 8, h: height - 30 };
+  const max = niceMax(Math.max(...values.map((v) => v || 0), 1));
+
+  drawGridAndAxis(doc, plot);
+
+  const slot = plot.w / Math.max(labels.length - 1, 1);
+  const points = values.map((value, i) => ({
+    x: labels.length === 1 ? plot.x + plot.w / 2 : plot.x + slot * i,
+    y: plot.y + plot.h - (value / max) * plot.h
+  }));
+
+  doc.save();
+  doc.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    doc.lineTo(points[i].x, points[i].y);
+  }
+  doc.strokeColor(color).lineWidth(2.5).lineJoin('round').stroke();
+
+  points.forEach((p, i) => {
+    doc.fillColor('#ffffff').circle(p.x, p.y, 3.2).fill();
+    doc.fillColor(color).circle(p.x, p.y, 2.2).fill();
+    doc.font('Body').fontSize(8).fillColor(VALUE_COLOR).text(
+      `${formatAxisValue(values[i] || 0)}%`,
+      p.x - 30,
+      p.y - 14,
+      { width: 60, align: 'center' }
+    );
+    doc.font('Body').fontSize(8.5).fillColor(LABEL_COLOR).text(
+      String(labels[i]),
+      p.x - slot / 2,
+      plot.y + plot.h + 6,
+      { width: slot, align: 'center' }
+    );
+  });
+  doc.restore();
+}

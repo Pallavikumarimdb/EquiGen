@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['pdf-parse', 'pdfjs-dist', 'canvas', 'chartjs-node-canvas']
+  serverExternalPackages: ["pdfkit"],
+  outputFileTracingIncludes: {
+    "/api/report": ["./src/lib/pdf/fonts/**/*"],
+  },
 };
 
 export default nextConfig;

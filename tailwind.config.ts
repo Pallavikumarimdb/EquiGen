@@ -13,6 +13,9 @@ const config: Config = {
         secondary: '#328CC1',
         accent: '#D9B310',
       },
+      fontFamily: {
+        sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
+      },
     },
   },
   plugins: [],
