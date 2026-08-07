@@ -24,21 +24,59 @@ EquiGen is an enterprise-grade AI engine that automates the generation of public
 ```mermaid
 graph TD
     A[Raw Financial File] -->|Ingest & Parse| B(Parser Coordinator)
-    B -->|pdf-parse / papaparse| C[Unified Text Extract]
-    C -->|Submit Prompt| D(Groq LLM Engine)
-    D -->|Validate Output| E{Zod Validator}
-    E -->|JSON Error| F[Self-Correction Loop]
-    F -->|Re-Evaluate| D
-    E -->|Success JSON| G(Report Presentation Mapper)
-    G -->|Metric Calculations| H[Financial Object]
-    H -->|Node Canvas| I[High-DPI Trend Charts]
-    H -->|Render HTML| J[A4 CSS Template]
-    I -->|Embed Base64| J
-    J -->|Playwright chromium| K[Headless PDF Compiler]
-    K -->|Store Temp File| L[GET /api/download]
+    B -->|pdf-extractor / papaparse| C[Unified Text Extract]
+    C -->|Trigger LangGraph| D[LangGraph Research Workflow]
+    
+    subgraph LangGraph Research Workflow
+      D --> E[1. Map-Reduce Chunker Node]
+      E -->|Condensed Context| F[2. Parallel Extraction Nodes]
+      
+      F -->|extract_general| G[Company General details]
+      F -->|extract_swot| H[SWOT & Thesis]
+      F -->|extract_financials| I[Financial statement metrics]
+      
+      G --> J[Merge State]
+      H --> J
+      I --> K[3. Math Auditor Node]
+      K -->|Validation Failed & retry < 2| I
+      K -->|Passed / Max Retries| J
+    end
+    
+    J --> L(Report Presentation Mapper)
+    L -->|Metric Calculations| M[Financial Object]
+    M -->|Node Canvas| N[High-DPI Trend Charts]
+    M -->|Render HTML| O[A4 CSS Template]
+    N -->|Embed Base64| O
+    O -->|Playwright Chromium| P[Headless PDF Compiler]
+    P -->|Store Temp File| Q[GET /api/download]
 ```
 
+---
 
+## 🤖 AI Orchestration (LangChain & LangGraph)
+
+EquiGen leverages a modular, production-grade AI stack using **LangChain** and **LangGraph** to deliver robust multi-model support, context window optimization, and self-correcting financial audits.
+
+### 🔌 The Role of LangChain
+*   **Unified Model Switcher**: Provides a uniform interface abstraction over different model providers. Users can seamlessly switch between **Groq** (using Llama 3.3 70B) and **OpenAI** (using GPT-4o Mini or GPT-4o).
+*   **Dynamic API Keys**: Allows users to input their own custom API keys in the settings panel. Keys are kept in browser-only `localStorage` for privacy and processed dynamically in runtime handlers.
+*   **Native Schema Enforcement**: Uses LangChain's `.withStructuredOutput(...)` API to enforce strict TypeScript/Zod schemas directly at the model-provider call level, ensuring structured JSON responses.
+
+### 🕸️ The Role of LangGraph
+Large prospectus documents or annual reports (50+ pages) routinely trigger token limits or hallucinations. LangGraph orchestrates a stateful multi-agent research workflow to handle these edge cases:
+
+1.  **Map-Reduce Preprocessor (`preprocess_chunks`)**:
+    *   If raw text exceeds 25,000 characters, a token-splitting node segments the document into overlapping chunks.
+    *   Chunks are processed concurrently (with concurrency limits to throttle API rate limits) to extract localized SWOT signals, revenues, and operational details.
+    *   The node reduces and synthesizes these segments into a high-density, condensed context string, dropping prompt sizes by **90%**.
+2.  **Parallel Extraction Nodes**:
+    *   `extract_general`, `extract_swot`, and `extract_financials` run in parallel over the condensed context. This reduces cognitive load on the LLM and prevents mixed data schemas.
+3.  **Math Auditor & Self-Correction Loop**:
+    *   An audit node verifies the financial statement numbers (e.g. validating that EBITDA does not exceed Revenue, and PAT does not exceed EBITDA).
+    *   If mathematical inconsistencies are detected, the auditor generates a list of correction instructions and **re-routes the graph back to the financials node** with the error warnings.
+    *   To prevent infinite loops, the correction cycle is capped at a maximum of 2 retries.
+
+---
 
 ## ⚡ Setup & Installation
 

@@ -2,8 +2,8 @@ import { ChatGroq } from '@langchain/groq';
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { EquityResearchData } from '@/types';
-import { SYSTEM_PROMPT, generateUserPrompt } from './prompt';
-import { AIExtractionSchema, AIExtractionResult } from './schema';
+import { AIExtractionResult } from './schema';
+import { runResearchPipeline } from './langgraph-pipeline';
 
 export interface AIServiceOptions {
   provider: 'groq' | 'openai';
@@ -104,19 +104,12 @@ export class LangChainAIService {
     options: AIServiceOptions = { provider: 'groq' }
   ): Promise<EquityResearchData> {
     try {
-      const model = this.getModel(options);
-      
-      // Enforce structured output extraction using LangChain
-      const structuredModel = model.withStructuredOutput(AIExtractionSchema);
-      
-      const response = await structuredModel.invoke([
-        ['system', SYSTEM_PROMPT],
-        ['user', generateUserPrompt(companyName, rawText)]
-      ]) as AIExtractionResult;
+      // Execute the multi-agent parallel LangGraph extraction pipeline
+      const response = await runResearchPipeline(companyName, rawText, options);
 
       return this.mapToEquityResearchData(response);
     } catch (error) {
-      console.error('LangChain structured extraction failed:', error);
+      console.error('LangGraph research extraction failed:', error);
       throw new Error(`AI Extraction Pipeline Failed: ${error instanceof Error ? error.message : 'Unknown Error'}`);
     }
   }
