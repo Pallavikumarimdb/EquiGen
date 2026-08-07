@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, 
   FileText, 
@@ -13,9 +13,25 @@ import {
   Trash2, 
   Sparkles,
   X,
-  Loader2
+  Loader2,
+  History,
+  Plus,
+  Menu,
+  ChevronLeft,
+  Settings,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { EquityResearchData } from '@/types';
+
+type HistoryItem = {
+  id: string;
+  companyName: string;
+  fileName: string;
+  createdAt: string;
+  reportData: EquityResearchData;
+  reportPdfBase64: string | null;
+};
 
 type ProgressStep = {
   label: string;
@@ -40,6 +56,223 @@ export function Dashboard() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // AI Settings State
+  const [aiProvider, setAiProvider] = useState<'groq' | 'openai'>('groq');
+  const [groqApiKey, setGroqApiKey] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [groqModel, setGroqModel] = useState('llama-3.3-70b-versatile');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  // Temporary form states for settings modal
+  const [tempProvider, setTempProvider] = useState<'groq' | 'openai'>('groq');
+  const [tempGroqApiKey, setTempGroqApiKey] = useState('');
+  const [tempOpenaiApiKey, setTempOpenaiApiKey] = useState('');
+  const [tempGroqModel, setTempGroqModel] = useState('llama-3.3-70b-versatile');
+  const [tempOpenaiModel, setTempOpenaiModel] = useState('gpt-4o-mini');
+
+  // Load AI Settings from localStorage on mount
+  useEffect(() => {
+    try {
+      const storedSettings = localStorage.getItem('equigen_settings');
+      if (storedSettings) {
+        const parsed = JSON.parse(storedSettings);
+        if (parsed.provider) {
+          setAiProvider(parsed.provider);
+          setTempProvider(parsed.provider);
+        }
+        if (parsed.groqApiKey !== undefined) {
+          setGroqApiKey(parsed.groqApiKey);
+          setTempGroqApiKey(parsed.groqApiKey);
+        }
+        if (parsed.openaiApiKey !== undefined) {
+          setOpenaiApiKey(parsed.openaiApiKey);
+          setTempOpenaiApiKey(parsed.openaiApiKey);
+        }
+        if (parsed.groqModel) {
+          setGroqModel(parsed.groqModel);
+          setTempGroqModel(parsed.groqModel);
+        }
+        if (parsed.openaiModel) {
+          setOpenaiModel(parsed.openaiModel);
+          setTempOpenaiModel(parsed.openaiModel);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+  }, []);
+
+  const saveSettings = (
+    provider: 'groq' | 'openai', 
+    gKey: string, 
+    oKey: string, 
+    gModel: string, 
+    oModel: string
+  ) => {
+    setAiProvider(provider);
+    setGroqApiKey(gKey);
+    setOpenaiApiKey(oKey);
+    setGroqModel(gModel);
+    setOpenaiModel(oModel);
+    try {
+      localStorage.setItem('equigen_settings', JSON.stringify({
+        provider,
+        groqApiKey: gKey,
+        openaiApiKey: oKey,
+        groqModel: gModel,
+        openaiModel: oModel
+      }));
+      showToast('AI configurations saved successfully!', 'success');
+      setIsSettingsOpen(false);
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+      showToast('Failed to save configurations.', 'error');
+    }
+  };
+
+  // Load history from API on mount, with localStorage as fallback
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch('/api/history');
+        if (res.ok) {
+          const data = await res.json();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const mapped = data.map((item: any) => ({
+            id: item.id,
+            companyName: item.companyName,
+            fileName: item.fileName,
+            createdAt: new Date(item.createdAt).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            reportData: item.reportData,
+            reportPdfBase64: item.pdfBase64
+          }));
+          setHistory(mapped);
+          localStorage.setItem('equigen_history', JSON.stringify(mapped));
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not fetch from database history, trying local cache:', e);
+      }
+
+      // Fallback to localStorage
+      try {
+        const stored = localStorage.getItem('equigen_history');
+        if (stored) {
+          setHistory(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error('Failed to load history from localStorage:', e);
+      }
+    };
+
+    fetchHistory();
+  }, []);
+
+  const addToHistory = async (name: string, fName: string, data: EquityResearchData, pdfBase64: string | null) => {
+    // Generate a completely unique ID for every report entry to prevent overwriting existing ones
+    const uniqueId = 'rep_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+    const newItem: HistoryItem = {
+      id: uniqueId,
+      companyName: name,
+      fileName: fName,
+      createdAt: new Date().toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      reportData: data,
+      reportPdfBase64: pdfBase64
+    };
+
+    // Save to Database
+    try {
+      await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: uniqueId,
+          companyName: name,
+          fileName: fName,
+          reportData: data,
+          pdfBase64
+        })
+      });
+    } catch (e) {
+      console.warn('Failed to save to database history:', e);
+    }
+
+    // Save to state and local storage
+    const filtered = history.filter(item => item.id !== newItem.id);
+    const updated = [newItem, ...filtered];
+    setHistory(updated);
+    try {
+      localStorage.setItem('equigen_history', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save history to localStorage:', e);
+    }
+  };
+
+  const selectHistoryItem = (item: HistoryItem) => {
+    setCompanyName(item.companyName);
+    setReportData(item.reportData);
+    setReportPdfBase64(item.reportPdfBase64);
+    setFile(null);
+    setError(null);
+    setLoading(false);
+    showToast(`Loaded report for ${item.companyName}`, 'info');
+  };
+
+  const startNewAnalysis = () => {
+    setCompanyName('');
+    setFile(null);
+    setReportData(null);
+    setReportPdfBase64(null);
+    setError(null);
+    setLoading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    showToast('Ready for a new analysis!', 'info');
+  };
+
+  const deleteHistoryItem = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // Delete from Database
+    try {
+      await fetch(`/api/history?id=${id}`, { method: 'DELETE' });
+    } catch (e) {
+      console.warn('Failed to delete from database history:', e);
+    }
+
+    // Delete from state and local storage
+    const updated = history.filter(item => item.id !== id);
+    setHistory(updated);
+    try {
+      localStorage.setItem('equigen_history', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save history to localStorage:', e);
+    }
+
+    showToast('Report removed from history.', 'info');
+    if (reportData?.company?.ticker === id) {
+      startNewAnalysis();
+    }
+  };
 
   const [steps, setSteps] = useState<ProgressStep[]>([
     { label: 'Reading uploaded document structure', status: 'idle' },
@@ -127,7 +360,7 @@ export function Dashboard() {
     
     const updatedSteps: ProgressStep[] = [
       { label: 'Reading uploaded document structure', status: 'idle' },
-      { label: 'Extracting key metrics using Groq Llama 3.3 70B', status: 'idle' },
+      { label: `Extracting key metrics using ${aiProvider === 'groq' ? 'Groq Llama 3.3 70B' : 'OpenAI GPT-4o'}`, status: 'idle' },
       { label: 'Formatting financial sheets & ratios', status: 'idle' },
       { label: 'Compiling Geojit-style PDF layout', status: 'idle' }
     ];
@@ -169,7 +402,13 @@ export function Dashboard() {
       const extractRes = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyName, rawText })
+        body: JSON.stringify({ 
+          companyName, 
+          rawText,
+          provider: aiProvider,
+          modelName: aiProvider === 'groq' ? groqModel : openaiModel,
+          apiKey: (aiProvider === 'groq' ? groqApiKey : openaiApiKey) || undefined
+        })
       });
 
       if (!extractRes.ok) {
@@ -217,6 +456,12 @@ export function Dashboard() {
       setSteps([...updatedSteps]);
 
       setReportData(extractedData);
+      addToHistory(
+        companyName,
+        file.name,
+        extractedData,
+        typeof reportResponse.pdfBase64 === 'string' ? reportResponse.pdfBase64 : null
+      );
       showToast('Equity report compiled successfully!', 'success');
     } catch (err: unknown) {
       console.error('Generation pipeline failed:', err);
@@ -260,7 +505,152 @@ export function Dashboard() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10 antialiased font-sans">
+    <div className="min-h-screen flex bg-slate-50/30 text-slate-800 antialiased font-sans overflow-hidden w-full">
+      
+      {/* Collapsible Sidebar */}
+      <aside 
+        className={`bg-slate-900 text-slate-100 flex flex-col shrink-0 transition-all duration-300 border-r border-slate-800 shadow-xl z-20 ${
+          isSidebarOpen ? 'w-72' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
+        }`}
+      >
+        <div className="p-4 flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <span className="p-1.5 bg-gradient-to-tr from-blue-600 to-indigo-500 text-white rounded-lg shadow-md shrink-0">
+              <BarChart3 className="w-5 h-5" />
+            </span>
+            <span className={`text-sm font-extrabold tracking-wider uppercase transition-opacity duration-200 ${
+              isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'
+            }`}>
+              EquiGen
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-100 transition-colors"
+            title="Collapse Sidebar"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* New Report Button */}
+        <div className="p-3 shrink-0">
+          <button
+            onClick={startNewAnalysis}
+            className={`w-full flex items-center gap-2 px-3 py-2.5 bg-slate-800 hover:bg-slate-700/80 text-slate-200 border border-slate-750 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 ${
+              !isSidebarOpen && 'justify-center lg:px-0'
+            }`}
+          >
+            <Plus className="w-4 h-4 text-blue-400 shrink-0" />
+            {isSidebarOpen && <span>New Analysis</span>}
+          </button>
+        </div>
+
+        {/* History List */}
+        <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+          {isSidebarOpen ? (
+            <>
+              <div className="px-3 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Analysis History ({history.length})
+              </div>
+              {history.length === 0 ? (
+                <div className="px-3 py-8 text-center text-xs text-slate-500 italic">
+                  No previous reports
+                </div>
+              ) : (
+                history.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => selectHistoryItem(item)}
+                    className={`group relative flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all ${
+                      reportData?.company?.ticker === item.id 
+                        ? 'bg-slate-800 text-white font-semibold' 
+                        : 'hover:bg-slate-850/60 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-6">
+                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs truncate font-medium">{item.companyName}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5 truncate">{item.createdAt}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => deleteHistoryItem(item.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-700/80 rounded-lg text-slate-400 hover:text-rose-400 transition-all absolute right-2"
+                      title="Delete report"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-4 py-4">
+              <History className="w-5 h-5 text-slate-500" />
+              {history.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => selectHistoryItem(item)}
+                  className={`p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-100 relative group transition-colors ${
+                    reportData?.company?.ticker === item.id ? 'bg-slate-800 text-blue-450' : ''
+                  }`}
+                  title={item.companyName}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span className="absolute left-full ml-2 px-2 py-1 bg-slate-950 text-slate-100 text-[10px] rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+                    {item.companyName}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Settings & Footer Status Section */}
+        <div className="p-3 border-t border-slate-850 shrink-0 bg-slate-950/20 space-y-2.5">
+          <button
+            onClick={() => {
+              setTempProvider(aiProvider);
+              setTempGroqApiKey(groqApiKey);
+              setTempOpenaiApiKey(openaiApiKey);
+              setTempGroqModel(groqModel);
+              setTempOpenaiModel(openaiModel);
+              setIsSettingsOpen(true);
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all cursor-pointer active:scale-95 ${
+              !isSidebarOpen && 'justify-center lg:px-0'
+            }`}
+            title="Configure AI Provider & API Keys"
+          >
+            <Settings className="w-4 h-4 text-slate-500 shrink-0" />
+            {isSidebarOpen && <span className="text-xs font-bold">Settings</span>}
+          </button>
+
+          {isSidebarOpen && (
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold uppercase tracking-wider px-3 pt-1">
+              <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+              <span>{aiProvider === 'groq' ? 'Groq Llama 3.3 Online' : 'OpenAI Model Active'}</span>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Toggle button when sidebar is collapsed */}
+      {!isSidebarOpen && (
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="fixed top-6 left-6 z-30 p-2.5 bg-slate-900 hover:bg-slate-850 text-white rounded-xl shadow-lg border border-slate-800 transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+          title="Expand Sidebar"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Main Dashboard Content Area */}
+      <div className="flex-1 overflow-y-auto h-screen transition-all duration-300">
+        <div className="max-w-6xl mx-auto px-6 py-10">
       
       {/* Floating Toast Notification Box */}
       <div className="fixed top-6 right-6 z-50 space-y-3.5 max-w-sm pointer-events-none">
@@ -307,7 +697,10 @@ export function Dashboard() {
         </div>
         <div className="mt-5 md:mt-0 flex items-center gap-2 px-3.5 py-2 bg-slate-55 border border-slate-200 rounded-full text-xs font-semibold text-slate-600 shadow-sm">
           <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
-          Groq Llama 3.3 70B Engine Online
+          {aiProvider === 'groq' 
+            ? `Groq ${groqModel === 'llama-3.3-70b-versatile' ? 'Llama 3.3 70B' : 'Llama 3.1 8B'} Online` 
+            : `OpenAI ${openaiModel === 'gpt-4o-mini' ? 'GPT-4o Mini' : 'GPT-4o'} Active`
+          }
         </div>
       </header>
 
@@ -607,8 +1000,127 @@ export function Dashboard() {
             </div>
           )}
         </div>
+          {/* Settings Modal */}
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-scaleIn mx-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-blue-600" />
+                  AI Configuration Settings
+                </h3>
+                <button
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                {/* Provider Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    AI Provider
+                  </label>
+                  <select
+                    value={tempProvider}
+                    onChange={(e) => setTempProvider(e.target.value as 'groq' | 'openai')}
+                    className="w-full px-3.5 py-2.5 bg-slate-55 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  >
+                    <option value="groq">Groq (System Default)</option>
+                    <option value="openai">OpenAI (Custom Key)</option>
+                  </select>
+                </div>
+
+                {/* Model Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Model Selection
+                  </label>
+                  {tempProvider === 'groq' ? (
+                    <select
+                      value={tempGroqModel}
+                      onChange={(e) => setTempGroqModel(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                    >
+                      <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (Default)</option>
+                      <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
+                    </select>
+                  ) : (
+                    <select
+                      value={tempOpenaiModel}
+                      onChange={(e) => setTempOpenaiModel(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                    >
+                      <option value="gpt-4o-mini">GPT-4o Mini (Default - Recommended)</option>
+                      <option value="gpt-4o">GPT-4o (Higher Quality)</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* API Key Input */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    {tempProvider === 'groq' ? 'Groq API Key (Optional)' : 'OpenAI API Key'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={tempProvider === 'groq' ? tempGroqApiKey : tempOpenaiApiKey}
+                      onChange={(e) => {
+                        if (tempProvider === 'groq') {
+                          setTempGroqApiKey(e.target.value);
+                        } else {
+                          setTempOpenaiApiKey(e.target.value);
+                        }
+                      }}
+                      placeholder={
+                        tempProvider === 'groq' 
+                          ? 'Using system configured API key...' 
+                          : 'sk-proj-...'
+                      }
+                      className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2.5 top-2.5 p-0.5 text-slate-400 hover:text-slate-600 rounded"
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-450 mt-1.5 leading-relaxed">
+                    {tempProvider === 'groq' 
+                      ? 'Leave empty to use the server-side environment variables configured on launch.' 
+                      : 'Required. Custom keys are kept in your browser storage and never saved permanently on our server.'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-xl text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => saveSettings(tempProvider, tempGroqApiKey, tempOpenaiApiKey, tempGroqModel, tempOpenaiModel)}
+                  disabled={tempProvider === 'openai' && !tempOpenaiApiKey}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-blue-500/10"
+                >
+                  Save Configurations
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  </div>
+</div>
   );
 }
 export default Dashboard;
