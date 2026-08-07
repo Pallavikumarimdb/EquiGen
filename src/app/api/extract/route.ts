@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { extractorService } from '@/lib/extractors';
+import { langchainAIService } from '@/lib/ai';
 
 const ExtractPayloadSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
-  rawText: z.string().min(1, 'Document content raw text is required')
+  rawText: z.string().min(1, 'Document content raw text is required'),
+  provider: z.enum(['groq', 'openai']).optional().default('groq'),
+  modelName: z.string().optional(),
+  apiKey: z.string().optional()
 });
 
 /**
  * POST /api/extract
- * Validates request payload and triggers extractor service to pull structured metadata via Groq.
+ * Validates request payload and triggers extractor service to pull structured metadata via LangChain.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -23,14 +26,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { companyName, rawText } = parsedPayload.data;
+    const { companyName, rawText, provider, modelName, apiKey } = parsedPayload.data;
 
-    // Simulate calling the Extractor service
-    // Note: AI logic is currently stubbed/mocked within the service.
-    const extractedData = await extractorService.extract(companyName, {
-      text: rawText,
-      tables: [],
-      metadata: { fileName: 'document' }
+    const extractedData = await langchainAIService.extractFinancialData(companyName, rawText, {
+      provider,
+      modelName,
+      apiKey
     });
 
     return NextResponse.json(extractedData, { status: 200 });
