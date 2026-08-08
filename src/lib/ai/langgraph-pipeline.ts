@@ -135,39 +135,43 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
     return { condensedContext: state.rawText };
   }
 
-  const chunks = splitTextIntoChunks(state.rawText);
+  const chunks = splitTextIntoChunks(state.rawText, 12000, 1200);
   const model = getNodeModel(state.modelOptions);
   const structuredModel = model.withStructuredOutput(LocalExtractionSchema);
   
-  const limit = 3; // concurrency throttle to prevent rate limits
   const results: string[] = [];
+  const isGroq = state.modelOptions.provider === 'groq';
+  const delayMs = isGroq ? 1500 : 200;
   
-  for (let i = 0; i < chunks.length; i += limit) {
-    const batch = chunks.slice(i, i + limit);
-    const batchPromises = batch.map(async (chunk, index) => {
-      try {
-        const systemPrompt = `You are a corporate data extraction analyst. Read the segment of an annual report / prospectus. Extract any relevant SWOT details, financials, or critical operations facts. Keep arrays empty if nothing is found.`;
-        const userPrompt = `Company: ${state.companyName}\n\nSegment (Part ${i + index + 1}):\n${chunk}`;
-        
-        const res = await structuredModel.invoke([
-          ['system', systemPrompt],
-          ['user', userPrompt]
-        ]);
-        
-        const lines: string[] = [];
-        if (res.relevantSWOT.length > 0) lines.push(`SWOT/Risk mentions: ${res.relevantSWOT.join(', ')}`);
-        if (res.relevantFinancials.length > 0) lines.push(`Financial metrics: ${res.relevantFinancials.join(', ')}`);
-        if (res.briefSectionSummary) lines.push(`Summary: ${res.briefSectionSummary}`);
-        
-        return lines.join('\n');
-      } catch (err) {
-        console.warn(`[Map-Reduce Chunker] Skip parsing chunk ${i + index + 1}:`, err);
-        return '';
-      }
-    });
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
     
-    const batchResults = await Promise.all(batchPromises);
-    results.push(...batchResults.filter(r => r !== ''));
+    // Add rate-limiting cooldown delay between sequential requests
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    
+    try {
+      const systemPrompt = `You are a corporate data extraction analyst. Read the segment of an annual report / prospectus. Extract any relevant SWOT details, financials, or critical operations facts. Keep arrays empty if nothing is found.`;
+      const userPrompt = `Company: ${state.companyName}\n\nSegment (Part ${i + 1} of ${chunks.length}):\n${chunk}`;
+      
+      const res = await structuredModel.invoke([
+        ['system', systemPrompt],
+        ['user', userPrompt]
+      ]);
+      
+      const lines: string[] = [];
+      if (res.relevantSWOT.length > 0) lines.push(`SWOT/Risk mentions: ${res.relevantSWOT.join(', ')}`);
+      if (res.relevantFinancials.length > 0) lines.push(`Financial metrics: ${res.relevantFinancials.join(', ')}`);
+      if (res.briefSectionSummary) lines.push(`Summary: ${res.briefSectionSummary}`);
+      
+      const chunkResult = lines.join('\n');
+      if (chunkResult.trim()) {
+        results.push(chunkResult);
+      }
+    } catch (err) {
+      console.warn(`[Map-Reduce Chunker] Skip parsing chunk ${i + 1}:`, err);
+    }
   }
   
   const mergedContext = results.join('\n\n---\n\n');
