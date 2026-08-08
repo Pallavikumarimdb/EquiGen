@@ -26,8 +26,9 @@ export async function POST(req: NextRequest) {
     const ticker = reportData.company.ticker || reportData.company.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const reportId = ticker.toUpperCase();
 
+    const status = body.status || 'draft';
     // Generate the PDF buffer (mapping + vector charts + PDFKit rendering)
-    const reportBuffer = await pdfGenerationService.generateReportPDF(reportData);
+    const reportBuffer = await pdfGenerationService.generateReportPDF(reportData, status);
 
     // Best-effort persistence for local/Docker deployments (read-only on Vercel)
     try {

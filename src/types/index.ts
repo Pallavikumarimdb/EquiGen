@@ -44,6 +44,10 @@ export interface EquityResearchData {
   industryOverview?: string | null;
   businessOverview?: string | null;
   futureGrowth?: string | null;
+  /** Which model actually performed the financials extraction. 'llama-3.1-8b-instant' means
+   *  the lighter fallback model was used (request was too large for the 70B quota).
+   *  Undefined = 70B was used (standard path). */
+  modelUsedForFinancials?: string | null;
 }
 
 export interface ParseResult {

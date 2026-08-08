@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Database not configured' }, { status: 400 });
     }
     const body = await req.json();
-    const { id, companyName, fileName, reportData, pdfBase64 } = body;
+    const { id, companyName, fileName, reportData, pdfBase64, status, reviewerName, sebiRegNo, approvedAt, modelUsedForFinancials } = body;
     
     if (!id || !companyName || !fileName || !reportData) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
@@ -36,6 +36,11 @@ export async function POST(req: Request) {
         fileName,
         reportData,
         pdfBase64,
+        status: status || undefined,
+        reviewerName: reviewerName || undefined,
+        sebiRegNo: sebiRegNo || undefined,
+        approvedAt: approvedAt ? new Date(approvedAt) : undefined,
+        modelUsedForFinancials: modelUsedForFinancials || undefined,
         createdAt: new Date()
       },
       create: {
@@ -43,7 +48,12 @@ export async function POST(req: Request) {
         companyName,
         fileName,
         reportData,
-        pdfBase64
+        pdfBase64,
+        status: status || 'draft',
+        reviewerName: reviewerName || null,
+        sebiRegNo: sebiRegNo || null,
+        approvedAt: approvedAt ? new Date(approvedAt) : null,
+        modelUsedForFinancials: modelUsedForFinancials || null
       }
     });
 

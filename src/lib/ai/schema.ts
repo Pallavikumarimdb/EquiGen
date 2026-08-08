@@ -26,7 +26,9 @@ export const AIExtractionSchema = z.object({
   futureGrowth: z.string().nullable(),
   narrativeSummary: z.string().nullable(),
   industryOverview: z.string().nullable(),
-  businessOverview: z.string().nullable()
+  businessOverview: z.string().nullable(),
+  /** Which model extracted the financials. 'llama-3.1-8b-instant' = fallback used. */
+  modelUsedForFinancials: z.string().nullable().optional()
 });
 
 export type AIExtractionResult = z.infer<typeof AIExtractionSchema>;

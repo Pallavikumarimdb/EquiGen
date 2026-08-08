@@ -1,10 +1,11 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { ChatGroq } from '@langchain/groq';
-import { ChatOpenAI } from '@langchain/openai';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { z } from 'zod';
+import { prisma } from '@/lib/db';
 import { AIServiceOptions } from './langchain-service';
 import { AIExtractionResult } from './schema';
+import { getModelForRequest, recordActualUsage } from './model-router';
+import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
 
 // --- Helper: Simple Character Chunker with overlap ---
 
@@ -94,37 +95,25 @@ export const ResearchState = Annotation.Root({
   mathematicallyValid: Annotation<boolean>({
     reducer: (a, b) => b,
     default: () => true
+  }),
+  /** Tracks which model actually ran financials extraction (for reviewer audit trail) */
+  modelUsedForFinancials: Annotation<string>({
+    reducer: (a, b) => b || a,
+    default: () => ''
   })
 });
 
-// --- Helper: Model instantiation inside nodes ---
+// --- Helper: Preprocessor model (always high-TPM 8B) ---
 
-function getNodeModel(options: AIServiceOptions): BaseChatModel {
-  const provider = options.provider;
-  const apiKey = options.apiKey || (provider === 'groq' ? process.env.GROQ_API_KEY : process.env.OPENAI_API_KEY);
-
-  if (!apiKey) {
-    throw new Error(`API key for provider "${provider}" is not configured.`);
-  }
-
-  switch (provider) {
-    case 'groq':
-      return new ChatGroq({
-        apiKey,
-        model: options.modelName || 'llama-3.3-70b-versatile',
-        temperature: 0.1,
-        maxRetries: 5,
-      });
-    case 'openai':
-      return new ChatOpenAI({
-        apiKey,
-        model: options.modelName || 'gpt-4o-mini',
-        temperature: 0.1,
-        maxRetries: 5,
-      });
-    default:
-      throw new Error(`Unsupported AI model provider: ${provider}`);
-  }
+function getPreprocessorModel(options: AIServiceOptions): ChatGroq {
+  const apiKey = options.apiKey || process.env.GROQ_API_KEY || '';
+  if (!apiKey) throw new Error('Groq API key not configured for preprocessor model.');
+  return new ChatGroq({
+    apiKey,
+    model: 'llama-3.1-8b-instant', // 500,000 TPM — safe for bulk chunking
+    temperature: 0.1,
+    maxRetries: 5,
+  });
 }
 
 // --- Node 0: Map-Reduce Chunker Node ---
@@ -136,12 +125,11 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
   }
 
   const chunks = splitTextIntoChunks(state.rawText, 12000, 1200);
-  const model = getNodeModel(state.modelOptions);
+  const model = getPreprocessorModel(state.modelOptions);
   const structuredModel = model.withStructuredOutput(LocalExtractionSchema);
   
   const results: string[] = [];
-  const isGroq = state.modelOptions.provider === 'groq';
-  const delayMs = isGroq ? 1500 : 200;
+  const delayMs = 150; // fast delay for high-rate-limit base preprocessor model
   
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -181,57 +169,79 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
 // --- Node 1: Company General details ---
 
 async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
-  const model = getNodeModel(state.modelOptions);
-  const structuredModel = model.withStructuredOutput(CompanyGeneralSchema);
-  
+  const contextText = state.condensedContext || state.rawText;
   const systemPrompt = `You are an expert equity analyst. Read the provided text and extract general company corporate details: full name, stock ticker symbol, business operational overview, industry segment vertical overview, and a comprehensive narrative summary.`;
-  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${state.condensedContext || state.rawText}`;
-  
-  const res = await structuredModel.invoke([
-    ['system', systemPrompt],
-    ['user', userPrompt]
-  ]);
-  
+  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
+  const fullPrompt = systemPrompt + userPrompt;
+
+  // Pre-flight: checks request size vs TPM ceiling, waits for real budget, reroutes if needed
+  const { model, modelName, downgraded } = await getModelForRequest(
+    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile'
+  );
+  if (downgraded) {
+    console.warn(`[extract_general] Rerouted to ${modelName} due to request size — review output quality for dense documents.`);
+  }
+
+  const structuredModel = model.withStructuredOutput(CompanyGeneralSchema);
+  const res = await withRateLimitRetry(() =>
+    structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
+  );
+
+  recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
   return { companyGeneral: res };
 }
 
 // --- Node 2: SWOT & Investment Thesis ---
 
 async function extractSwotNode(state: typeof ResearchState.State) {
-  const model = getNodeModel(state.modelOptions);
-  const structuredModel = model.withStructuredOutput(SwotAndThesisSchema);
-  
+  const contextText = state.condensedContext || state.rawText;
   const systemPrompt = `You are an expert equity research auditor. Read the text and extract strategic qualitative metrics: SWOT strengths (highlights), SWOT weaknesses (risks), investment thesis case, and future growth triggers/pipelines.`;
-  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${state.condensedContext || state.rawText}`;
-  
-  const res = await structuredModel.invoke([
-    ['system', systemPrompt],
-    ['user', userPrompt]
-  ]);
-  
+  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
+  const fullPrompt = systemPrompt + userPrompt;
+
+  const { model, modelName, downgraded } = await getModelForRequest(
+    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile'
+  );
+  if (downgraded) {
+    console.warn(`[extract_swot] Rerouted to ${modelName} due to request size.`);
+  }
+
+  const structuredModel = model.withStructuredOutput(SwotAndThesisSchema);
+  const res = await withRateLimitRetry(() =>
+    structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
+  );
+
+  recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
   return { swotAndThesis: res };
 }
 
 // --- Node 3: Financials ---
 
 async function extractFinancialsNode(state: typeof ResearchState.State) {
-  const model = getNodeModel(state.modelOptions);
-  const structuredModel = model.withStructuredOutput(FinancialsSchema);
-  
+  const contextText = state.condensedContext || state.rawText;
   let feedback = '';
   if (state.mathErrors && state.mathErrors.length > 0) {
     feedback = `\n\n[WARNING: Previous extraction had errors! Please pay special attention to the following calculation issues and correct them:\n- ${state.mathErrors.join('\n- ')}]`;
   }
-  
+
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract revenue, EBITDA, and PAT/Net Profit series across fiscal periods. Also extract currentPrice, targetPrice, and recommendation.${feedback}`;
-  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${state.condensedContext || state.rawText}`;
-  
-  const res = await structuredModel.invoke([
-    ['system', systemPrompt],
-    ['user', userPrompt]
-  ]);
-  
-  return { financials: res };
+  const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
+  const fullPrompt = systemPrompt + userPrompt;
+
+  const { model, modelName, downgraded } = await getModelForRequest(
+    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile'
+  );
+  if (downgraded) {
+    console.warn(`[extract_financials] Rerouted to ${modelName} due to request size — quality may differ on dense documents.`);
+  }
+
+  const structuredModel = model.withStructuredOutput(FinancialsSchema);
+  const res = await withRateLimitRetry(() =>
+    structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
+  );
+
+  recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
+  return { financials: res, modelUsedForFinancials: modelName };
 }
 
 // --- Node 4: Math Audit Router ---
@@ -297,14 +307,10 @@ const workflow = new StateGraph(ResearchState)
   // Starting flow runs chunking preprocessor first
   .addEdge(START, 'preprocess_chunks')
   
-  // Once chunks are mapped and reduced, trigger parallel extractions
+  // Run extractions sequentially with built-in model rate limit cooling delays
   .addEdge('preprocess_chunks', 'extract_general')
-  .addEdge('preprocess_chunks', 'extract_swot')
-  .addEdge('preprocess_chunks', 'extract_financials')
-  
-  // SWOT and general detail flows proceed straight to compilation END
-  .addEdge('extract_general', END)
-  .addEdge('extract_swot', END)
+  .addEdge('extract_general', 'extract_swot')
+  .addEdge('extract_swot', 'extract_financials')
   
   // Financial workflow routes to audit check
   .addEdge('extract_financials', 'audit_financials')
@@ -349,4 +355,205 @@ export async function runResearchPipeline(
     businessOverview: result.companyGeneral.businessOverview,
     futureGrowth: result.swotAndThesis.futureGrowth
   };
+}
+
+/**
+ * Stateful pipeline runner that saves intermediate progress to the database.
+ * If execution fails, it can be resumed starting from the failed step.
+ */
+export async function runOrResumeResearchPipeline(
+  jobId: string,
+  companyName?: string,
+  rawText?: string,
+  options?: AIServiceOptions,
+  resume = false
+): Promise<AIExtractionResult> {
+  let job;
+
+  if (resume) {
+    job = await prisma.extractionJob.findUnique({
+      where: { id: jobId }
+    });
+    if (!job) {
+      throw new Error(`Extraction job with ID ${jobId} not found.`);
+    }
+  } else {
+    if (!companyName || !rawText || !options) {
+      throw new Error('Missing parameters to initialize a new extraction job.');
+    }
+    // Create new job in DB
+    job = await prisma.extractionJob.create({
+      data: {
+        id: jobId,
+        companyName,
+        fileName: 'uploaded_document.pdf',
+        rawText,
+        status: 'running',
+        stepIndex: 0
+      }
+    });
+  }
+
+  // Initialize graph state variables
+  const state = {
+    companyName: job.companyName,
+    rawText: job.rawText,
+    condensedContext: job.condensedContext || '',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    companyGeneral: job.companyGeneral ? (job.companyGeneral as any) : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    swotAndThesis: job.swotAndThesis ? (job.swotAndThesis as any) : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    financials: job.financials ? (job.financials as any) : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mathErrors: job.mathErrors ? (job.mathErrors as any[]) : [],
+    retryCount: 0,
+    mathematicallyValid: true,
+    modelUsedForFinancials: '',
+    modelOptions: options || {
+      provider: 'groq',
+      apiKey: ''
+    }
+  };
+
+  try {
+    // Step 0: Preprocessing (Chunking / Map-Reduce)
+    if (job.stepIndex <= 0) {
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { status: 'running', stepIndex: 0 }
+      });
+      const preprocessOut = await preprocessChunksNode(state);
+      state.condensedContext = preprocessOut.condensedContext || state.rawText;
+      
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          condensedContext: state.condensedContext,
+          stepIndex: 1
+        }
+      });
+    }
+
+    // Step 1: General Details
+    if (job.stepIndex <= 1) {
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { status: 'running', stepIndex: 1 }
+      });
+      const generalOut = await extractCompanyGeneralNode(state);
+      state.companyGeneral = generalOut.companyGeneral;
+
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          companyGeneral: state.companyGeneral as any,
+          stepIndex: 2
+        }
+      });
+    }
+
+    // Step 2: SWOT & Thesis
+    if (job.stepIndex <= 2) {
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { status: 'running', stepIndex: 2 }
+      });
+      const swotOut = await extractSwotNode(state);
+      state.swotAndThesis = swotOut.swotAndThesis;
+
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          swotAndThesis: state.swotAndThesis as any,
+          stepIndex: 3
+        }
+      });
+    }
+
+    // Step 3: Financials & Audit
+    if (job.stepIndex <= 3) {
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { status: 'running', stepIndex: 3 }
+      });
+      
+      let financialsOut = await extractFinancialsNode(state);
+      state.financials = financialsOut.financials;
+
+      // Audit financials
+      let auditOut = auditFinancialsNode(state);
+      state.mathErrors = auditOut.mathErrors || [];
+      state.mathematicallyValid = auditOut.mathematicallyValid || false;
+
+      // Handle audit retry loop if needed (up to 1 retry)
+      if (!state.mathematicallyValid) {
+        console.warn('[Sequential Runner] Audit failed. Retrying financials extraction...');
+        state.retryCount = 1;
+        financialsOut = await extractFinancialsNode(state);
+        state.financials = financialsOut.financials;
+        
+        auditOut = auditFinancialsNode(state);
+        state.mathErrors = auditOut.mathErrors || [];
+        state.mathematicallyValid = auditOut.mathematicallyValid || false;
+      }
+
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          financials: state.financials as any,
+          mathErrors: state.mathErrors,
+          stepIndex: 4,
+          status: 'completed'
+        }
+      });
+    }
+
+    // Return compiled result
+    return {
+      companyName: state.companyGeneral.companyName,
+      recommendation: state.financials.recommendation,
+      highlights: state.swotAndThesis.highlights,
+      investmentThesis: state.swotAndThesis.investmentThesis,
+      outlook: state.companyGeneral.narrativeSummary,
+      risks: state.swotAndThesis.risks,
+      revenue: state.financials.revenue,
+      ebitda: state.financials.ebitda,
+      pat: state.financials.pat,
+      ratios: null,
+      currentPrice: state.financials.currentPrice,
+      targetPrice: state.financials.targetPrice,
+      narrativeSummary: state.companyGeneral.narrativeSummary,
+      industryOverview: state.companyGeneral.industryOverview,
+      businessOverview: state.companyGeneral.businessOverview,
+      futureGrowth: state.swotAndThesis.futureGrowth,
+      // Audit trail: which model ran the financials extraction
+      modelUsedForFinancials: state.modelUsedForFinancials || null
+    };
+
+  } catch (err: unknown) {
+    if (err instanceof RateLimitError) {
+      // Temporary rate-limit — job is resumable, NOT permanently failed
+      console.warn(`[Pipeline] Throttled. Auto-resume in ${err.retryAfterSeconds}s.`);
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          status: 'throttled',
+          retryAfterSeconds: err.retryAfterSeconds,
+          errorMessage: `Rate limited — auto-resume in ${err.retryAfterSeconds}s`,
+        },
+      });
+      throw err; // re-throw typed signal so API route can tell client to auto-poll
+    }
+
+    const errorMsg = err instanceof Error ? err.message : 'Unknown pipeline error';
+    await prisma.extractionJob.update({
+      where: { id: jobId },
+      data: { status: 'failed', errorMessage: errorMsg }
+    });
+    throw err;
+  }
 }

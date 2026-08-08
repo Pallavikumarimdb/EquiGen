@@ -10,10 +10,34 @@ datasource db {
 }
 
 model ReportHistory {
-  id           String   @id
-  companyName  String
-  fileName     String
-  reportData   Json
-  pdfBase64    String?
-  createdAt    DateTime @default(now())
+  id                    String    @id
+  companyName           String
+  fileName              String
+  reportData            Json
+  pdfBase64             String?
+  status                String    @default("draft")
+  reviewerName          String?
+  sebiRegNo             String?
+  approvedAt            DateTime?
+  /** Which model ran financials extraction — null = 70B (standard), 'llama-3.1-8b-instant' = fallback */
+  modelUsedForFinancials String?
+  createdAt             DateTime  @default(now())
+}
+
+model ExtractionJob {
+  id                String   @id
+  companyName       String
+  fileName          String
+  rawText           String
+  status            String   @default("running") // "running", "failed", "throttled", "completed"
+  stepIndex         Int      @default(0)          // 0: preprocessor, 1: general, 2: swot, 3: financials
+  condensedContext  String?
+  companyGeneral    Json?
+  swotAndThesis     Json?
+  financials        Json?
+  mathErrors        Json?
+  errorMessage      String?
+  retryAfterSeconds Int?                          // set on throttled status — seconds to wait before auto-resume
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }

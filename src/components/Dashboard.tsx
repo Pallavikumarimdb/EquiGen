@@ -20,7 +20,8 @@ import {
   ChevronLeft,
   Settings,
   Eye,
-  EyeOff
+  EyeOff,
+  RefreshCw
 } from 'lucide-react';
 import { EquityResearchData } from '@/types';
 
@@ -31,6 +32,12 @@ type HistoryItem = {
   createdAt: string;
   reportData: EquityResearchData;
   reportPdfBase64: string | null;
+  status?: string;
+  reviewerName?: string | null;
+  sebiRegNo?: string | null;
+  approvedAt?: string | null;
+  /** Tracks which model ran financials extraction — null/undefined = 70B (standard) */
+  modelUsedForFinancials?: string | null;
 };
 
 type ProgressStep = {
@@ -59,6 +66,17 @@ export function Dashboard() {
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Active Report Details for sign-off
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [activeReportStatus, setActiveReportStatus] = useState<string>('draft');
+  const [isSignoffOpen, setIsSignoffOpen] = useState(false);
+  const [reviewerName, setReviewerName] = useState('');
+  const [sebiRegNo, setSebiRegNo] = useState('');
+  const [isSigning, setIsSigning] = useState(false);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  // Tracks which model ran financials extraction for the currently open report
+  const [activeModelUsedForFinancials, setActiveModelUsedForFinancials] = useState<string | null>(null);
 
   // AI Settings State
   const [aiProvider, setAiProvider] = useState<'groq' | 'openai'>('groq');
@@ -156,7 +174,12 @@ export function Dashboard() {
               minute: '2-digit'
             }),
             reportData: item.reportData,
-            reportPdfBase64: item.pdfBase64
+            reportPdfBase64: item.pdfBase64,
+            status: item.status || 'draft',
+            reviewerName: item.reviewerName,
+            sebiRegNo: item.sebiRegNo,
+            approvedAt: item.approvedAt,
+            modelUsedForFinancials: item.modelUsedForFinancials || null
           }));
           setHistory(mapped);
           localStorage.setItem('equigen_history', JSON.stringify(mapped));
@@ -195,8 +218,13 @@ export function Dashboard() {
         minute: '2-digit'
       }),
       reportData: data,
-      reportPdfBase64: pdfBase64
+      reportPdfBase64: pdfBase64,
+      status: 'draft',
+      modelUsedForFinancials: data.modelUsedForFinancials || null
     };
+
+    // Set active model flag so sign-off modal can show the warning immediately
+    setActiveModelUsedForFinancials(data.modelUsedForFinancials || null);
 
     // Save to Database
     try {
@@ -208,7 +236,9 @@ export function Dashboard() {
           companyName: name,
           fileName: fName,
           reportData: data,
-          pdfBase64
+          pdfBase64,
+          status: 'draft',
+          modelUsedForFinancials: data.modelUsedForFinancials || null
         })
       });
     } catch (e) {
@@ -224,12 +254,16 @@ export function Dashboard() {
     } catch (e) {
       console.error('Failed to save history to localStorage:', e);
     }
+    return uniqueId;
   };
 
   const selectHistoryItem = (item: HistoryItem) => {
     setCompanyName(item.companyName);
     setReportData(item.reportData);
     setReportPdfBase64(item.reportPdfBase64);
+    setActiveReportId(item.id);
+    setActiveReportStatus(item.status || 'draft');
+    setActiveModelUsedForFinancials(item.modelUsedForFinancials || null);
     setFile(null);
     setError(null);
     setLoading(false);
@@ -241,12 +275,63 @@ export function Dashboard() {
     setFile(null);
     setReportData(null);
     setReportPdfBase64(null);
+    setActiveReportId(null);
+    setActiveReportStatus('draft');
     setError(null);
     setLoading(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
     showToast('Ready for a new analysis!', 'info');
+  };
+
+  const approveReport = async (reviewer: string, regNo: string) => {
+    if (!activeReportId) return;
+    setIsSigning(true);
+    showToast('Submitting SEBI Research Analyst sign-off...', 'info');
+    try {
+      const res = await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reportId: activeReportId,
+          reviewerName: reviewer,
+          sebiRegNo: regNo
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Approval failed.');
+      }
+
+      const updated = await res.json();
+      setReportPdfBase64(updated.pdfBase64);
+      setActiveReportStatus(updated.status);
+      
+      // Update item inside history state
+      setHistory(prev => prev.map(item => {
+        if (item.id === activeReportId) {
+          return {
+            ...item,
+            status: updated.status,
+            reviewerName: updated.reviewerName,
+            sebiRegNo: updated.sebiRegNo,
+            approvedAt: updated.approvedAt,
+            reportPdfBase64: updated.pdfBase64
+          };
+        }
+        return item;
+      }));
+
+      showToast('Report signed off and published successfully!', 'success');
+      setIsSignoffOpen(false);
+    } catch (err) {
+      console.error('Approve failed:', err);
+      showToast(err instanceof Error ? err.message : 'Sign-off approval failed.', 'error');
+    } finally {
+      setIsSigning(false);
+    }
   };
 
   const deleteHistoryItem = async (id: string, e: React.MouseEvent) => {
@@ -353,6 +438,9 @@ export function Dashboard() {
       return;
     }
 
+    const jobId = 'job_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+    setCurrentJobId(jobId);
+
     setLoading(true);
     setError(null);
     setReportData(null);
@@ -369,6 +457,7 @@ export function Dashboard() {
 
     let rawText = '';
     let extractedData: EquityResearchData | null = null;
+    let reportResponse: { reportId: string; pdfBase64: string } | null = null;
 
     try {
       // --- Step 1: Upload & Extract Raw Text ---
@@ -407,16 +496,36 @@ export function Dashboard() {
           rawText,
           provider: aiProvider,
           modelName: aiProvider === 'groq' ? groqModel : openaiModel,
-          apiKey: (aiProvider === 'groq' ? groqApiKey : openaiApiKey) || undefined
+          apiKey: (aiProvider === 'groq' ? groqApiKey : openaiApiKey) || undefined,
+          jobId
         })
       });
 
-      if (!extractRes.ok) {
-        const errData = await extractRes.json().catch(() => ({}));
-        throw new Error(errData.message || 'AI extraction failed.');
+      const extractData = await extractRes.json();
+
+      // --- Throttled (429): auto-resume after Groq's suggested delay ---
+      if (extractRes.status === 429 && extractData.status === 'throttled') {
+        const waitSeconds: number = extractData.retryAfterSeconds || 20;
+        setCurrentJobId(extractData.jobId || jobId);
+        showToast(`Rate limit reached — auto-resuming in ${waitSeconds}s...`, 'info');
+
+        // Keep step as 'running' — it will seamlessly resume, no crash/failure UI
+        if (updatedSteps[currentStepIndex]) {
+          updatedSteps[currentStepIndex].status = 'running';
+          setSteps([...updatedSteps]);
+        }
+
+        // Auto-trigger resume after the exact wait time Groq suggested
+        setTimeout(() => resumeGeneration(), waitSeconds * 1000);
+        return; // skip the generic error handling entirely
       }
 
-      extractedData = await extractRes.json() as EquityResearchData;
+      if (!extractRes.ok) {
+        setCurrentJobId(extractData.jobId || jobId);
+        throw new Error(extractData.message || 'AI extraction failed.');
+      }
+
+      extractedData = extractData.reportData as EquityResearchData;
       updatedSteps[1].status = 'completed';
       setSteps([...updatedSteps]);
 
@@ -436,11 +545,11 @@ export function Dashboard() {
         throw new Error(errData.message || 'Formatting financial ratios failed.');
       }
 
-      const reportResponse = await reportRes.json();
-      if (extractedData && extractedData.company) {
+      reportResponse = await reportRes.json();
+      if (reportResponse && extractedData && extractedData.company) {
         extractedData.company.ticker = reportResponse.reportId;
       }
-      if (typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
+      if (reportResponse && typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
         setReportPdfBase64(reportResponse.pdfBase64);
       }
       updatedSteps[2].status = 'completed';
@@ -456,21 +565,139 @@ export function Dashboard() {
       setSteps([...updatedSteps]);
 
       setReportData(extractedData);
-      addToHistory(
-        companyName,
-        file.name,
-        extractedData,
-        typeof reportResponse.pdfBase64 === 'string' ? reportResponse.pdfBase64 : null
-      );
+      // Save to history & state
+      const createdId = await addToHistory(companyName, file.name, extractedData!, reportResponse?.pdfBase64 || null);
+      setActiveReportId(createdId);
+      setActiveReportStatus('draft');
       showToast('Equity report compiled successfully!', 'success');
     } catch (err: unknown) {
       console.error('Generation pipeline failed:', err);
+
+      // --- Check if the extract API returned a throttled status ---
+      // The extract API populates extractData.status = 'throttled' when Groq rate-limits us
+      // In that case, we auto-resume after the suggested delay instead of showing a hard failure
       const errMsg = err instanceof Error ? err.message : 'An error occurred during report generation.';
+
+      // Detect throttled signal from API response message or error message
+      const isThrottled = errMsg.toLowerCase().includes('throttled') ||
+        errMsg.toLowerCase().includes('rate limit') ||
+        errMsg.toLowerCase().includes('rate_limit_exceeded');
+
+      if (isThrottled && currentJobId) {
+        // Parse retry delay from error message (e.g. "auto-resume in 23s" or "try again in 23.22s")
+        const matchDelay = errMsg.match(/(?:auto-resume in|try again in|in)\s+([\d.]+)s/i);
+        const waitSeconds = matchDelay ? Math.ceil(parseFloat(matchDelay[1])) : 20;
+
+        showToast(`Rate limit reached — automatically resuming in ${waitSeconds}s...`, 'info');
+        
+        // Keep the throttled step as 'running' (no red failure state — it will resume)
+        if (updatedSteps[currentStepIndex]) {
+          updatedSteps[currentStepIndex].status = 'running';
+          setSteps([...updatedSteps]);
+        }
+
+        // Auto-trigger resume after the exact wait time Groq suggested
+        setTimeout(() => {
+          resumeGeneration();
+        }, waitSeconds * 1000);
+
+        // Don't fall through to generic error toast or stop loading
+        return;
+      }
+
+      // Genuine failure (not a rate limit)
       setError(errMsg);
       showToast(errMsg, 'error');
       
       if (updatedSteps[currentStepIndex]) {
         updatedSteps[currentStepIndex].status = 'failed';
+        setSteps([...updatedSteps]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resumeGeneration = async () => {
+    if (!currentJobId) return;
+    setLoading(true);
+    setError(null);
+    showToast('Resuming extraction from last checkpoint...', 'info');
+
+    const updatedSteps = [...steps];
+    
+    // Find the failed step index and mark it as running
+    const failedIdx = updatedSteps.findIndex(s => s.status === 'failed');
+    const startIdx = failedIdx !== -1 ? failedIdx : 0;
+
+    // Reset steps status to idle/running
+    for (let i = startIdx; i < updatedSteps.length; i++) {
+      updatedSteps[i].status = i === startIdx ? 'running' : 'idle';
+    }
+    setSteps([...updatedSteps]);
+    setCurrentStepIndex(startIdx);
+
+    try {
+      const res = await fetch('/api/extract/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: currentJobId,
+          provider: aiProvider,
+          modelName: aiProvider === 'groq' ? groqModel : openaiModel,
+          apiKey: aiProvider === 'groq' ? groqApiKey : openaiApiKey
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setCurrentJobId(data.jobId || currentJobId);
+        throw new Error(data.message || 'Resume extraction failed');
+      }
+
+      const extractedData = data.reportData as EquityResearchData;
+
+      // Complete all remaining steps in UI
+      for (let i = startIdx; i < updatedSteps.length; i++) {
+        updatedSteps[i].status = 'completed';
+      }
+      setSteps([...updatedSteps]);
+
+      // Compile report PDF
+      const reportRes = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(extractedData)
+      });
+
+      if (!reportRes.ok) {
+        const errData = await reportRes.json().catch(() => ({}));
+        throw new Error(errData.message || 'PDF compile failed');
+      }
+
+      const reportResponse = await reportRes.json();
+      if (extractedData && extractedData.company) {
+        extractedData.company.ticker = reportResponse.reportId;
+      }
+      if (typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
+        setReportPdfBase64(reportResponse.pdfBase64);
+      }
+
+      setReportData(extractedData);
+      const createdId = await addToHistory(companyName, file?.name || 'document.pdf', extractedData, reportResponse.pdfBase64);
+      setActiveReportId(createdId);
+      setActiveReportStatus('draft');
+      showToast('Equity report successfully recovered and compiled!', 'success');
+
+    } catch (err: unknown) {
+      console.error('Resume pipeline failed:', err);
+      const errMessage = err instanceof Error ? err.message : 'Unknown Error';
+      setError(errMessage);
+      showToast(errMessage, 'error');
+
+      const currentIdx = steps.findIndex(s => s.status === 'running');
+      if (currentIdx !== -1) {
+        updatedSteps[currentIdx].status = 'failed';
         setSteps([...updatedSteps]);
       }
     } finally {
@@ -833,15 +1060,19 @@ export function Dashboard() {
             </div>
           )}
 
-          {/* Loading Skeleton */}
-          {loading && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6 animate-pulse">
+          {/* Loading or Failed Steps Panel */}
+          {(loading || steps.some(s => s.status === 'failed')) && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
-                  <div className="h-5 w-40 bg-slate-200 rounded-lg"></div>
-                  <div className="h-3 w-64 bg-slate-100 rounded-lg mt-2"></div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    {loading ? 'Executing pipeline nodes...' : 'Pipeline execution paused'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                    Job ID: {currentJobId}
+                  </p>
                 </div>
-                <div className="w-5 h-5 bg-slate-200 rounded-full"></div>
+                {loading && <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />}
               </div>
 
               {/* Progress Steps UI */}
@@ -856,7 +1087,7 @@ export function Dashboard() {
                         <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
                       )}
                       {step.status === 'failed' && (
-                        <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
+                        <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 animate-pulse" />
                       )}
                       {step.status === 'idle' && (
                         <div className="w-5 h-5 border-2 border-slate-200 rounded-full shrink-0 bg-slate-50"></div>
@@ -867,20 +1098,34 @@ export function Dashboard() {
                         ? 'text-blue-700 font-bold' 
                         : step.status === 'completed' 
                         ? 'text-slate-500' 
+                        : step.status === 'failed'
+                        ? 'text-rose-600 font-bold animate-pulse'
                         : 'text-slate-400'
                     }`}>
                       {step.label}
                     </span>
+                    {step.status === 'failed' && !loading && (
+                      <button
+                        type="button"
+                        onClick={resumeGeneration}
+                        className="ml-auto px-2.5 py-1.5 bg-slate-900 hover:bg-slate-805 text-white font-bold rounded-lg text-[9px] flex items-center gap-1 transition-all border border-slate-750 active:scale-95 shadow-sm"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
+                        Resume Node
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
 
               {/* Skeleton lines for report preview preview */}
-              <div className="pt-6 border-t border-slate-100 space-y-3">
-                <div className="h-3.5 w-full bg-slate-150 rounded-lg"></div>
-                <div className="h-3.5 w-5/6 bg-slate-150 rounded-lg"></div>
-                <div className="h-3.5 w-2/3 bg-slate-150 rounded-lg"></div>
-              </div>
+              {loading && (
+                <div className="pt-6 border-t border-slate-100 space-y-3">
+                  <div className="h-3.5 w-full bg-slate-150 rounded-lg"></div>
+                  <div className="h-3.5 w-5/6 bg-slate-150 rounded-lg"></div>
+                  <div className="h-3.5 w-2/3 bg-slate-150 rounded-lg"></div>
+                </div>
+              )}
             </div>
           )}
 
@@ -895,27 +1140,51 @@ export function Dashboard() {
                     <CheckCircle2 className="w-5 h-5" />
                   </span>
                   <div>
-                    <h4 className="font-extrabold text-emerald-950 text-sm">Report Compiled Successfully</h4>
-                    <p className="text-xs text-emerald-700 font-medium">Headless PDF compiler written to temporary file.</p>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-extrabold text-emerald-950 text-sm">Report Compiled Successfully</h4>
+                      <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${
+                        activeReportStatus === 'published' 
+                          ? 'bg-emerald-100 text-emerald-800' 
+                          : 'bg-rose-100 text-rose-800 animate-pulse'
+                      }`}>
+                        {activeReportStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-750 font-medium mt-0.5">
+                      {activeReportStatus === 'published' 
+                        ? 'Approved & signed off by a SEBI Registered Analyst.' 
+                        : 'AI-generated draft. Pending review and attestation.'}
+                    </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => triggerDownload(reportData.company.ticker || '')}
-                  disabled={isDownloading}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/10 transition-all active:scale-95"
-                >
-                  {isDownloading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Downloading...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Download PDF
-                    </>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {activeReportStatus === 'draft' && (
+                    <button
+                      onClick={() => setIsSignoffOpen(true)}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-900 hover:bg-slate-805 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 border border-slate-750"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      Approve & Sign-off
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => triggerDownload(reportData.company.ticker || '')}
+                    disabled={isDownloading}
+                    className="flex-1 sm:flex-none px-5 py-2.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/10 transition-all active:scale-95"
+                  >
+                    {isDownloading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Download PDF
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Live Preview Paper Canvas */}
@@ -1112,6 +1381,116 @@ export function Dashboard() {
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-blue-500/10"
                 >
                   Save Configurations
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SEBI Compliance Sign-off Modal */}
+        {isSignoffOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-scaleIn mx-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  SEBI RA Sign-off Attestation
+                </h3>
+                <button
+                  onClick={() => setIsSignoffOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+                  disabled={isSigning}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Fallback model warning — shown only when 8B was used for financials */}
+                {activeModelUsedForFinancials === 'llama-3.1-8b-instant' && (
+                  <div className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-amber-700 mb-0.5">Financials Extracted by Lighter Model</p>
+                      <p className="text-[10px] text-amber-600 leading-relaxed">
+                        The document was too large for the high-accuracy model. Revenue, EBITDA, and PAT figures were extracted 
+                        by <span className="font-bold">llama-3.1-8b-instant</span> (fallback). Numbers may be less precise on 
+                        dense tables. <span className="font-bold">Please verify all financial figures before signing off.</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Reviewer Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={reviewerName}
+                    onChange={(e) => setReviewerName(e.target.value)}
+                    placeholder="e.g. Ritesh Kumar"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    SEBI Registration Number
+                  </label>
+                  <input
+                    type="text"
+                    value={sebiRegNo}
+                    onChange={(e) => setSebiRegNo(e.target.value)}
+                    placeholder="e.g. INH000012345"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  />
+                </div>
+
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="attestation-checkbox"
+                    className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/10"
+                  />
+                  <label htmlFor="attestation-checkbox" className="text-[10px] text-slate-550 leading-relaxed font-semibold">
+                    I confirm I have reviewed the financial data, calculations, and conclusions and take responsibility for this report content under my SEBI Research Analyst registration.
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => setIsSignoffOpen(false)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-xl text-xs transition-colors"
+                  disabled={isSigning}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const checkbox = document.getElementById('attestation-checkbox') as HTMLInputElement;
+                    if (!reviewerName.trim() || !sebiRegNo.trim()) {
+                      showToast('Please enter reviewer name and SEBI registration number.', 'error');
+                      return;
+                    }
+                    if (!checkbox?.checked) {
+                      showToast('Please verify and agree to the attestation.', 'error');
+                      return;
+                    }
+                    approveReport(reviewerName, sebiRegNo);
+                  }}
+                  disabled={isSigning}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 shadow-md shadow-emerald-500/10 flex items-center gap-1.5"
+                >
+                  {isSigning ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Signing...
+                    </>
+                  ) : (
+                    'Sign & Publish'
+                  )}
                 </button>
               </div>
             </div>

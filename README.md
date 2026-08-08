@@ -51,6 +51,18 @@ graph TD
     P -->|Store Temp File| Q[GET /api/download]
 ```
 
+### 📄 Fallback-First Page Ingestion Pipeline
+
+To handle mixed digital and scanned prospectuses (and to support interpretation of embedded charts/graphs), the PDF extractor uses a stateful, page-by-page pipeline:
+
+1. **Native Ingestion (Fast & Free)**: Attempts to extract text natively from the PDF page using `unpdf`.
+2. **Threshold Criteria**: If a page yields **fewer than 100 characters** of native text, the pipeline flags the page for image rendering.
+3. **High-DPI Page Rendering**: Renders the target page to a PNG data URL using `@napi-rs/canvas`.
+4. **Visual Inspection**: Scans the page for graphics using `unpdf.extractImages`.
+   - **Groq Vision Fallback**: If non-trivial graphics or charts are found, it invokes the Groq multimodal vision model (`llama-3.2-11b-vision-preview`) to interpret charts, trend lines, and dense tables visually.
+   - **Tesseract OCR Fallback**: If no graphics are found, it runs local `tesseract.js` OCR to extract scanned text at zero API cost.
+
+
 ---
 
 ## 🤖 AI Orchestration (LangChain & LangGraph)
@@ -108,6 +120,16 @@ npm install -g pnpm
     ```bash
     npx playwright install chromium
     ```
+5.  **Download Tesseract OCR language data**:
+    The `*.traineddata` files are excluded from the repository (they are large binary assets). Download the English language model and place it in the project root:
+    ```bash
+    # Option A — curl
+    curl -L https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -o eng.traineddata
+
+    # Option B — Windows (PowerShell)
+    Invoke-WebRequest https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -OutFile eng.traineddata
+    ```
+    > The OCR fallback is only triggered for scanned/image-heavy PDF pages. If you only process digital PDFs, this step can be skipped.
 
 ---
 

@@ -23,7 +23,11 @@ export class PDFGenerationService {
   /**
    * Generates a stylized A4 PDF document as a Buffer from Equity Research Data.
    */
-  public async generateReportPDF(data: EquityResearchData): Promise<Buffer> {
+  public async generateReportPDF(
+    data: EquityResearchData, 
+    status = 'draft',
+    metadata?: { reviewerName: string; sebiRegNo: string; approvedAt: Date }
+  ): Promise<Buffer> {
     // 1. Map raw/AI data to report structure
     const compiledReport = ReportMapper.mapToCompiledReport(data);
 
@@ -60,10 +64,10 @@ export class PDFGenerationService {
     doc.registerFont('BodyBold', BOLD_FONT);
 
     // 4. Render content
-    renderReportPDF(doc, compiledReport);
+    renderReportPDF(doc, compiledReport, status, metadata);
 
     // 5. Apply running headers/footers + page numbers on every page
-    renderRunningFrames(doc, compiledReport);
+    renderRunningFrames(doc, compiledReport, status);
 
     // 6. Finalize and collect the buffer
     doc.end();
