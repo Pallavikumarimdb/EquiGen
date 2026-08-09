@@ -48,8 +48,8 @@ function niceRange(values: number[]): { min: number; max: number; ticks: number[
   const dataMax = Math.max(...values, 0);
   const span = dataMax - dataMin || 1;
   const pad = span * 0.2;
-  let rawMin = dataMin - (dataMin < 0 ? pad : 0);
-  let rawMax = dataMax + pad;
+  const rawMin = dataMin - (dataMin < 0 ? pad : 0);
+  const rawMax = dataMax + pad;
 
   const magnitude = Math.pow(10, Math.floor(Math.log10(Math.abs(rawMax - rawMin) || 1)));
   const step = magnitude <= 0.1 ? 1 : magnitude;
@@ -70,8 +70,7 @@ function svgBarChart(
   labels: string[],
   values: number[],
   barColor: string | string[],
-  negColor = '#ef4444',
-  unit = 'Cr'
+  negColor = '#ef4444'
 ): string {
   const W = 500, H = 260;
   const lpad = 54, rpad = 10, tpad = 24, bpad = 32;

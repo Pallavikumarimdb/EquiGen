@@ -23,7 +23,7 @@ interface TransitionOptions {
   actorId: string;
   actorType: 'human' | 'agent' | 'system';
   ipAddress?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -48,10 +48,14 @@ export async function transitionReportStatus(
     throw new Error(`Invalid status transition from "${currentStatus}" to "${targetStatus}".`);
   }
 
+  const reviewerName = typeof options.metadata?.reviewerName === 'string' ? options.metadata.reviewerName : undefined;
+  const sebiRegNo = typeof options.metadata?.sebiRegNo === 'string' ? options.metadata.sebiRegNo : undefined;
+  const contentHash = typeof options.metadata?.contentHash === 'string' ? options.metadata.contentHash : undefined;
+
   // Permission/validation checks
   if (targetStatus === 'approved') {
-    const regNo = options.metadata?.sebiRegNo || report.sebiRegNo;
-    const reviewer = options.metadata?.reviewerName || report.reviewerName;
+    const regNo = sebiRegNo || report.sebiRegNo;
+    const reviewer = reviewerName || report.reviewerName;
     if (!regNo || !reviewer) {
       throw new Error('SEBI Registration Number and Reviewer Name are required for approval.');
     }
@@ -62,11 +66,11 @@ export async function transitionReportStatus(
     where: { id: reportId },
     data: {
       status: targetStatus,
-      reviewerName: options.metadata?.reviewerName || undefined,
-      sebiRegNo: options.metadata?.sebiRegNo || undefined,
+      reviewerName: reviewerName || undefined,
+      sebiRegNo: sebiRegNo || undefined,
       approvedAt: targetStatus === 'approved' || targetStatus === 'published' ? new Date() : undefined,
       approvedByIp: options.ipAddress || undefined,
-      contentHash: options.metadata?.contentHash || undefined
+      contentHash: contentHash || undefined
     }
   });
 

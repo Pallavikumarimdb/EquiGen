@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Transition state from approved to published (auto publish transition)
-    const updatedReport = await transitionReportStatus(reportId, 'published', {
+    await transitionReportStatus(reportId, 'published', {
       actorId: 'system',
       actorType: 'system',
       ipAddress,

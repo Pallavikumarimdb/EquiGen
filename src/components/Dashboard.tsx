@@ -14,7 +14,6 @@ import {
   Sparkles,
   X,
   Loader2,
-  History,
   Plus,
   Menu,
   Settings,
@@ -22,7 +21,7 @@ import {
   EyeOff,
   RefreshCw
 } from 'lucide-react';
-import { EquityResearchData } from '@/types';
+import { EquityResearchData, CompetitorInfo } from '@/types';
 import { PanelResizer } from './PanelResizer';
 
 type PanelKey = 'sidebar' | 'config' | 'chat';
@@ -79,6 +78,50 @@ type Toast = {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
+};
+
+type UserRole = 'analyst' | 'research_analyst' | 'admin';
+
+type HistoryApiItem = {
+  id: string;
+  companyName: string;
+  fileName: string;
+  createdAt: string;
+  reportData: EquityResearchData;
+  pdfBase64: string | null;
+  status?: string | null;
+  reviewerName?: string | null;
+  sebiRegNo?: string | null;
+  approvedAt?: string | null;
+  modelUsedForFinancials?: string | null;
+};
+
+type Proposal = {
+  id: string;
+  field: string;
+  status: 'pending' | 'approved' | 'rejected';
+  origin: string;
+  reasoning?: string;
+  oldValue: unknown;
+  newValue: unknown;
+};
+
+type AuditLogEntry = {
+  id: string;
+  action: string;
+  createdAt: string;
+  userId: string;
+  actorType: string;
+  fromState?: string;
+  toState?: string;
+  metadata: unknown;
+};
+
+type ChatMessage = {
+  role: 'user' | 'agent';
+  content: string;
+  isError?: boolean;
+  retryPrompt?: string;
 };
 
 // Shared duration formatter used by the live wait countdowns
@@ -147,12 +190,12 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
   // Compliance & Unified Review states
   const [activeTab, setActiveTab] = useState<'preview' | 'diffs' | 'audit'>('preview');
-  const [proposals, setProposals] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
 
   // AI Co-Pilot Chat states
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
@@ -485,8 +528,8 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
           // Refresh report list & select the new fork
           const historyRes = await fetch('/api/history');
           if (historyRes.ok) {
-            const list = await historyRes.json();
-            const mapped = list.map((item: any) => ({
+            const list = await historyRes.json() as HistoryApiItem[];
+            const mapped = list.map((item) => ({
               id: item.id,
               companyName: item.companyName,
               fileName: item.fileName,
@@ -507,7 +550,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             }));
             setHistory(mapped);
 
-            const forkedItem = mapped.find((h: any) => h.id === data.forkedReportId);
+            const forkedItem = mapped.find((h) => h.id === data.forkedReportId);
             if (forkedItem) {
               setCompanyName(forkedItem.companyName);
               setReportData(forkedItem.reportData);
@@ -634,12 +677,12 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
   // Reloads the report history list and re-selects the active report so the live
   // preview always reflects corrections applied via proposals or the Co-Pilot chat.
-  const refreshActiveReportFromHistory = async (preferId?: string): Promise<any | null> => {
+  const refreshActiveReportFromHistory = async (preferId?: string): Promise<HistoryItem | null> => {
     try {
       const historyRes = await fetch('/api/history');
       if (!historyRes.ok) return null;
-      const data = await historyRes.json();
-      const mapped = data.map((item: any) => ({
+      const list = await historyRes.json() as HistoryApiItem[];
+      const mapped = list.map((item) => ({
         id: item.id,
         companyName: item.companyName,
         fileName: item.fileName,
@@ -660,7 +703,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
       }));
       setHistory(mapped);
       const targetId = preferId || activeReportId;
-      const currentItem = mapped.find((h: any) => h.id === targetId);
+      const currentItem = mapped.find((h) => h.id === targetId);
       if (currentItem) {
         setCompanyName(currentItem.companyName);
         setReportData(currentItem.reportData);
@@ -675,7 +718,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
   };
 
   // Regenerates the compiled PDF for the active report so downloads mirror the latest reportData.
-  const recompilePdfForActiveReport = async (dataOverride?: any) => {
+  const recompilePdfForActiveReport = async (dataOverride?: EquityResearchData) => {
     const dataForPdf = dataOverride || reportData;
     if (!dataForPdf || !activeReportId) return;
     try {
@@ -687,7 +730,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
       if (res.ok) {
         const updated = await res.json();
         setReportPdfBase64(updated.pdfBase64);
-        setHistory((prev) => prev.map((h: any) =>
+        setHistory((prev) => prev.map((h) =>
           h.id === activeReportId ? { ...h, reportPdfBase64: updated.pdfBase64 } : h
         ));
       }
@@ -1579,7 +1622,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
               <select
                 value={userRole}
                 onChange={(e) => {
-                  setUserRole(e.target.value as any);
+                  setUserRole(e.target.value as UserRole);
                   showToast(`Switched active role to ${e.target.value}`, 'info');
                 }}
                 className="bg-transparent border-none text-xs font-bold text-white focus:outline-none cursor-pointer"
@@ -1972,7 +2015,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                   ].map((t) => (
                     <button
                       key={t.id}
-                      onClick={() => setActiveTab(t.id as any)}
+                      onClick={() => setActiveTab(t.id as 'preview' | 'diffs' | 'audit')}
                       className={`pb-2.5 text-xs font-bold transition-all relative ${activeTab === t.id ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
                         }`}
                     >
@@ -2066,7 +2109,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                                 </tr>
                               </thead>
                               <tbody>
-                                {reportData.competitors.map((c: any, i: number) => (
+                                {reportData.competitors.map((c: CompetitorInfo, i: number) => (
                                   <tr key={i} className={`border-t border-white/[0.05] ${i % 2 === 0 ? 'bg-white/[0.01]' : ''}`}>
                                     <td className="px-4 py-2.5 text-slate-200 font-semibold">
                                       {c.name}
@@ -2286,7 +2329,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                           onClick={() => setChatInput(suggest)}
                           className="w-full text-left p-2.5 bg-white/[0.02] hover:bg-blue-600/10 border border-white/[0.05] hover:border-blue-500/30 text-[10px] text-slate-400 hover:text-blue-300 rounded-xl transition-all font-semibold"
                         >
-                          💡 "{suggest}"
+                          💡 &ldquo;{suggest}&rdquo;
                         </button>
                       ))}
                     </div>
@@ -2309,7 +2352,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                     {msg.isError && msg.retryPrompt && (
                       <button
                         type="button"
-                        onClick={() => executeChatMessage(msg.retryPrompt)}
+                        onClick={() => executeChatMessage(msg.retryPrompt!)}
                         disabled={chatLoading}
                         className="mt-1.5 px-2.5 py-1 bg-white/[0.04] hover:bg-blue-600/15 border border-white/[0.08] hover:border-blue-500/30 text-[9px] font-bold text-slate-400 hover:text-blue-300 rounded-lg transition-all disabled:opacity-40"
                       >
