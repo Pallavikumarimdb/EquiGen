@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { EquityResearchData } from '@/types';
 import { AIExtractionResult } from './schema';
-import { runResearchPipeline } from './langgraph-pipeline';
+import { runOrResumeResearchPipeline } from './langgraph-pipeline';
 
 export interface AIServiceOptions {
   provider: 'groq' | 'openai';
@@ -103,13 +103,29 @@ export class LangChainAIService {
     rawText: string,
     options: AIServiceOptions = { provider: 'groq' }
   ): Promise<EquityResearchData> {
-    try {
-      // Execute the multi-agent parallel LangGraph extraction pipeline
-      const response = await runResearchPipeline(companyName, rawText, options);
+    const jobId = 'job_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+    return this.extractOrResumeFinancialData(jobId, companyName, rawText, options, false);
+  }
 
+  /**
+   * Executes or resumes a stateful extraction job using LangGraph intermediate progress checkpointing.
+   */
+  public async extractOrResumeFinancialData(
+    jobId: string,
+    companyName?: string,
+    rawText?: string,
+    options: AIServiceOptions = { provider: 'groq' },
+    resume = false
+  ): Promise<EquityResearchData> {
+    try {
+      const response = await runOrResumeResearchPipeline(jobId, companyName, rawText, options, resume);
       return this.mapToEquityResearchData(response);
     } catch (error) {
-      console.error('LangGraph research extraction failed:', error);
+      console.error('LangGraph stateful research extraction failed:', error);
+      // Let RateLimitError bubble up directly so it can trigger the HTTP 429 response flow
+      if (error && typeof error === 'object' && ('retryAfterSeconds' in error)) {
+        throw error;
+      }
       throw new Error(`AI Extraction Pipeline Failed: ${error instanceof Error ? error.message : 'Unknown Error'}`);
     }
   }

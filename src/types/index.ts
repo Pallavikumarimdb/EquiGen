@@ -27,6 +27,15 @@ export interface AnalystRecommendation {
   rationale: string[];
 }
 
+export interface CompetitorInfo {
+  name: string;
+  ticker?: string;
+  industry?: string;
+  recommendation?: string;
+  currentPrice?: number;
+  targetPrice?: number;
+}
+
 export interface EquityResearchData {
   company: CompanyMetadata;
   recommendation: AnalystRecommendation;
@@ -40,10 +49,15 @@ export interface EquityResearchData {
     opportunities: string[];
     threats: string[];
   };
+  competitors?: CompetitorInfo[] | null;
   narrativeSummary?: string | null;
   industryOverview?: string | null;
   businessOverview?: string | null;
   futureGrowth?: string | null;
+  /** Which model actually performed the financials extraction. 'llama-3.1-8b-instant' means
+   *  the lighter fallback model was used (request was too large for the 70B quota).
+   *  Undefined = 70B was used (standard path). */
+  modelUsedForFinancials?: string | null;
 }
 
 export interface ParseResult {

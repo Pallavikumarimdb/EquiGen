@@ -10,10 +10,115 @@ datasource db {
 }
 
 model ReportHistory {
-  id           String   @id
-  companyName  String
-  fileName     String
-  reportData   Json
-  pdfBase64    String?
-  createdAt    DateTime @default(now())
+  id                    String    @id
+  companyName           String
+  fileName              String
+  reportData            Json
+  pdfBase64             String?
+  status                String    @default("draft") // "draft" | "under_review" | "changes_requested" | "approved" | "published"
+  reviewerName          String?
+  sebiRegNo             String?
+  approvedAt            DateTime?
+  approvedByIp          String?
+  contentHash           String?
+  versionNo             Int       @default(1)
+  /** Which model ran financials extraction — null = 70B (standard), 'llama-3.1-8b-instant' = fallback */
+  modelUsedForFinancials String?
+  createdAt             DateTime  @default(now())
 }
+
+model ExtractionJob {
+  id                String   @id
+  companyName       String
+  fileName          String
+  rawText           String
+  status            String   @default("running") // "running", "failed", "throttled", "completed"
+  stepIndex         Int      @default(0)          // 0: preprocessor, 1: general, 2: swot, 3: financials
+  condensedContext  String?
+  companyGeneral    Json?
+  swotAndThesis     Json?
+  financials        Json?
+  mathErrors        Json?
+  errorMessage      String?
+  retryAfterSeconds Int?                          // set on throttled status — seconds to wait before auto-resume
+  /** Human-readable reason while the job is paused internally (e.g. waiting for AI token budget) */
+  waitMessage       String?
+  /** Absolute time when the internal wait ends — lets the client show a live countdown */
+  waitUntil         DateTime?
+  /** ID of the ReportHistory record created after successful completion */
+  reportId          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model ApiKey {
+  id           String   @id @default(uuid())
+  orgId        String   @default("default-org")
+  provider     String   // "groq" | "openai"
+  encryptedKey String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, provider])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  reportId  String
+  userId    String   @default("anonymous")
+  actorType String   @default("human") // "human" | "agent" | "system"
+  action    String   // "state_change" | "sign_off" | "field_correction_proposed" | "field_correction_approved" | "field_correction_rejected" | "tool_call" | "recompute"
+  fromState String?
+  toState   String?
+  metadata  Json     // Includes details like hash, ip, status changes, diffs
+  createdAt DateTime @default(now())
+}
+
+model CorrectionProposal {
+  id          String   @id @default(uuid())
+  reportId    String
+  sessionId   String?  // Optional link to conversation session
+  field       String   // e.g. "financials.revenue.FY24" or "companyGeneral.companyName"
+  oldValue    Json?
+  newValue    Json?
+  reasoning   String?
+  origin      String   // "math_auditor" | "agent_tool" | "live_data_refresh"
+  status      String   @default("pending") // "pending" | "approved" | "rejected"
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model ResearchSession {
+  id        String   @id @default(uuid())
+  reportId  String
+  orgId     String   @default("default-org")
+  createdBy String   @default("analyst")
+  createdAt DateTime @default(now())
+  messages  ConversationMessage[]
+  toolCalls ToolCall[]
+}
+
+model ConversationMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String   // "user" | "agent"
+  content   String
+  createdAt DateTime @default(now())
+  session   ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model ToolCall {
+  id           String   @id @default(uuid())
+  sessionId    String
+  toolName     String
+  inputJson    Json
+  outputJson   Json
+  latencyMs    Int
+  costEstimate Float    @default(0.0)
+  status       String   // "success" | "failed"
+  createdAt    DateTime @default(now())
+  session      ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+

@@ -3,18 +3,18 @@
  */
 export const GEOJIT_THEME = {
   colors: {
-    primary: '#0B3C5D',      // Deep Corporate Blue
-    secondary: '#328CC1',    // Medium Accent Blue
-    accent: '#D9B310',       // Gold/Amber (ideal for recommendations and target badges)
-    darkText: '#1D2731',     // Almost Black for text
-    lightBg: '#F9F9F9',      // Warm White/Off-White for sections
-    border: '#E8E8E8',       // Light grey for tables/gridlines
-    buyRating: '#28A745',    // Green
-    sellRating: '#DC3545',   // Red
-    holdRating: '#FFC107'    // Orange/Yellow
+    primary: '#0B3C5D',
+    secondary: '#328CC1',
+    accent: '#D9B310',
+    darkText: '#1D2731',
+    lightBg: '#F9F9F9',
+    border: '#E8E8E8',
+    buyRating: '#28A745',
+    sellRating: '#DC3545',
+    holdRating: '#FFC107'
   },
   typography: {
-    fontFamily: 'Helvetica',
+    fontFamily: 'Inter, Helvetica, sans-serif',
     titleSize: 24,
     h1Size: 18,
     h2Size: 14,
@@ -22,12 +22,14 @@ export const GEOJIT_THEME = {
     captionSize: 8
   },
   layout: {
-    margin: 36, // 0.5 inch margins
-    pageWidth: 612, // Standard US Letter width
-    pageHeight: 792 // Standard US Letter height
+    margin: 36,
+    pageWidth: 595,
+    pageHeight: 842
   }
 };
 
 export type GeojitTheme = typeof GEOJIT_THEME;
 
-export * from './report-template';
+// NOTE: PDF generation has moved to:
+//   src/lib/ai/html-report-generator.ts  — LLM generates full HTML
+//   src/lib/pdf/index.ts                 — Puppeteer renders HTML → PDF

@@ -1,75 +1,87 @@
+import puppeteer from 'puppeteer';
+import { EquityResearchData } from '@/types';
+import { HtmlReportGenerator } from '@/lib/ai/html-report-generator';
 import fs from 'fs';
 import path from 'path';
-import PDFDocument from 'pdfkit';
-import { EquityResearchData } from '@/types';
-import { ReportMapper } from '@/lib/report/mapper';
-import { renderReportPDF, renderRunningFrames } from '@/lib/templates';
 
 /**
- * DejaVu Sans is committed under src/lib/pdf/fonts and included in the server
- * function output via `outputFileTracingIncludes` in next.config.ts, so the
- * files are present in every deployment (local, Docker, Vercel lambda).
+ * PDF Generation Service — AI HTML → Puppeteer → PDF
+ *
+ * The LLM generates a complete, print-ready A4 HTML document (with inline SVG
+ * charts, proper tables, CSS print rules). Puppeteer renders it to a PDF buffer.
+ *
+ * This replaces the manual PDFKit coordinate-math approach, which was fragile
+ * and produced blank pages, text overlaps, and broken chart layouts.
  */
-const FONTS_DIR = path.join(process.cwd(), 'src', 'lib', 'pdf', 'fonts');
-const REGULAR_FONT = path.join(FONTS_DIR, 'DejaVuSans.ttf');
-const BOLD_FONT = path.join(FONTS_DIR, 'DejaVuSans-Bold.ttf');
 
-/**
- * PDF Generation Engine using PDFKit — pure JavaScript rendering, no headless
- * browser or native canvas, so it runs on any Node runtime (incl. serverless).
- * Fonts are embedded as base64 constants to avoid filesystem dependencies.
- */
 export class PDFGenerationService {
-  /**
-   * Generates a stylized A4 PDF document as a Buffer from Equity Research Data.
-   */
-  public async generateReportPDF(data: EquityResearchData): Promise<Buffer> {
-    // 1. Map raw/AI data to report structure
-    const compiledReport = ReportMapper.mapToCompiledReport(data);
-
-    // 2. Compile A4 PDF layout
-    const chunks: Buffer[] = [];
-    const doc = new PDFDocument({
-      size: 'A4',
-      margins: {
-        top: 51.02,
-        bottom: 51.02,
-        left: 34.02,
-        right: 34.02
-      },
-      info: {
-        Title: `${compiledReport.summary.companyName} Equity Research Report`,
-        Author: 'EquiGen Research Division',
-        Subject: 'Equity Research',
-        Creator: 'EquiGen'
-      },
-      bufferPages: true
+  public async generateReportPDF(
+    data: EquityResearchData,
+    status = 'draft',
+    metadata?: { reviewerName: string; sebiRegNo: string; approvedAt: Date }
+  ): Promise<Buffer> {
+    // 1. Ask the AI to generate the full HTML report
+    console.log('[PDF] Generating AI HTML report...');
+    const html = await HtmlReportGenerator.generateHTML(data, {
+      status: status as 'draft' | 'published',
+      reviewerName: metadata?.reviewerName,
+      sebiRegNo: metadata?.sebiRegNo,
+      approvedAt: metadata?.approvedAt,
     });
 
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    const done = new Promise<Buffer>((resolve, reject) => {
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
+    // Optional: cache the HTML alongside the PDF for debugging
+    try {
+      const ticker = data.company.ticker ?? data.company.name.substring(0, 4).toUpperCase();
+      const htmlPath = path.join(process.cwd(), 'public', 'temp', 'reports', `${ticker.toUpperCase()}.html`);
+      await fs.promises.writeFile(htmlPath, html, 'utf-8');
+    } catch { /* non-fatal */ }
+
+    // 2. Render HTML → PDF with Puppeteer
+    console.log('[PDF] Launching Puppeteer...');
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--font-render-hinting=none',
+      ],
     });
 
-    // 3. Register embedded fonts (DejaVu Sans covers the ₹ glyph)
-    if (!fs.existsSync(REGULAR_FONT) || !fs.existsSync(BOLD_FONT)) {
-      throw new Error('PDF fonts not found. Expected DejaVuSans.ttf and DejaVuSans-Bold.ttf in src/lib/pdf/fonts.');
+    try {
+      const page = await browser.newPage();
+
+      // Set A4 viewport
+      await page.setViewport({ width: 794, height: 1123 });
+
+      // Load the HTML content
+      await page.setContent(html, {
+        waitUntil: 'load',
+        timeout: 30000,
+      });
+
+      // Wait for Google Fonts to load (if included)
+      await page.evaluateHandle('document.fonts.ready');
+
+      // Generate PDF
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '15mm',
+          bottom: '15mm',
+          left: '15mm',
+          right: '15mm',
+        },
+        displayHeaderFooter: false,
+      });
+
+      console.log(`[PDF] Generated PDF: ${pdfBuffer.length} bytes`);
+      return Buffer.from(pdfBuffer);
+    } finally {
+      await browser.close();
     }
-    doc.registerFont('Body', REGULAR_FONT);
-    doc.registerFont('BodyBold', BOLD_FONT);
-
-    // 4. Render content
-    renderReportPDF(doc, compiledReport);
-
-    // 5. Apply running headers/footers + page numbers on every page
-    renderRunningFrames(doc, compiledReport);
-
-    // 6. Finalize and collect the buffer
-    doc.end();
-    const pdfBuffer = await done;
-
-    return pdfBuffer;
   }
 }
 
