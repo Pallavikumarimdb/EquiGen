@@ -23,6 +23,37 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { EquityResearchData } from '@/types';
+import { PanelResizer } from './PanelResizer';
+
+type PanelKey = 'sidebar' | 'config' | 'chat';
+
+const DEFAULT_PANEL_WIDTHS: Record<PanelKey, number> = { sidebar: 256, config: 320, chat: 400 };
+const PANEL_LIMITS: Record<PanelKey, { min: number; max: number }> = {
+  sidebar: { min: 180, max: 420 },
+  config: { min: 280, max: 640 },
+  chat: { min: 320, max: 860 },
+};
+
+const clampPanelWidth = (value: number, key: PanelKey) =>
+  Math.min(PANEL_LIMITS[key].max, Math.max(PANEL_LIMITS[key].min, value));
+
+function loadPanelWidths(): Record<PanelKey, number> {
+  if (typeof window === 'undefined') return { ...DEFAULT_PANEL_WIDTHS };
+  try {
+    const raw = localStorage.getItem('equigen_panel_widths');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        sidebar: clampPanelWidth(Number(parsed.sidebar) || DEFAULT_PANEL_WIDTHS.sidebar, 'sidebar'),
+        config: clampPanelWidth(Number(parsed.config) || DEFAULT_PANEL_WIDTHS.config, 'config'),
+        chat: clampPanelWidth(Number(parsed.chat) || DEFAULT_PANEL_WIDTHS.chat, 'chat'),
+      };
+    }
+  } catch {
+    // Corrupt or inaccessible storage — fall back to defaults
+  }
+  return { ...DEFAULT_PANEL_WIDTHS };
+}
 
 type HistoryItem = {
   id: string;
@@ -117,6 +148,18 @@ export function Dashboard() {
   const [userRole, setUserRole] = useState<'analyst' | 'research_analyst' | 'admin'>('research_analyst');
   const [viewQueueOnly, setViewQueueOnly] = useState(false);
   const [showConfig, setShowConfig] = useState(true);
+
+  // Resizable panel widths (sidebar, config, chat) with localStorage persistence
+  const [panelWidths, setPanelWidths] = useState<Record<PanelKey, number>>(loadPanelWidths);
+  const [activeResizer, setActiveResizer] = useState<PanelKey | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('equigen_panel_widths', JSON.stringify(panelWidths));
+    } catch {
+      // Storage unavailable — widths simply won't persist
+    }
+  }, [panelWidths]);
 
   // Load AI Settings from localStorage on mount
   useEffect(() => {
@@ -1155,7 +1198,13 @@ export function Dashboard() {
     <div className="h-screen w-screen flex bg-[#0c0c0f] text-slate-100 antialiased font-sans overflow-hidden">
 
       {/* ── Left Sidebar ─────────────────────────────────────────────── */}
-      <aside className={`h-screen bg-[#111115] border-r border-white/[0.06] flex flex-col shrink-0 transition-all duration-300 z-20 ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden lg:w-14'}`}>
+      <aside
+        className={`h-screen bg-[#111115] border-r border-white/[0.06] flex flex-col shrink-0 z-20 ${isSidebarOpen
+          ? activeResizer === 'sidebar' ? '' : 'transition-all duration-300'
+          : 'w-0 overflow-hidden lg:w-14'
+          }`}
+        style={isSidebarOpen ? { width: panelWidths.sidebar } : undefined}
+      >
 
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-white/[0.06] shrink-0">
@@ -1280,6 +1329,20 @@ export function Dashboard() {
         </div>
       </aside>
 
+      {/* Sidebar resize handle */}
+      {isSidebarOpen && (
+        <PanelResizer
+          side="right"
+          width={panelWidths.sidebar}
+          defaultWidth={DEFAULT_PANEL_WIDTHS.sidebar}
+          min={PANEL_LIMITS.sidebar.min}
+          max={PANEL_LIMITS.sidebar.max}
+          onResize={(w) => setPanelWidths((p) => ({ ...p, sidebar: w }))}
+          onStart={() => setActiveResizer('sidebar')}
+          onEnd={() => setActiveResizer(null)}
+        />
+      )}
+
       {/* ── Main Area ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
@@ -1392,7 +1455,10 @@ export function Dashboard() {
 
           {/* ─── Column 1 — Configuration ─────────────────────── */}
           {showConfig && (
-            <div className="w-full lg:w-[320px] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin">
+            <div
+              className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
+              style={{ '--config-w': `${panelWidths.config}px` } as React.CSSProperties}
+            >
 
               {/* Report Configuration Card */}
               <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
@@ -1515,6 +1581,20 @@ export function Dashboard() {
               </div>
 
             </div>
+          )}
+
+          {/* Configuration resize handle */}
+          {showConfig && (
+            <PanelResizer
+              side="right"
+              width={panelWidths.config}
+              defaultWidth={DEFAULT_PANEL_WIDTHS.config}
+              min={PANEL_LIMITS.config.min}
+              max={PANEL_LIMITS.config.max}
+              onResize={(w) => setPanelWidths((p) => ({ ...p, config: w }))}
+              onStart={() => setActiveResizer('config')}
+              onEnd={() => setActiveResizer(null)}
+            />
           )}
 
           {/* ─── Column 2 — Workspace / Output ────────────────────────────── */}
@@ -1877,7 +1957,22 @@ export function Dashboard() {
 
           {/* ─── Column 3 — Co-Pilot Chat ────────────────────────────── */}
           {reportData && isChatOpen && !loading && (
-            <div className="w-full lg:w-[400px] shrink-0 border-l border-white/[0.06] bg-[#141417]/80 backdrop-blur-xl flex flex-col h-full overflow-hidden shadow-2xl">
+            <PanelResizer
+              side="left"
+              width={panelWidths.chat}
+              defaultWidth={DEFAULT_PANEL_WIDTHS.chat}
+              min={PANEL_LIMITS.chat.min}
+              max={PANEL_LIMITS.chat.max}
+              onResize={(w) => setPanelWidths((p) => ({ ...p, chat: w }))}
+              onStart={() => setActiveResizer('chat')}
+              onEnd={() => setActiveResizer(null)}
+            />
+          )}
+          {reportData && isChatOpen && !loading && (
+            <div
+              className="w-full lg:w-[var(--chat-w)] shrink-0 border-l border-white/[0.06] bg-[#141417]/80 backdrop-blur-xl flex flex-col h-full overflow-hidden shadow-2xl"
+              style={{ '--chat-w': `${panelWidths.chat}px` } as React.CSSProperties}
+            >
               {/* Premium Header */}
               <div className="p-4 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-[#0f0f13] to-[#141418]">
                 <div className="flex items-center gap-2.5">
