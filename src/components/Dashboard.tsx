@@ -1,16 +1,16 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Upload, 
-  FileText, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Download, 
-  BarChart3, 
-  Activity, 
-  Layers, 
-  Trash2, 
+import {
+  Upload,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Download,
+  BarChart3,
+  Activity,
+  Layers,
+  Trash2,
   Sparkles,
   X,
   Loader2,
@@ -176,10 +176,10 @@ export function Dashboard() {
   }, []);
 
   const saveSettings = async (
-    provider: 'groq' | 'openai', 
-    gKey: string, 
-    oKey: string, 
-    gModel: string, 
+    provider: 'groq' | 'openai',
+    gKey: string,
+    oKey: string,
+    gModel: string,
     oModel: string
   ) => {
     setAiProvider(provider);
@@ -339,12 +339,12 @@ export function Dashboard() {
     setActiveTab('preview');
     setShowConfig(false);
     setIsChatOpen(true);
-    
+
     // Fetch proposals and audit logs
     fetchProposals(item.id);
     fetchAuditLogs(item.id);
     fetchChatSession(item.id);
-    
+
     showToast(`Loaded report for ${item.companyName}`, 'info');
   };
 
@@ -405,7 +405,7 @@ export function Dashboard() {
         // If the report was forked to a new draft baseline, refresh active report and redirect pointers
         if (data.forkedReportId && activeReportId) {
           showToast('Report forked to a new draft for edits!', 'info');
-          
+
           // Refresh report list & select the new fork
           const historyRes = await fetch('/api/history');
           if (historyRes.ok) {
@@ -430,7 +430,7 @@ export function Dashboard() {
               modelUsedForFinancials: item.modelUsedForFinancials || null
             }));
             setHistory(mapped);
-            
+
             const forkedItem = mapped.find((h: any) => h.id === data.forkedReportId);
             if (forkedItem) {
               setCompanyName(forkedItem.companyName);
@@ -438,7 +438,7 @@ export function Dashboard() {
               setReportPdfBase64(forkedItem.reportPdfBase64);
               setActiveReportId(forkedItem.id);
               setActiveReportStatus(forkedItem.status);
-              
+
               // Refresh proposals & logs for the new fork
               fetchProposals(forkedItem.id);
               fetchAuditLogs(forkedItem.id);
@@ -587,7 +587,7 @@ export function Dashboard() {
       const updated = await res.json();
       setReportPdfBase64(updated.pdfBase64);
       setActiveReportStatus(updated.status);
-      
+
       // Update item inside history state
       setHistory(prev => prev.map(item => {
         if (item.id === activeReportId) {
@@ -724,7 +724,7 @@ export function Dashboard() {
     setError(null);
     setReportData(null);
     setReportPdfBase64(null);
-    
+
     const updatedSteps: ProgressStep[] = [
       { label: 'Reading uploaded document structure', status: 'idle' },
       { label: `Extracting key metrics using ${aiProvider === 'groq' ? 'Groq Llama 3.3 70B' : 'OpenAI GPT-4o'}`, status: 'idle' },
@@ -784,8 +784,8 @@ export function Dashboard() {
       const extractRes = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          companyName, 
+        body: JSON.stringify({
+          companyName,
           rawText,
           fileName: file.name,       // ← pass the real filename
           provider: aiProvider,
@@ -845,7 +845,7 @@ export function Dashboard() {
 
           if (statusData.status === 'completed') {
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-            
+
             // --- Step 3: Format Financial Ratios & Generate Charts ---
             setCurrentStepIndex(2);
             updatedSteps[2].status = 'running';
@@ -863,7 +863,7 @@ export function Dashboard() {
 
             const extractedData = createdReport.reportData as EquityResearchData;
             setReportPdfBase64(createdReport.pdfBase64);
-            
+
             updatedSteps[2].status = 'completed';
             setSteps([...updatedSteps]);
 
@@ -946,7 +946,7 @@ export function Dashboard() {
         }
 
         showToast(`Rate limit reached — retrying in ${durationText}...`, 'info');
-        
+
         // Keep the throttled step as 'running' (no red failure state — it will resume)
         if (updatedSteps[currentStepIndex]) {
           updatedSteps[currentStepIndex].status = 'running';
@@ -979,7 +979,7 @@ export function Dashboard() {
       // Genuine failure (not a rate limit)
       setError(errMsg);
       showToast(errMsg, 'error');
-      
+
       if (updatedSteps[currentStepIndex]) {
         updatedSteps[currentStepIndex].status = 'failed';
         setSteps([...updatedSteps]);
@@ -996,7 +996,7 @@ export function Dashboard() {
     showToast('Resuming extraction from last checkpoint...', 'info');
 
     const updatedSteps = [...steps];
-    
+
     // Find the failed step index and mark it as running
     const failedIdx = updatedSteps.findIndex(s => s.status === 'failed');
     const startIdx = failedIdx !== -1 ? failedIdx : 0;
@@ -1075,7 +1075,7 @@ export function Dashboard() {
 
           if (statusData.status === 'completed') {
             clearInterval(pollInterval);
-            
+
             // Complete all remaining steps in UI
             for (let i = startIdx; i < updatedSteps.length; i++) {
               updatedSteps[i].status = 'completed';
@@ -1095,14 +1095,14 @@ export function Dashboard() {
             const extractedData = createdReport.reportData as EquityResearchData;
             setReportPdfBase64(createdReport.pdfBase64);
 
-             setReportData(extractedData);
-             setActiveReportId(createdReport.id);
-             setActiveReportStatus(createdReport.status || 'draft');
-             fetchChatSession(createdReport.id);
-             setShowConfig(false);
-             setIsChatOpen(true);
-             showToast('Equity report successfully recovered and compiled!', 'success');
-             setLoading(false);
+            setReportData(extractedData);
+            setActiveReportId(createdReport.id);
+            setActiveReportStatus(createdReport.status || 'draft');
+            fetchChatSession(createdReport.id);
+            setShowConfig(false);
+            setIsChatOpen(true);
+            showToast('Equity report successfully recovered and compiled!', 'success');
+            setLoading(false);
           }
         } catch (pollErr) {
           console.error('Status polling error during resume:', pollErr);
@@ -1187,23 +1187,21 @@ export function Dashboard() {
               </span>
               <button
                 onClick={() => setViewQueueOnly(!viewQueueOnly)}
-                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
-                  viewQueueOnly 
-                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
-                    : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
-                }`}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${viewQueueOnly
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                  }`}
               >
                 {viewQueueOnly ? 'Show All' : 'Show Review Queue'}
               </button>
             </div>
           )}
           {!isSidebarOpen && (
-            <button 
+            <button
               onClick={() => setViewQueueOnly(!viewQueueOnly)}
               title="Toggle Review Queue Only"
-              className={`w-8 h-8 rounded-lg mx-auto mt-2 flex items-center justify-center border transition-all ${
-                viewQueueOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'border-transparent text-slate-500'
-              }`}
+              className={`w-8 h-8 rounded-lg mx-auto mt-2 flex items-center justify-center border transition-all ${viewQueueOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'border-transparent text-slate-500'
+                }`}
             >
               <Activity className="w-4 h-4" />
             </button>
@@ -1221,24 +1219,22 @@ export function Dashboard() {
                 key={item.id}
                 onClick={() => selectHistoryItem(item)}
                 title={!isSidebarOpen ? `${item.companyName} (${item.status})` : undefined}
-                className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                  reportData?.company?.ticker === item.id
-                    ? 'bg-blue-600/20 text-blue-300 border border-blue-500/20'
-                    : 'hover:bg-white/[0.04] text-slate-400 hover:text-slate-200'
-                } ${!isSidebarOpen && 'justify-center px-0'}`}
+                className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${reportData?.company?.ticker === item.id
+                  ? 'bg-blue-600/20 text-blue-300 border border-blue-500/20'
+                  : 'hover:bg-white/[0.04] text-slate-400 hover:text-slate-200'
+                  } ${!isSidebarOpen && 'justify-center px-0'}`}
               >
                 <FileText className="w-3.5 h-3.5 shrink-0 opacity-60" />
                 {isSidebarOpen && (
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="text-[11px] font-semibold truncate">{item.companyName}</div>
-                      <span className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${
-                        item.status === 'published' ? 'bg-emerald-500/20 text-emerald-300' :
+                      <span className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${item.status === 'published' ? 'bg-emerald-500/20 text-emerald-300' :
                         item.status === 'approved' ? 'bg-blue-500/20 text-blue-300' :
-                        item.status === 'changes_requested' ? 'bg-rose-500/20 text-rose-300' :
-                        item.status === 'under_review' ? 'bg-amber-500/20 text-amber-300' :
-                        'bg-white/[0.06] text-slate-400'
-                      }`}>
+                          item.status === 'changes_requested' ? 'bg-rose-500/20 text-rose-300' :
+                            item.status === 'under_review' ? 'bg-amber-500/20 text-amber-300' :
+                              'bg-white/[0.06] text-slate-400'
+                        }`}>
                         {item.status || 'draft'}
                       </span>
                     </div>
@@ -1332,9 +1328,8 @@ export function Dashboard() {
             </div>
             <button
               onClick={() => setShowConfig(!showConfig)}
-              className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                showConfig ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
-              }`}
+              className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${showConfig ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                }`}
               title="Toggle Report Configuration Panel"
             >
               <Layers className="w-4 h-4" />
@@ -1343,9 +1338,8 @@ export function Dashboard() {
             {reportData && (
               <button
                 onClick={() => setIsChatOpen(!isChatOpen)}
-                className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                  isChatOpen ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
-                }`}
+                className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${isChatOpen ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                  }`}
               >
                 <Sparkles className="w-4 h-4" />
                 <span>AI Co-Pilot</span>
@@ -1373,13 +1367,12 @@ export function Dashboard() {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-start justify-between gap-3 p-3.5 rounded-xl shadow-2xl border text-xs font-semibold backdrop-blur-xl transition-all ${
-                toast.type === 'success'
-                  ? 'bg-emerald-950/90 border-emerald-800/60 text-emerald-200'
-                  : toast.type === 'error'
+              className={`pointer-events-auto flex items-start justify-between gap-3 p-3.5 rounded-xl shadow-2xl border text-xs font-semibold backdrop-blur-xl transition-all ${toast.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-800/60 text-emerald-200'
+                : toast.type === 'error'
                   ? 'bg-rose-950/90 border-rose-800/60 text-rose-200'
                   : 'bg-blue-950/90 border-blue-800/60 text-blue-200'
-              }`}
+                }`}
             >
               <div className="flex items-center gap-2">
                 {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
@@ -1442,11 +1435,10 @@ export function Dashboard() {
                           onDragLeave={handleDrag}
                           onDrop={handleDrop}
                           onClick={() => fileInputRef.current?.click()}
-                          className={`border-2 border-dashed rounded-xl p-7 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
-                            isDragActive
-                              ? 'border-blue-500/60 bg-blue-500/5'
-                              : 'border-white/[0.08] bg-[#0f0f13] hover:border-white/[0.16] hover:bg-white/[0.02]'
-                          }`}
+                          className={`border-2 border-dashed rounded-xl p-7 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${isDragActive
+                            ? 'border-blue-500/60 bg-blue-500/5'
+                            : 'border-white/[0.08] bg-[#0f0f13] hover:border-white/[0.16] hover:bg-white/[0.02]'
+                            }`}
                         >
                           <div className={`p-3 rounded-xl mb-3 transition-all ${isDragActive ? 'bg-blue-500/20' : 'bg-white/[0.04]'}`}>
                             <Upload className={`w-5 h-5 transition-colors ${isDragActive ? 'text-blue-400' : 'text-slate-500'}`} />
@@ -1565,24 +1557,22 @@ export function Dashboard() {
 
                 <div className="p-5 space-y-3">
                   {steps.map((step, idx) => (
-                    <div key={idx} className={`flex items-center gap-4 p-3.5 rounded-xl transition-all ${
-                      step.status === 'running' ? 'bg-blue-600/10 border border-blue-500/20' :
+                    <div key={idx} className={`flex items-center gap-4 p-3.5 rounded-xl transition-all ${step.status === 'running' ? 'bg-blue-600/10 border border-blue-500/20' :
                       step.status === 'completed' ? 'bg-emerald-600/5 border border-emerald-800/20' :
-                      step.status === 'failed' ? 'bg-rose-600/10 border border-rose-800/20' :
-                      'bg-white/[0.02] border border-transparent'
-                    }`}>
+                        step.status === 'failed' ? 'bg-rose-600/10 border border-rose-800/20' :
+                          'bg-white/[0.02] border border-transparent'
+                      }`}>
                       <div className="shrink-0">
                         {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         {step.status === 'running' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
                         {step.status === 'failed' && <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />}
                         {step.status === 'idle' && <div className="w-4 h-4 rounded-full border border-white/[0.1] bg-white/[0.03]" />}
                       </div>
-                      <span className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${
-                        step.status === 'running' ? 'text-blue-300' :
+                      <span className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${step.status === 'running' ? 'text-blue-300' :
                         step.status === 'completed' ? 'text-slate-500' :
-                        step.status === 'failed' ? 'text-rose-300' :
-                        'text-slate-600'
-                      }`}>
+                          step.status === 'failed' ? 'text-rose-300' :
+                            'text-slate-600'
+                        }`}>
                         <span>{step.label}</span>
                         {step.status === 'running' && throttleCountdown && idx === currentStepIndex && (
                           <span className="text-[10px] text-blue-400 font-bold animate-pulse">
@@ -1620,11 +1610,10 @@ export function Dashboard() {
               <div className="space-y-4">
 
                 {/* Status Banner */}
-                <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
-                  activeReportStatus === 'published'
-                    ? 'bg-emerald-950/30 border-emerald-800/40'
-                    : 'bg-[#16161a] border-white/[0.07]'
-                }`}>
+                <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${activeReportStatus === 'published'
+                  ? 'bg-emerald-950/30 border-emerald-800/40'
+                  : 'bg-[#16161a] border-white/[0.07]'
+                  }`}>
                   <div className="flex items-center gap-3.5">
                     <div className={`p-2.5 rounded-xl ${activeReportStatus === 'published' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
                       <CheckCircle2 className={`w-4 h-4 ${activeReportStatus === 'published' ? 'text-emerald-400' : 'text-blue-400'}`} />
@@ -1632,11 +1621,10 @@ export function Dashboard() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-white">Report Compiled</span>
-                        <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${
-                          activeReportStatus === 'published'
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-amber-500/20 text-amber-300'
-                        }`}>
+                        <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${activeReportStatus === 'published'
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-amber-500/20 text-amber-300'
+                          }`}>
                           {activeReportStatus}
                         </span>
                       </div>
@@ -1681,9 +1669,8 @@ export function Dashboard() {
                     <button
                       key={t.id}
                       onClick={() => setActiveTab(t.id as any)}
-                      className={`pb-2.5 text-xs font-bold transition-all relative ${
-                        activeTab === t.id ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
-                      }`}
+                      className={`pb-2.5 text-xs font-bold transition-all relative ${activeTab === t.id ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
+                        }`}
                     >
                       {t.label}
                       {activeTab === t.id && (
@@ -1696,7 +1683,7 @@ export function Dashboard() {
                 {/* Tab 1: Preview */}
                 {activeTab === 'preview' && (
                   <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden relative">
-                    
+
                     {/* Inline Draft Watermark Banner */}
                     {activeReportStatus !== 'approved' && activeReportStatus !== 'published' && (
                       <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2 flex items-center gap-2 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
@@ -1808,11 +1795,10 @@ export function Dashboard() {
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-white font-mono">{p.field}</span>
-                                <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
-                                  p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-300' :
+                                <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-300' :
                                   p.status === 'rejected' ? 'bg-rose-500/20 text-rose-300' :
-                                  'bg-amber-500/20 text-amber-300'
-                                }`}>{p.status}</span>
+                                    'bg-amber-500/20 text-amber-300'
+                                  }`}>{p.status}</span>
                               </div>
                               <p className="text-[10px] text-slate-400 italic">Origin: {p.origin}</p>
                               {p.reasoning && <p className="text-[10px] text-slate-500">Reason: {p.reasoning}</p>}
@@ -1893,7 +1879,7 @@ export function Dashboard() {
           {reportData && isChatOpen && !loading && (
             <div className="w-full lg:w-[400px] shrink-0 border-l border-white/[0.06] bg-[#141417]/80 backdrop-blur-xl flex flex-col h-full overflow-hidden shadow-2xl">
               {/* Premium Header */}
-              <div className="px-5 py-4.5 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-[#0f0f13] to-[#141418]">
+              <div className="p-4 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-[#0f0f13] to-[#141418]">
                 <div className="flex items-center gap-2.5">
                   <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                     <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
@@ -1946,11 +1932,10 @@ export function Dashboard() {
                     <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">
                       {msg.role === 'user' ? 'You' : 'Co-Pilot Agent'}
                     </span>
-                    <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-md leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-tr-none border border-blue-500/20'
-                        : 'bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none'
-                    }`}>
+                    <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-md leading-relaxed ${msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-tr-none border border-blue-500/20'
+                      : 'bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none'
+                      }`}>
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
@@ -1979,7 +1964,7 @@ export function Dashboard() {
                 <button
                   type="submit"
                   disabled={chatLoading || !chatInput.trim()}
-                  className="px-4.5 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 flex items-center gap-1.5 shrink-0"
+                  className="px-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 flex items-center gap-1.5 shrink-0"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>Send</span>
