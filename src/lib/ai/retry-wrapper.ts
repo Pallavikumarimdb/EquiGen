@@ -38,7 +38,10 @@ export function parseRetryAfterSeconds(errorMessage: string): number {
 /**
  * Wraps any async call. On 429 responses:
  *  - Parses Groq's suggested wait time (not a guessed backoff)
- *  - Waits exactly that long, then retries once
+ *  - If the cooldown is long (>30s, typically a model daily-quota reset) and a
+ *    `fallback` callable is provided (e.g. a different model on its own quota),
+ *    switches to the fallback instead of freezing the request.
+ *  - Otherwise waits exactly that long, then retries once
  *  - If still rate-limited after maxAttempts, throws RateLimitError (typed, not generic Error)
  *
  * Non-429 errors are re-thrown immediately without retry.
@@ -47,7 +50,8 @@ export async function withRateLimitRetry<T>(
   fn: () => Promise<T>,
   maxAttempts = 2,
   onWaitStart?: (waitSeconds: number) => Promise<void> | void,
-  onWaitEnd?: () => Promise<void> | void
+  onWaitEnd?: () => Promise<void> | void,
+  fallback?: () => Promise<T>
 ): Promise<T> {
   let lastError: unknown;
 
@@ -65,9 +69,24 @@ export async function withRateLimitRetry<T>(
         const waitSeconds = parseRetryAfterSeconds(message);
         console.warn(`[RetryWrapper] Rate limited (attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per Groq's response.`);
 
+        // Long cooldown (daily-quota reset) → hand off to the fallback model when available.
+        // Shorter waits are handled on the same model to preserve preferred-model quality.
+        if (fallback && waitSeconds > 30) {
+          try {
+            console.warn(`[RetryWrapper] Cooldown is ${waitSeconds}s — switching to fallback model.`);
+            return await fallback();
+          } catch (fbErr: unknown) {
+            lastError = fbErr;
+            console.warn('[RetryWrapper] Fallback model also failed; resorting to wait-and-retry on primary.', fbErr);
+          }
+        }
+
         // Abort and throw immediately if wait duration exceeds 5 minutes (300s) to avoid freezing server processes
         if (waitSeconds > 300) {
-          throw new RateLimitError(message, waitSeconds);
+          throw new RateLimitError(
+            lastError instanceof Error ? lastError.message : message,
+            waitSeconds
+          );
         }
 
         if (attempt < maxAttempts - 1) {
@@ -90,7 +109,10 @@ export async function withRateLimitRetry<T>(
         }
 
         // Exhausted attempts — signal as throttled, not failed
-        throw new RateLimitError(message, waitSeconds);
+        throw new RateLimitError(
+          lastError instanceof Error ? lastError.message : message,
+          waitSeconds
+        );
       }
 
       // Non-rate-limit error — propagate immediately as real failure

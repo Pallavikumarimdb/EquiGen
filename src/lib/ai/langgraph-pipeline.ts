@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { AIServiceOptions } from './langchain-service';
 import { AIExtractionResult } from './schema';
-import { getModelForRequest, recordActualUsage } from './model-router';
+import { getModelForRequest, getFallbackGroqModel, recordActualUsage } from './model-router';
 import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
 
 // --- Helper: Simple Character Chunker with overlap ---
@@ -221,11 +221,13 @@ async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
   }
 
   const structuredModel = model.withStructuredOutput(CompanyGeneralSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(CompanyGeneralSchema);
   const res = await withRateLimitRetry(
     () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]]),
     2,
     (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-    () => clearJobWait(state)
+    () => clearJobWait(state),
+    () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
   );
   clearJobWait(state);
 
@@ -252,11 +254,13 @@ async function extractSwotNode(state: typeof ResearchState.State) {
   }
 
   const structuredModel = model.withStructuredOutput(SwotAndThesisSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(SwotAndThesisSchema);
   const res = await withRateLimitRetry(
     () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]]),
     2,
     (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-    () => clearJobWait(state)
+    () => clearJobWait(state),
+    () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
   );
   clearJobWait(state);
 
@@ -288,11 +292,13 @@ async function extractFinancialsNode(state: typeof ResearchState.State) {
   }
 
   const structuredModel = model.withStructuredOutput(FinancialsSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(FinancialsSchema);
   const res = await withRateLimitRetry(
     () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]]),
     2,
     (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-    () => clearJobWait(state)
+    () => clearJobWait(state),
+    () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]])
   );
   clearJobWait(state);
 

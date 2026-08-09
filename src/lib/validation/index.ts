@@ -29,6 +29,15 @@ export const AnalystRecommendationSchema = z.object({
   rationale: z.array(z.string())
 });
 
+export const CompetitorInfoSchema = z.object({
+  name: z.string().min(1, 'Competitor name is required'),
+  ticker: z.string().optional(),
+  industry: z.string().optional(),
+  recommendation: z.string().optional(),
+  currentPrice: z.number().optional(),
+  targetPrice: z.number().optional()
+});
+
 export const EquityResearchDataSchema = z.object({
   company: CompanyMetadataSchema,
   recommendation: AnalystRecommendationSchema,
@@ -42,6 +51,7 @@ export const EquityResearchDataSchema = z.object({
     opportunities: z.array(z.string()),
     threats: z.array(z.string())
   }),
+  competitors: z.array(CompetitorInfoSchema).nullable().optional(),
   narrativeSummary: z.string().nullable().optional(),
   industryOverview: z.string().nullable().optional(),
   businessOverview: z.string().nullable().optional(),

@@ -522,17 +522,52 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             }
           }
         } else if (activeReportId) {
-          // Just reload proposals in case a new correction proposal was generated
+          // Reload proposals in case a new correction proposal was generated
           fetchProposals(activeReportId);
           fetchAuditLogs(activeReportId);
+
+          // When corrections were applied in-chat, refresh the live preview and PDF
+          if (data.correctionsApplied) {
+            const refreshed = await refreshActiveReportFromHistory();
+            await recompilePdfForActiveReport(refreshed?.reportData);
+            showToast('Corrections applied — report preview & PDF updated', 'success');
+          }
         }
       } else {
-        const err = await res.json();
-        showToast(err.message || 'Chat turn failed', 'error');
+        const errData = await res.json().catch(() => ({}));
+        const friendlyMsg = errData.message || 'Something went wrong while running the Co-Pilot. Please try again.';
+
+        if (res.status === 429) {
+          const waitMin = errData.retryAfterSeconds ? Math.ceil(Number(errData.retryAfterSeconds) / 60) : null;
+          const retryNote = waitMin
+            ? ` You can retry in ~${waitMin} min, or switch to the 8B model in AI Settings.`
+            : ' You can switch to the 8B model in AI Settings for a faster fallback.';
+          setChatMessages((prev) => [...prev, {
+            role: 'agent',
+            content: '⚠️ Rate limit reached: ' + friendlyMsg + retryNote,
+            isError: true,
+            retryPrompt: userMsg
+          }]);
+          showToast('Co-Pilot rate-limited — see message in chat', 'error');
+        } else {
+          setChatMessages((prev) => [...prev, {
+            role: 'agent',
+            content: '⚠️ ' + friendlyMsg,
+            isError: true,
+            retryPrompt: userMsg
+          }]);
+          showToast(friendlyMsg, 'error');
+        }
       }
     } catch (err) {
       console.error(err);
-      showToast('Connection failed', 'error');
+      setChatMessages((prev) => [...prev, {
+        role: 'agent',
+        content: '⚠️ Connection to the Co-Pilot failed. Check your network and try again.',
+        isError: true,
+        retryPrompt: userMsg
+      }]);
+      showToast('Connection failed — see message in chat', 'error');
     } finally {
       setChatLoading(false);
     }
@@ -583,37 +618,9 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
         if (activeReportId) {
           fetchProposals(activeReportId);
           fetchAuditLogs(activeReportId);
-          // Reload report history list to refresh data state
-          const historyRes = await fetch('/api/history');
-          if (historyRes.ok) {
-            const data = await historyRes.json();
-            const mapped = data.map((item: any) => ({
-              id: item.id,
-              companyName: item.companyName,
-              fileName: item.fileName,
-              createdAt: new Date(item.createdAt).toLocaleDateString('en-IN', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              }),
-              reportData: item.reportData,
-              reportPdfBase64: item.pdfBase64,
-              status: item.status || 'draft',
-              reviewerName: item.reviewerName,
-              sebiRegNo: item.sebiRegNo,
-              approvedAt: item.approvedAt,
-              modelUsedForFinancials: item.modelUsedForFinancials || null
-            }));
-            setHistory(mapped);
-            const currentItem = mapped.find((h: any) => h.id === activeReportId);
-            if (currentItem) {
-              setReportData(currentItem.reportData);
-              setReportPdfBase64(currentItem.reportPdfBase64);
-              setActiveReportStatus(currentItem.status);
-            }
-          }
+          // Reload report history & regenerate the PDF so the preview/downloads match
+          const refreshed = await refreshActiveReportFromHistory();
+          await recompilePdfForActiveReport(refreshed?.reportData);
         }
       } else {
         const err = await res.json();
@@ -622,6 +629,70 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
     } catch (e) {
       console.error(e);
       showToast('Connection failed', 'error');
+    }
+  };
+
+  // Reloads the report history list and re-selects the active report so the live
+  // preview always reflects corrections applied via proposals or the Co-Pilot chat.
+  const refreshActiveReportFromHistory = async (preferId?: string): Promise<any | null> => {
+    try {
+      const historyRes = await fetch('/api/history');
+      if (!historyRes.ok) return null;
+      const data = await historyRes.json();
+      const mapped = data.map((item: any) => ({
+        id: item.id,
+        companyName: item.companyName,
+        fileName: item.fileName,
+        createdAt: new Date(item.createdAt).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        reportData: item.reportData,
+        reportPdfBase64: item.pdfBase64,
+        status: item.status || 'draft',
+        reviewerName: item.reviewerName,
+        sebiRegNo: item.sebiRegNo,
+        approvedAt: item.approvedAt,
+        modelUsedForFinancials: item.modelUsedForFinancials || null
+      }));
+      setHistory(mapped);
+      const targetId = preferId || activeReportId;
+      const currentItem = mapped.find((h: any) => h.id === targetId);
+      if (currentItem) {
+        setCompanyName(currentItem.companyName);
+        setReportData(currentItem.reportData);
+        setReportPdfBase64(currentItem.reportPdfBase64);
+        setActiveReportStatus(currentItem.status);
+      }
+      return currentItem || null;
+    } catch (e) {
+      console.error('Failed to refresh report from history:', e);
+      return null;
+    }
+  };
+
+  // Regenerates the compiled PDF for the active report so downloads mirror the latest reportData.
+  const recompilePdfForActiveReport = async (dataOverride?: any) => {
+    const dataForPdf = dataOverride || reportData;
+    if (!dataForPdf || !activeReportId) return;
+    try {
+      const res = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...dataForPdf, status: activeReportStatus === 'published' ? 'published' : 'draft' })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setReportPdfBase64(updated.pdfBase64);
+        setHistory((prev) => prev.map((h: any) =>
+          h.id === activeReportId ? { ...h, reportPdfBase64: updated.pdfBase64 } : h
+        ));
+      }
+    } catch (e) {
+      console.error('Failed to recompile PDF:', e);
     }
   };
 
@@ -728,6 +799,19 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Pretty-prints proposal old/new values so long arrays/objects stay readable and wrap.
+  const formatDiffValue = (value: unknown): string => {
+    if (value === undefined) return 'undefined';
+    if (value === null) return 'null';
+    if (typeof value === 'string') return value;
+    try {
+      const pretty = JSON.stringify(value, null, 2);
+      return pretty && pretty.length > 400 ? JSON.stringify(value) : pretty;
+    } catch {
+      return String(value);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -1967,6 +2051,51 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                         <p className="text-slate-400 text-sm leading-relaxed">{reportData.executiveSummary}</p>
                       </div>
 
+                      {/* Competitors */}
+                      {reportData.competitors && reportData.competitors.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Competitor Analysis</h4>
+                          <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+                            <table className="w-full text-left text-[11px] min-w-[540px]">
+                              <thead>
+                                <tr className="bg-white/[0.03] text-slate-500 text-[9px] uppercase tracking-widest">
+                                  <th className="px-4 py-2.5 font-bold">Company</th>
+                                  <th className="px-4 py-2.5 font-bold">Industry</th>
+                                  <th className="px-4 py-2.5 font-bold">Recommendation</th>
+                                  <th className="px-4 py-2.5 font-bold text-right">Target Price</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {reportData.competitors.map((c: any, i: number) => (
+                                  <tr key={i} className={`border-t border-white/[0.05] ${i % 2 === 0 ? 'bg-white/[0.01]' : ''}`}>
+                                    <td className="px-4 py-2.5 text-slate-200 font-semibold">
+                                      {c.name}
+                                      {c.ticker && <span className="text-slate-500 font-medium text-[9px] ml-1.5">{c.ticker}</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-slate-400">{c.industry || '-'}</td>
+                                    <td className="px-4 py-2.5">
+                                      {c.recommendation ? (
+                                        <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${String(c.recommendation) === 'BUY'
+                                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-800/30'
+                                          : String(c.recommendation) === 'SELL'
+                                            ? 'bg-rose-500/10 text-rose-400 border border-rose-800/30'
+                                            : 'bg-amber-500/10 text-amber-400 border border-amber-800/30'
+                                          }`}>
+                                          {c.recommendation}
+                                        </span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-slate-300 font-semibold">
+                                      {c.targetPrice != null ? `₹${Number(c.targetPrice).toLocaleString('en-IN')}` : '-'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
                       {/* SWOT */}
                       <div>
                         <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">SWOT Analysis</h4>
@@ -2011,9 +2140,9 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                     ) : (
                       <div className="space-y-3">
                         {proposals.map((p) => (
-                          <div key={p.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
+                          <div key={p.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 min-w-0">
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-bold text-white font-mono">{p.field}</span>
                                 <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-300' :
                                   p.status === 'rejected' ? 'bg-rose-500/20 text-rose-300' :
@@ -2021,14 +2150,16 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                                   }`}>{p.status}</span>
                               </div>
                               <p className="text-[10px] text-slate-400 italic">Origin: {p.origin}</p>
-                              {p.reasoning && <p className="text-[10px] text-slate-500">Reason: {p.reasoning}</p>}
-                              <div className="flex items-center gap-4 mt-2 bg-black/25 p-2 rounded-lg text-[10px] font-mono border border-white/5">
-                                <div>
-                                  <span className="text-slate-500">Old:</span> <span className="text-rose-400 font-bold">{JSON.stringify(p.oldValue)}</span>
+                              {p.reasoning && <p className="text-[10px] text-slate-500 break-words">Reason: {p.reasoning}</p>}
+                              <div className="mt-2 bg-black/25 p-2 rounded-lg text-[10px] font-mono border border-white/5 space-y-1 min-w-0">
+                                <div className="min-w-0">
+                                  <span className="text-slate-500">Old:</span>{' '}
+                                  <span className="text-rose-400 font-bold break-all">{formatDiffValue(p.oldValue)}</span>
                                 </div>
-                                <div className="text-slate-600">→</div>
-                                <div>
-                                  <span className="text-slate-500">New:</span> <span className="text-emerald-400 font-bold">{JSON.stringify(p.newValue)}</span>
+                                <div className="flex items-center gap-1.5 text-slate-600 select-none">↓</div>
+                                <div className="min-w-0">
+                                  <span className="text-slate-500">New:</span>{' '}
+                                  <span className="text-emerald-400 font-bold break-all">{formatDiffValue(p.newValue)}</span>
                                 </div>
                               </div>
                             </div>
@@ -2165,14 +2296,26 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                   <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     {/* Role label */}
                     <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">
-                      {msg.role === 'user' ? 'You' : 'Co-Pilot Agent'}
+                      {msg.role === 'user' ? 'You' : msg.isError ? 'Co-Pilot Agent · Error' : 'Co-Pilot Agent'}
                     </span>
                     <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-md leading-relaxed ${msg.role === 'user'
                       ? 'bg-blue-600 text-white rounded-tr-none border border-blue-500/20'
-                      : 'bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none'
+                      : msg.isError
+                        ? 'bg-rose-500/[0.06] border border-rose-500/25 text-rose-300 rounded-tl-none'
+                        : 'bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none'
                       }`}>
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     </div>
+                    {msg.isError && msg.retryPrompt && (
+                      <button
+                        type="button"
+                        onClick={() => executeChatMessage(msg.retryPrompt)}
+                        disabled={chatLoading}
+                        className="mt-1.5 px-2.5 py-1 bg-white/[0.04] hover:bg-blue-600/15 border border-white/[0.08] hover:border-blue-500/30 text-[9px] font-bold text-slate-400 hover:text-blue-300 rounded-lg transition-all disabled:opacity-40"
+                      >
+                        ↻ Retry
+                      </button>
+                    )}
                   </div>
                 ))}
                 {chatLoading && (

@@ -280,6 +280,32 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
       <ul>${s.items.map(i => `<li>${escape(i)}</li>`).join('')}</ul>
     </div>`).join('');
 
+  // ── Competitors
+  const competitors = data.competitors ?? [];
+  const competitorsSection = competitors.length > 0 ? `
+    <div class="section-title"><div class="section-bar"></div>Competitor Analysis</div>
+    <div class="no-break">
+      <table class="fin-table">
+        <thead><tr>
+          <th>Company</th>
+          <th>Industry</th>
+          <th>Recommendation</th>
+          <th>Current Price</th>
+          <th>Target Price</th>
+        </tr></thead>
+        <tbody>${competitors.map((c, i) => `
+          <tr class="${i % 2 === 0 ? 'even' : 'odd'}">
+            <td class="metric-label">${escape(c.name)}${c.ticker ? `<div class="comp-ticker">${escape(c.ticker)}</div>` : ''}</td>
+            <td>${escape(c.industry ?? '-')}</td>
+            <td>${escape(c.recommendation ?? '-')}</td>
+            <td>${c.currentPrice != null ? `₹${parseNum(c.currentPrice).toLocaleString('en-IN')}` : '-'}</td>
+            <td>${c.targetPrice != null ? `₹${parseNum(c.targetPrice).toLocaleString('en-IN')}` : '-'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  ` : '';
+
   const draftBanner = isDraft ? `
   <div class="draft-banner">
     ⚠ AI-GENERATED DRAFT — NOT FOR DISTRIBUTION
@@ -386,6 +412,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   .fin-table td { padding: 5px 8px; text-align: right; }
   .fin-table tr.even td { background: #f8fafc; }
   .fin-table tr.odd td { background: #fff; }
+  .comp-ticker { font-size: 7.5pt; color: #64748b; font-weight: 600; }
   .metric-label { text-align: left !important; font-weight: 600; color: #0B3C5D; }
 
   /* ── Charts ── */
@@ -502,6 +529,8 @@ ${watermark}
 
   <div class="section-title"><div class="section-bar"></div>Investment Thesis</div>
   <div class="para no-break">${escape(data.executiveSummary)}</div>
+
+  ${competitorsSection}
 
   <!-- ═══════════════════════════════════ PAGE 3: CHARTS ════════════════════════════════════════ -->
   <div class="page-break"></div>

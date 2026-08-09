@@ -27,6 +27,15 @@ export interface AnalystRecommendation {
   rationale: string[];
 }
 
+export interface CompetitorInfo {
+  name: string;
+  ticker?: string;
+  industry?: string;
+  recommendation?: string;
+  currentPrice?: number;
+  targetPrice?: number;
+}
+
 export interface EquityResearchData {
   company: CompanyMetadata;
   recommendation: AnalystRecommendation;
@@ -40,6 +49,7 @@ export interface EquityResearchData {
     opportunities: string[];
     threats: string[];
   };
+  competitors?: CompetitorInfo[] | null;
   narrativeSummary?: string | null;
   industryOverview?: string | null;
   businessOverview?: string | null;
