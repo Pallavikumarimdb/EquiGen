@@ -97,6 +97,27 @@ export function Dashboard() {
   // Throttle countdown state for live UI tracking
   const [throttleCountdown, setThrottleCountdown] = useState<string | null>(null);
 
+  // Compliance & Unified Review states
+  const [activeTab, setActiveTab] = useState<'preview' | 'diffs' | 'audit'>('preview');
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+  // AI Co-Pilot Chat states
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(true);
+
+  // Fork warning states
+  const [isForkModalOpen, setIsForkModalOpen] = useState(false);
+  const [pendingForkPrompt, setPendingForkPrompt] = useState('');
+
+  // User Role & Review Queue states
+  const [userRole, setUserRole] = useState<'analyst' | 'research_analyst' | 'admin'>('research_analyst');
+  const [viewQueueOnly, setViewQueueOnly] = useState(false);
+  const [showConfig, setShowConfig] = useState(true);
+
   // Load AI Settings from localStorage on mount
   useEffect(() => {
     const initSettings = async () => {
@@ -315,7 +336,217 @@ export function Dashboard() {
     setFile(null);
     setError(null);
     setLoading(false);
+    setActiveTab('preview');
+    setShowConfig(false);
+    setIsChatOpen(true);
+    
+    // Fetch proposals and audit logs
+    fetchProposals(item.id);
+    fetchAuditLogs(item.id);
+    fetchChatSession(item.id);
+    
     showToast(`Loaded report for ${item.companyName}`, 'info');
+  };
+
+  const fetchChatSession = async (reportId: string) => {
+    try {
+      const res = await fetch(`/api/agent/session?reportId=${reportId}`);
+      if (res.ok) {
+        const session = await res.json();
+        setActiveSessionId(session.id);
+        setChatMessages(session.messages || []);
+      }
+    } catch (e) {
+      console.error('Failed to load chat session:', e);
+    }
+  };
+
+  const sendChatMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !activeSessionId || chatLoading) return;
+
+    const userMsg = chatInput;
+    setChatInput('');
+
+    // RULE 5.1 / 7: Intercept and prompt if report is already approved or published
+    if (activeReportStatus === 'approved' || activeReportStatus === 'published') {
+      setPendingForkPrompt(userMsg);
+      setIsForkModalOpen(true);
+      return;
+    }
+
+    await executeChatMessage(userMsg);
+  };
+
+  const executeChatMessage = async (userMsg: string) => {
+    setChatMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
+    setChatLoading(true);
+
+    try {
+      const rawApiKey = aiProvider === 'groq' ? groqApiKey : openaiApiKey;
+      const resolvedApiKey = rawApiKey && rawApiKey.includes('•') ? undefined : rawApiKey || undefined;
+
+      const res = await fetch('/api/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: activeSessionId,
+          prompt: userMsg,
+          provider: aiProvider,
+          modelName: aiProvider === 'groq' ? groqModel : openaiModel,
+          apiKey: resolvedApiKey
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages((prev) => [...prev, { role: 'agent', content: data.response }]);
+
+        // If the report was forked to a new draft baseline, refresh active report and redirect pointers
+        if (data.forkedReportId && activeReportId) {
+          showToast('Report forked to a new draft for edits!', 'info');
+          
+          // Refresh report list & select the new fork
+          const historyRes = await fetch('/api/history');
+          if (historyRes.ok) {
+            const list = await historyRes.json();
+            const mapped = list.map((item: any) => ({
+              id: item.id,
+              companyName: item.companyName,
+              fileName: item.fileName,
+              createdAt: new Date(item.createdAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }),
+              reportData: item.reportData,
+              reportPdfBase64: item.pdfBase64,
+              status: item.status || 'draft',
+              reviewerName: item.reviewerName,
+              sebiRegNo: item.sebiRegNo,
+              approvedAt: item.approvedAt,
+              modelUsedForFinancials: item.modelUsedForFinancials || null
+            }));
+            setHistory(mapped);
+            
+            const forkedItem = mapped.find((h: any) => h.id === data.forkedReportId);
+            if (forkedItem) {
+              setCompanyName(forkedItem.companyName);
+              setReportData(forkedItem.reportData);
+              setReportPdfBase64(forkedItem.reportPdfBase64);
+              setActiveReportId(forkedItem.id);
+              setActiveReportStatus(forkedItem.status);
+              
+              // Refresh proposals & logs for the new fork
+              fetchProposals(forkedItem.id);
+              fetchAuditLogs(forkedItem.id);
+              fetchChatSession(forkedItem.id);
+            }
+          }
+        } else if (activeReportId) {
+          // Just reload proposals in case a new correction proposal was generated
+          fetchProposals(activeReportId);
+          fetchAuditLogs(activeReportId);
+        }
+      } else {
+        const err = await res.json();
+        showToast(err.message || 'Chat turn failed', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Connection failed', 'error');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const confirmForkChat = async () => {
+    setIsForkModalOpen(false);
+    const msg = pendingForkPrompt;
+    setPendingForkPrompt('');
+    if (msg) {
+      await executeChatMessage(msg);
+    }
+  };
+
+  const fetchProposals = async (reportId: string) => {
+    try {
+      const res = await fetch(`/api/proposals?reportId=${reportId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProposals(data);
+      }
+    } catch (e) {
+      console.error('Failed to load proposals:', e);
+    }
+  };
+
+  const fetchAuditLogs = async (reportId: string) => {
+    try {
+      const res = await fetch(`/api/audit?reportId=${reportId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(data);
+      }
+    } catch (e) {
+      console.error('Failed to load audit logs:', e);
+    }
+  };
+
+  const handleProposalAction = async (proposalId: string, status: 'approved' | 'rejected') => {
+    try {
+      const res = await fetch('/api/proposals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposalId, status, reviewerName: reviewerName || 'analyst' })
+      });
+      if (res.ok) {
+        showToast(`Proposal successfully ${status}!`, 'success');
+        if (activeReportId) {
+          fetchProposals(activeReportId);
+          fetchAuditLogs(activeReportId);
+          // Reload report history list to refresh data state
+          const historyRes = await fetch('/api/history');
+          if (historyRes.ok) {
+            const data = await historyRes.json();
+            const mapped = data.map((item: any) => ({
+              id: item.id,
+              companyName: item.companyName,
+              fileName: item.fileName,
+              createdAt: new Date(item.createdAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }),
+              reportData: item.reportData,
+              reportPdfBase64: item.pdfBase64,
+              status: item.status || 'draft',
+              reviewerName: item.reviewerName,
+              sebiRegNo: item.sebiRegNo,
+              approvedAt: item.approvedAt,
+              modelUsedForFinancials: item.modelUsedForFinancials || null
+            }));
+            setHistory(mapped);
+            const currentItem = mapped.find((h: any) => h.id === activeReportId);
+            if (currentItem) {
+              setReportData(currentItem.reportData);
+              setReportPdfBase64(currentItem.reportPdfBase64);
+              setActiveReportStatus(currentItem.status);
+            }
+          }
+        }
+      } else {
+        const err = await res.json();
+        showToast(err.message || 'Action failed', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Connection failed', 'error');
+    }
   };
 
   const startNewAnalysis = () => {
@@ -581,13 +812,22 @@ export function Dashboard() {
           const statusData = await statusRes.json();
 
           // Sync current checkpoint index
-          if (statusData.stepIndex > 1) {
-            updatedSteps[1].status = 'completed';
-            setSteps([...updatedSteps]);
+          const activeStepIdx = statusData.stepIndex || 0;
+          for (let i = 0; i < updatedSteps.length; i++) {
+            if (i < activeStepIdx) {
+              updatedSteps[i].status = 'completed';
+            } else if (i === activeStepIdx) {
+              updatedSteps[i].status = 'running';
+            } else {
+              updatedSteps[i].status = 'idle';
+            }
           }
+          setCurrentStepIndex(activeStepIdx);
+          setSteps([...updatedSteps]);
 
           if (statusData.status === 'throttled') {
             const waitSeconds = statusData.retryAfterSeconds || 20;
+
             const durationText = formatDuration(waitSeconds);
             showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
             setThrottleCountdown(durationText);
@@ -639,6 +879,9 @@ export function Dashboard() {
             setReportData(extractedData);
             setActiveReportId(createdReport.id);
             setActiveReportStatus(createdReport.status || 'draft');
+            fetchChatSession(createdReport.id);
+            setShowConfig(false);
+            setIsChatOpen(true);
             showToast('Equity report compiled successfully!', 'success');
             setLoading(false);
           }
@@ -852,11 +1095,14 @@ export function Dashboard() {
             const extractedData = createdReport.reportData as EquityResearchData;
             setReportPdfBase64(createdReport.pdfBase64);
 
-            setReportData(extractedData);
-            setActiveReportId(createdReport.id);
-            setActiveReportStatus(createdReport.status || 'draft');
-            showToast('Equity report successfully recovered and compiled!', 'success');
-            setLoading(false);
+             setReportData(extractedData);
+             setActiveReportId(createdReport.id);
+             setActiveReportStatus(createdReport.status || 'draft');
+             fetchChatSession(createdReport.id);
+             setShowConfig(false);
+             setIsChatOpen(true);
+             showToast('Equity report successfully recovered and compiled!', 'success');
+             setLoading(false);
           }
         } catch (pollErr) {
           console.error('Status polling error during resume:', pollErr);
@@ -935,42 +1181,80 @@ export function Dashboard() {
         {/* History */}
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5 min-h-0">
           {isSidebarOpen && (
-            <p className="px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
-              Recent Reports ({history.length})
-            </p>
+            <div className="px-3 py-1 flex items-center justify-between border-b border-white/[0.04] mb-2 pb-2">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                {viewQueueOnly ? 'Review Queue' : `Recent Reports (${history.length})`}
+              </span>
+              <button
+                onClick={() => setViewQueueOnly(!viewQueueOnly)}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
+                  viewQueueOnly 
+                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
+                    : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                }`}
+              >
+                {viewQueueOnly ? 'Show All' : 'Show Review Queue'}
+              </button>
+            </div>
           )}
-          {!isSidebarOpen && <History className="w-4 h-4 text-slate-600 mx-auto mt-2" />}
+          {!isSidebarOpen && (
+            <button 
+              onClick={() => setViewQueueOnly(!viewQueueOnly)}
+              title="Toggle Review Queue Only"
+              className={`w-8 h-8 rounded-lg mx-auto mt-2 flex items-center justify-center border transition-all ${
+                viewQueueOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'border-transparent text-slate-500'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+          )}
           {history.length === 0 && isSidebarOpen && (
             <div className="px-3 py-8 text-center text-[11px] text-slate-600 italic">No reports yet</div>
           )}
-          {history.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => selectHistoryItem(item)}
-              title={!isSidebarOpen ? item.companyName : undefined}
-              className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                reportData?.company?.ticker === item.id
-                  ? 'bg-blue-600/20 text-blue-300 border border-blue-500/20'
-                  : 'hover:bg-white/[0.04] text-slate-400 hover:text-slate-200'
-              } ${!isSidebarOpen && 'justify-center px-0'}`}
-            >
-              <FileText className="w-3.5 h-3.5 shrink-0 opacity-60" />
-              {isSidebarOpen && (
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-semibold truncate">{item.companyName}</div>
-                  <div className="text-[9px] text-slate-600 mt-0.5 truncate">{item.createdAt}</div>
-                </div>
-              )}
-              {isSidebarOpen && (
-                <button
-                  onClick={(e) => deleteHistoryItem(item.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-lg text-slate-500 hover:text-rose-400 transition-all shrink-0"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          ))}
+          {history
+            .filter((item) => {
+              if (!viewQueueOnly) return true;
+              return item.status === 'under_review' || item.status === 'changes_requested' || item.status === 'draft';
+            })
+            .map((item) => (
+              <div
+                key={item.id}
+                onClick={() => selectHistoryItem(item)}
+                title={!isSidebarOpen ? `${item.companyName} (${item.status})` : undefined}
+                className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                  reportData?.company?.ticker === item.id
+                    ? 'bg-blue-600/20 text-blue-300 border border-blue-500/20'
+                    : 'hover:bg-white/[0.04] text-slate-400 hover:text-slate-200'
+                } ${!isSidebarOpen && 'justify-center px-0'}`}
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                {isSidebarOpen && (
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="text-[11px] font-semibold truncate">{item.companyName}</div>
+                      <span className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${
+                        item.status === 'published' ? 'bg-emerald-500/20 text-emerald-300' :
+                        item.status === 'approved' ? 'bg-blue-500/20 text-blue-300' :
+                        item.status === 'changes_requested' ? 'bg-rose-500/20 text-rose-300' :
+                        item.status === 'under_review' ? 'bg-amber-500/20 text-amber-300' :
+                        'bg-white/[0.06] text-slate-400'
+                      }`}>
+                        {item.status || 'draft'}
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-slate-600 mt-0.5 truncate">{item.createdAt}</div>
+                  </div>
+                )}
+                {isSidebarOpen && (
+                  <button
+                    onClick={(e) => deleteHistoryItem(item.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-lg text-slate-500 hover:text-rose-400 transition-all shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
         </div>
 
         {/* Settings */}
@@ -1019,6 +1303,23 @@ export function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* User Role Indicator with Mock selector */}
+            <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-300">
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Role:</span>
+              <select
+                value={userRole}
+                onChange={(e) => {
+                  setUserRole(e.target.value as any);
+                  showToast(`Switched active role to ${e.target.value}`, 'info');
+                }}
+                className="bg-transparent border-none text-xs font-bold text-white focus:outline-none cursor-pointer"
+              >
+                <option value="analyst" className="bg-[#111115]">Analyst</option>
+                <option value="research_analyst" className="bg-[#111115]">Research Analyst (RA)</option>
+                <option value="admin" className="bg-[#111115]">Admin</option>
+              </select>
+            </div>
+
             {/* Model badge */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1029,6 +1330,27 @@ export function Dashboard() {
                 }
               </span>
             </div>
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                showConfig ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+              }`}
+              title="Toggle Report Configuration Panel"
+            >
+              <Layers className="w-4 h-4" />
+              <span className="hidden md:inline">Configuration</span>
+            </button>
+            {reportData && (
+              <button
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                  isChatOpen ? 'bg-blue-600/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>AI Co-Pilot</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setTempProvider(aiProvider);
@@ -1072,372 +1394,603 @@ export function Dashboard() {
           ))}
         </div>
 
-        {/* ── Main content scroll area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* ── Main content layout */}
+        <div className="flex-1 flex bg-[#0a0a0d] overflow-hidden relative">
 
-              {/* ─── Left Column — Configuration ─────────────────────── */}
-              <div className="lg:col-span-4 space-y-4">
+          {/* ─── Column 1 — Configuration ─────────────────────── */}
+          {showConfig && (
+            <div className="w-full lg:w-[320px] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin">
 
-                {/* Report Configuration Card */}
-                <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
-                  <div className="px-5 py-4 border-b border-white/[0.06]">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 bg-blue-600/20 rounded-lg">
-                        <Layers className="w-3.5 h-3.5 text-blue-400" />
-                      </div>
-                      <h2 className="text-sm font-bold text-white">Report Configuration</h2>
+              {/* Report Configuration Card */}
+              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-white/[0.06]">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1.5 bg-blue-600/20 rounded-lg">
+                      <Layers className="w-3.5 h-3.5 text-blue-400" />
                     </div>
+                    <h2 className="text-sm font-bold text-white">Report Configuration</h2>
                   </div>
-                  <div className="p-5 space-y-5">
-                    <form onSubmit={startGeneration} className="space-y-5">
+                </div>
+                <div className="p-5 space-y-5">
+                  <form onSubmit={startGeneration} className="space-y-5">
 
-                      {/* Company name */}
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                          Company Name
-                        </label>
-                        <input
-                          type="text"
-                          value={companyName}
-                          onChange={(e) => setCompanyName(e.target.value)}
-                          placeholder="e.g. Tata Consultancy Services"
-                          className="w-full px-4 py-3 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all text-sm font-medium"
-                          disabled={loading}
-                        />
-                      </div>
+                    {/* Company name */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                        Company Name
+                      </label>
+                      <input
+                        type="text"
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder="e.g. Tata Consultancy Services"
+                        className="w-full px-4 py-3 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all text-sm font-medium"
+                        disabled={loading}
+                      />
+                    </div>
 
-                      {/* File Upload */}
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                          Financial Document
-                        </label>
+                    {/* File Upload */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                        Financial Document
+                      </label>
 
-                        {!file ? (
-                          <div
-                            onDragEnter={handleDrag}
-                            onDragOver={handleDrag}
-                            onDragLeave={handleDrag}
-                            onDrop={handleDrop}
-                            onClick={() => fileInputRef.current?.click()}
-                            className={`border-2 border-dashed rounded-xl p-7 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
-                              isDragActive
-                                ? 'border-blue-500/60 bg-blue-500/5'
-                                : 'border-white/[0.08] bg-[#0f0f13] hover:border-white/[0.16] hover:bg-white/[0.02]'
-                            }`}
-                          >
-                            <div className={`p-3 rounded-xl mb-3 transition-all ${isDragActive ? 'bg-blue-500/20' : 'bg-white/[0.04]'}`}>
-                              <Upload className={`w-5 h-5 transition-colors ${isDragActive ? 'text-blue-400' : 'text-slate-500'}`} />
-                            </div>
-                            <span className="text-sm font-semibold text-slate-400 text-center">
-                              Drop file here or <span className="text-blue-400">browse</span>
-                            </span>
-                            <span className="text-[11px] text-slate-600 mt-1">PDF, CSV, TXT — up to 10 MB</span>
-                            <input ref={fileInputRef} type="file" accept=".pdf,.csv,.txt" onChange={handleFileChange} className="hidden" />
+                      {!file ? (
+                        <div
+                          onDragEnter={handleDrag}
+                          onDragOver={handleDrag}
+                          onDragLeave={handleDrag}
+                          onDrop={handleDrop}
+                          onClick={() => fileInputRef.current?.click()}
+                          className={`border-2 border-dashed rounded-xl p-7 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
+                            isDragActive
+                              ? 'border-blue-500/60 bg-blue-500/5'
+                              : 'border-white/[0.08] bg-[#0f0f13] hover:border-white/[0.16] hover:bg-white/[0.02]'
+                          }`}
+                        >
+                          <div className={`p-3 rounded-xl mb-3 transition-all ${isDragActive ? 'bg-blue-500/20' : 'bg-white/[0.04]'}`}>
+                            <Upload className={`w-5 h-5 transition-colors ${isDragActive ? 'text-blue-400' : 'text-slate-500'}`} />
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-3 p-3.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl">
-                            <div className="p-2 bg-blue-500/15 rounded-lg">
-                              <FileText className="w-4 h-4 text-blue-400" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-semibold text-white truncate">{file.name}</div>
-                              <div className="text-[10px] text-slate-500 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</div>
-                            </div>
-                            <button type="button" onClick={removeFile} disabled={loading}
-                              className="p-1.5 hover:bg-white/[0.06] rounded-lg text-slate-500 hover:text-rose-400 transition-colors">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          <span className="text-sm font-semibold text-slate-400 text-center">
+                            Drop file here or <span className="text-blue-400">browse</span>
+                          </span>
+                          <span className="text-[11px] text-slate-600 mt-1">PDF, CSV, TXT — up to 10 MB</span>
+                          <input ref={fileInputRef} type="file" accept=".pdf,.csv,.txt" onChange={handleFileChange} className="hidden" />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 p-3.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl">
+                          <div className="p-2 bg-blue-500/15 rounded-lg">
+                            <FileText className="w-4 h-4 text-blue-400" />
                           </div>
-                        )}
-                      </div>
-
-                      {/* Error */}
-                      {error && (
-                        <div className="flex items-start gap-2.5 p-3.5 bg-rose-950/40 border border-rose-800/40 rounded-xl">
-                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                          <span className="text-xs text-rose-300 font-medium">{error}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold text-white truncate">{file.name}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</div>
+                          </div>
+                          <button type="button" onClick={removeFile} disabled={loading}
+                            className="p-1.5 hover:bg-white/[0.06] rounded-lg text-slate-500 hover:text-rose-400 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       )}
+                    </div>
 
-                      {/* CTA */}
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-white/[0.04] disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98] flex items-center justify-center gap-2"
-                      >
-                        {loading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Processing Pipeline...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4" />
-                            Generate Equity Report
-                          </>
-                        )}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-
-                {/* Quick Info Card */}
-                <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-5 space-y-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Pipeline Steps</p>
-                  <div className="space-y-2.5">
-                    {[
-                      { label: 'OCR + Text Extraction', icon: '01' },
-                      { label: 'AI Metric Extraction', icon: '02' },
-                      { label: 'Financial Ratio Formatting', icon: '03' },
-                      { label: 'PDF Compile & Export', icon: '04' },
-                    ].map((s) => (
-                      <div key={s.icon} className="flex items-center gap-3">
-                        <span className="text-[9px] font-black text-slate-600 tabular-nums">{s.icon}</span>
-                        <span className="text-[11px] text-slate-500 font-medium">{s.label}</span>
+                    {/* Error */}
+                    {error && (
+                      <div className="flex items-start gap-2.5 p-3.5 bg-rose-950/40 border border-rose-800/40 rounded-xl">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <span className="text-xs text-rose-300 font-medium">{error}</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    )}
 
+                    {/* CTA */}
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-white/[0.04] disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Processing Pipeline...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate Equity Report
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
               </div>
 
-              {/* ─── Right Column — Output ────────────────────────────── */}
-              <div className="lg:col-span-8 space-y-4">
-
-                {/* Empty state */}
-                {!loading && !reportData && !steps.some(s => s.status === 'failed') && (
-                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-16 flex flex-col items-center justify-center text-center min-h-[420px]">
-                    <div className="p-5 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-5">
-                      <BarChart3 className="w-10 h-10 text-slate-700" />
+              {/* Quick Info Card */}
+              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-5 space-y-3">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Pipeline Steps</p>
+                <div className="space-y-2.5">
+                  {[
+                    { label: 'OCR + Text Extraction', icon: '01' },
+                    { label: 'AI Metric Extraction', icon: '02' },
+                    { label: 'Financial Ratio Formatting', icon: '03' },
+                    { label: 'PDF Compile & Export', icon: '04' },
+                  ].map((s) => (
+                    <div key={s.icon} className="flex items-center gap-3">
+                      <span className="text-[9px] font-black text-slate-600 tabular-nums">{s.icon}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">{s.label}</span>
                     </div>
-                    <h3 className="text-base font-bold text-slate-300">No report generated yet</h3>
-                    <p className="text-slate-600 text-xs mt-2 max-w-sm leading-relaxed">
-                      Configure a company name and upload a financial document to start the AI extraction pipeline.
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* ─── Column 2 — Workspace / Output ────────────────────────────── */}
+          <div className="flex-1 h-full flex flex-col overflow-y-auto p-6 min-w-0 scrollbar-thin space-y-4">
+
+            {/* Empty state */}
+            {!loading && !reportData && !steps.some(s => s.status === 'failed') && (
+              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-16 flex flex-col items-center justify-center text-center min-h-[420px] my-auto">
+                <div className="p-5 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-5">
+                  <BarChart3 className="w-10 h-10 text-slate-700" />
+                </div>
+                <h3 className="text-base font-bold text-slate-300">No report generated yet</h3>
+                <p className="text-slate-600 text-xs mt-2 max-w-sm leading-relaxed">
+                  Configure a company name and upload a financial document to start the AI extraction pipeline.
+                </p>
+                <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-sm">
+                  {['PDF Reports', 'SWOT Analysis', 'SEBI Ready'].map((f) => (
+                    <div key={f} className="p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl text-center">
+                      <div className="text-[10px] font-bold text-slate-500">{f}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pipeline Progress Panel */}
+            {(loading || steps.some(s => s.status === 'failed')) && (
+              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      {throttleCountdown ? `Throttled: Resuming in ${throttleCountdown}...` : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
+                    </h3>
+                    <p className="text-[10px] text-slate-600 font-mono mt-0.5">
+                      {currentJobId ? `JOB · ${currentJobId}` : 'Initializing...'}
                     </p>
-                    <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-sm">
-                      {['PDF Reports', 'SWOT Analysis', 'SEBI Ready'].map((f) => (
-                        <div key={f} className="p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl text-center">
-                          <div className="text-[10px] font-bold text-slate-500">{f}</div>
+                  </div>
+                  {loading && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                </div>
+
+                <div className="p-5 space-y-3">
+                  {steps.map((step, idx) => (
+                    <div key={idx} className={`flex items-center gap-4 p-3.5 rounded-xl transition-all ${
+                      step.status === 'running' ? 'bg-blue-600/10 border border-blue-500/20' :
+                      step.status === 'completed' ? 'bg-emerald-600/5 border border-emerald-800/20' :
+                      step.status === 'failed' ? 'bg-rose-600/10 border border-rose-800/20' :
+                      'bg-white/[0.02] border border-transparent'
+                    }`}>
+                      <div className="shrink-0">
+                        {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        {step.status === 'running' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                        {step.status === 'failed' && <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />}
+                        {step.status === 'idle' && <div className="w-4 h-4 rounded-full border border-white/[0.1] bg-white/[0.03]" />}
+                      </div>
+                      <span className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${
+                        step.status === 'running' ? 'text-blue-300' :
+                        step.status === 'completed' ? 'text-slate-500' :
+                        step.status === 'failed' ? 'text-rose-300' :
+                        'text-slate-600'
+                      }`}>
+                        <span>{step.label}</span>
+                        {step.status === 'running' && throttleCountdown && idx === currentStepIndex && (
+                          <span className="text-[10px] text-blue-400 font-bold animate-pulse">
+                            ⚠ Rate limit reached — Auto-resuming in {throttleCountdown}
+                          </span>
+                        )}
+                      </span>
+                      {step.status === 'failed' && !loading && (
+                        <button
+                          type="button"
+                          onClick={resumeGeneration}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 font-bold rounded-lg text-[10px] transition-all active:scale-95"
+                        >
+                          <RefreshCw className="w-2.5 h-2.5 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
+                          Resume
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Skeleton */}
+                {loading && (
+                  <div className="px-5 pb-5 space-y-2.5 border-t border-white/[0.06] pt-4">
+                    <div className="h-2.5 bg-white/[0.04] rounded-full w-full animate-pulse" />
+                    <div className="h-2.5 bg-white/[0.04] rounded-full w-4/5 animate-pulse" />
+                    <div className="h-2.5 bg-white/[0.04] rounded-full w-2/3 animate-pulse" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Report Result */}
+            {reportData && !loading && (
+              <div className="space-y-4">
+
+                {/* Status Banner */}
+                <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
+                  activeReportStatus === 'published'
+                    ? 'bg-emerald-950/30 border-emerald-800/40'
+                    : 'bg-[#16161a] border-white/[0.07]'
+                }`}>
+                  <div className="flex items-center gap-3.5">
+                    <div className={`p-2.5 rounded-xl ${activeReportStatus === 'published' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
+                      <CheckCircle2 className={`w-4 h-4 ${activeReportStatus === 'published' ? 'text-emerald-400' : 'text-blue-400'}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">Report Compiled</span>
+                        <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${
+                          activeReportStatus === 'published'
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {activeReportStatus}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {activeReportStatus === 'published' ? 'Signed off by SEBI RA. Ready to publish.' : 'AI-generated draft — pending SEBI review.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    {activeReportStatus !== 'approved' && activeReportStatus !== 'published' && (
+                      <button
+                        onClick={() => {
+                          if (userRole !== 'research_analyst') {
+                            showToast('Only a SEBI-registered Research Analyst can approve reports.', 'error');
+                            return;
+                          }
+                          setIsSignoffOpen(true);
+                        }}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Approve & Sign-off
+                      </button>
+                    )}
+                    <button
+                      onClick={() => triggerDownload(reportData.company.ticker || '')}
+                      disabled={isDownloading}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+                    >
+                      {isDownloading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Downloading...</> : <><Download className="w-3.5 h-3.5" />Download PDF</>}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tabs Selector */}
+                <div className="flex border-b border-white/[0.07] gap-4 mb-2">
+                  {[
+                    { id: 'preview', label: 'Report Preview' },
+                    { id: 'diffs', label: `Proposed Diffs (${proposals.filter(p => p.status === 'pending').length})` },
+                    { id: 'audit', label: 'Audit Trail' }
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setActiveTab(t.id as any)}
+                      className={`pb-2.5 text-xs font-bold transition-all relative ${
+                        activeTab === t.id ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {t.label}
+                      {activeTab === t.id && (
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tab 1: Preview */}
+                {activeTab === 'preview' && (
+                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden relative">
+                    
+                    {/* Inline Draft Watermark Banner */}
+                    {activeReportStatus !== 'approved' && activeReportStatus !== 'published' && (
+                      <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2 flex items-center gap-2 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                        <AlertTriangle className="w-3.5 h-3.5 animate-pulse" />
+                        AI-generated draft — pending RA review.
+                      </div>
+                    )}
+                    {/* Dark header */}
+                    <div className="bg-[#0f0f13] border-b border-white/[0.07] p-6 flex items-start justify-between">
+                      <div>
+                        <div className="text-[9px] uppercase tracking-widest text-amber-500 font-bold mb-1">Equity Research Division</div>
+                        <h3 className="text-xl font-bold text-white tracking-tight">{reportData.company.name}</h3>
+                        <p className="text-xs text-slate-500 mt-1.5">
+                          {reportData.company.sector && <span>{reportData.company.sector}</span>}
+                          {reportData.company.sector && reportData.company.industry && <span className="mx-2 opacity-40">·</span>}
+                          {reportData.company.industry && <span>{reportData.company.industry}</span>}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0 ml-4">
+                        <div className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1">Report Date</div>
+                        <span className="text-xs font-semibold text-slate-300 bg-white/[0.06] px-2.5 py-1 rounded-lg border border-white/[0.06] inline-block">
+                          {reportData.company.reportDate}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-6 space-y-6">
+                      {/* Key Metrics */}
+                      <div className="grid grid-cols-3 gap-3">
+                        {[
+                          {
+                            label: 'Recommendation',
+                            value: reportData.recommendation.rating,
+                            valueClass: 'text-emerald-400',
+                            bgClass: 'bg-emerald-500/10 border-emerald-800/30'
+                          },
+                          {
+                            label: 'Target Price',
+                            value: `₹${reportData.recommendation.targetPrice}`,
+                            sub: `+${reportData.recommendation.upsidePotential}% upside`,
+                            subClass: 'text-emerald-500',
+                            bgClass: 'bg-white/[0.02] border-white/[0.06]'
+                          },
+                          {
+                            label: 'CMP',
+                            value: `₹${reportData.recommendation.currentPrice}`,
+                            bgClass: 'bg-white/[0.02] border-white/[0.06]'
+                          },
+                        ].map((m) => (
+                          <div key={m.label} className={`p-4 rounded-xl border ${m.bgClass}`}>
+                            <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">{m.label}</div>
+                            <div className={`text-lg font-black ${m.valueClass || 'text-white'}`}>{m.value}</div>
+                            {m.sub && <div className={`text-[10px] font-bold mt-0.5 ${m.subClass || 'text-slate-500'}`}>{m.sub}</div>}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Executive Summary */}
+                      <div>
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Executive Summary</h4>
+                        <p className="text-slate-400 text-sm leading-relaxed">{reportData.executiveSummary}</p>
+                      </div>
+
+                      {/* SWOT */}
+                      <div>
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">SWOT Analysis</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="p-4 bg-emerald-950/30 border border-emerald-800/25 rounded-xl">
+                            <div className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-2.5">Strengths</div>
+                            <ul className="space-y-1.5">
+                              {reportData.swotAnalysis.strengths.map((s, i) => (
+                                <li key={i} className="flex gap-2 items-start text-[11px] text-emerald-300/80">
+                                  <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>
+                                  <span>{s}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="p-4 bg-rose-950/30 border border-rose-800/25 rounded-xl">
+                            <div className="text-[9px] font-bold text-rose-500 uppercase tracking-widest mb-2.5">Weaknesses & Risks</div>
+                            <ul className="space-y-1.5">
+                              {reportData.swotAnalysis.weaknesses.map((w, i) => (
+                                <li key={i} className="flex gap-2 items-start text-[11px] text-rose-300/80">
+                                  <span className="text-rose-500 mt-0.5 shrink-0">⚠</span>
+                                  <span>{w}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         </div>
-                      ))}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Pipeline Progress Panel */}
-                {(loading || steps.some(s => s.status === 'failed')) && (
-                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
-                    <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-bold text-white">
-                          {throttleCountdown ? `Throttled: Resuming in ${throttleCountdown}...` : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
-                        </h3>
-                        <p className="text-[10px] text-slate-600 font-mono mt-0.5">
-                          {currentJobId ? `JOB · ${currentJobId}` : 'Initializing...'}
-                        </p>
+                {/* Tab 2: Proposed Diffs */}
+                {activeTab === 'diffs' && (
+                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-6 space-y-4">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Proposed Corrections</h3>
+                    <p className="text-[11px] text-slate-500">Review discrepancies detected by the math auditor or suggestions proposed by system operators.</p>
+                    {proposals.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-500 italic border border-dashed border-white/5 rounded-xl bg-white/[0.01]">
+                        No proposed corrections for this report.
                       </div>
-                      {loading && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
-                    </div>
-
-                    <div className="p-5 space-y-3">
-                      {steps.map((step, idx) => (
-                        <div key={idx} className={`flex items-center gap-4 p-3.5 rounded-xl transition-all ${
-                          step.status === 'running' ? 'bg-blue-600/10 border border-blue-500/20' :
-                          step.status === 'completed' ? 'bg-emerald-600/5 border border-emerald-800/20' :
-                          step.status === 'failed' ? 'bg-rose-600/10 border border-rose-800/20' :
-                          'bg-white/[0.02] border border-transparent'
-                        }`}>
-                          <div className="shrink-0">
-                            {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                            {step.status === 'running' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
-                            {step.status === 'failed' && <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />}
-                            {step.status === 'idle' && <div className="w-4 h-4 rounded-full border border-white/[0.1] bg-white/[0.03]" />}
-                          </div>
-                          <span className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${
-                            step.status === 'running' ? 'text-blue-300' :
-                            step.status === 'completed' ? 'text-slate-500' :
-                            step.status === 'failed' ? 'text-rose-300' :
-                            'text-slate-600'
-                          }`}>
-                            <span>{step.label}</span>
-                            {step.status === 'running' && throttleCountdown && idx === currentStepIndex && (
-                              <span className="text-[10px] text-blue-400 font-bold animate-pulse">
-                                ⚠ Rate limit reached — Auto-resuming in {throttleCountdown}
-                              </span>
+                    ) : (
+                      <div className="space-y-3">
+                        {proposals.map((p) => (
+                          <div key={p.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white font-mono">{p.field}</span>
+                                <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
+                                  p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-300' :
+                                  p.status === 'rejected' ? 'bg-rose-500/20 text-rose-300' :
+                                  'bg-amber-500/20 text-amber-300'
+                                }`}>{p.status}</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 italic">Origin: {p.origin}</p>
+                              {p.reasoning && <p className="text-[10px] text-slate-500">Reason: {p.reasoning}</p>}
+                              <div className="flex items-center gap-4 mt-2 bg-black/25 p-2 rounded-lg text-[10px] font-mono border border-white/5">
+                                <div>
+                                  <span className="text-slate-500">Old:</span> <span className="text-rose-400 font-bold">{JSON.stringify(p.oldValue)}</span>
+                                </div>
+                                <div className="text-slate-600">→</div>
+                                <div>
+                                  <span className="text-slate-500">New:</span> <span className="text-emerald-400 font-bold">{JSON.stringify(p.newValue)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {p.status === 'pending' && (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  onClick={() => handleProposalAction(p.id, 'rejected')}
+                                  className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-[10px] font-bold border border-rose-500/25 transition-all"
+                                >
+                                  Reject
+                                </button>
+                                <button
+                                  onClick={() => handleProposalAction(p.id, 'approved')}
+                                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg text-[10px] font-bold border border-emerald-500/25 transition-all"
+                                >
+                                  Approve
+                                </button>
+                              </div>
                             )}
-                          </span>
-                          {step.status === 'failed' && !loading && (
-                            <button
-                              type="button"
-                              onClick={resumeGeneration}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 font-bold rounded-lg text-[10px] transition-all active:scale-95"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
-                              Resume
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Skeleton */}
-                    {loading && (
-                      <div className="px-5 pb-5 space-y-2.5 border-t border-white/[0.06] pt-4">
-                        <div className="h-2.5 bg-white/[0.04] rounded-full w-full animate-pulse" />
-                        <div className="h-2.5 bg-white/[0.04] rounded-full w-4/5 animate-pulse" />
-                        <div className="h-2.5 bg-white/[0.04] rounded-full w-2/3 animate-pulse" />
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Report Result */}
-                {reportData && !loading && (
-                  <div className="space-y-4">
-
-                    {/* Status Banner */}
-                    <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
-                      activeReportStatus === 'published'
-                        ? 'bg-emerald-950/30 border-emerald-800/40'
-                        : 'bg-[#16161a] border-white/[0.07]'
-                    }`}>
-                      <div className="flex items-center gap-3.5">
-                        <div className={`p-2.5 rounded-xl ${activeReportStatus === 'published' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
-                          <CheckCircle2 className={`w-4 h-4 ${activeReportStatus === 'published' ? 'text-emerald-400' : 'text-blue-400'}`} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">Report Compiled</span>
-                            <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${
-                              activeReportStatus === 'published'
-                                ? 'bg-emerald-500/20 text-emerald-300'
-                                : 'bg-amber-500/20 text-amber-300'
-                            }`}>
-                              {activeReportStatus}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {activeReportStatus === 'published' ? 'Signed off by SEBI RA. Ready to publish.' : 'AI-generated draft — pending SEBI review.'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
-                        {activeReportStatus === 'draft' && (
-                          <button
-                            onClick={() => setIsSignoffOpen(true)}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-200 font-bold text-xs rounded-xl transition-all active:scale-95"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                            Approve & Sign-off
-                          </button>
-                        )}
-                        <button
-                          onClick={() => triggerDownload(reportData.company.ticker || '')}
-                          disabled={isDownloading}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
-                        >
-                          {isDownloading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Downloading...</> : <><Download className="w-3.5 h-3.5" />Download PDF</>}
-                        </button>
-                      </div>
+                {/* Tab 3: Audit Log */}
+                {activeTab === 'audit' && (
+                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-white uppercase tracking-widest">Immutable Audit Trail</h3>
+                      <span className="text-[10px] font-mono text-slate-500">SEC / SEBI compliant logs</span>
                     </div>
-
-                    {/* Report Preview Card */}
-                    <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
-                      {/* Dark header */}
-                      <div className="bg-[#0f0f13] border-b border-white/[0.07] p-6 flex items-start justify-between">
-                        <div>
-                          <div className="text-[9px] uppercase tracking-widest text-amber-500 font-bold mb-1">Equity Research Division</div>
-                          <h3 className="text-xl font-bold text-white tracking-tight">{reportData.company.name}</h3>
-                          <p className="text-xs text-slate-500 mt-1.5">
-                            {reportData.company.sector && <span>{reportData.company.sector}</span>}
-                            {reportData.company.sector && reportData.company.industry && <span className="mx-2 opacity-40">·</span>}
-                            {reportData.company.industry && <span>{reportData.company.industry}</span>}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0 ml-4">
-                          <div className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1">Report Date</div>
-                          <span className="text-xs font-semibold text-slate-300 bg-white/[0.06] px-2.5 py-1 rounded-lg border border-white/[0.06] inline-block">
-                            {reportData.company.reportDate}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="p-6 space-y-6">
-                        {/* Key Metrics */}
-                        <div className="grid grid-cols-3 gap-3">
-                          {[
-                            {
-                              label: 'Recommendation',
-                              value: reportData.recommendation.rating,
-                              valueClass: 'text-emerald-400',
-                              bgClass: 'bg-emerald-500/10 border-emerald-800/30'
-                            },
-                            {
-                              label: 'Target Price',
-                              value: `₹${reportData.recommendation.targetPrice}`,
-                              sub: `+${reportData.recommendation.upsidePotential}% upside`,
-                              subClass: 'text-emerald-500',
-                              bgClass: 'bg-white/[0.02] border-white/[0.06]'
-                            },
-                            {
-                              label: 'CMP',
-                              value: `₹${reportData.recommendation.currentPrice}`,
-                              bgClass: 'bg-white/[0.02] border-white/[0.06]'
-                            },
-                          ].map((m) => (
-                            <div key={m.label} className={`p-4 rounded-xl border ${m.bgClass}`}>
-                              <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">{m.label}</div>
-                              <div className={`text-lg font-black ${m.valueClass || 'text-white'}`}>{m.value}</div>
-                              {m.sub && <div className={`text-[10px] font-bold mt-0.5 ${m.subClass || 'text-slate-500'}`}>{m.sub}</div>}
+                    {auditLogs.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-500 italic">No audit records found.</div>
+                    ) : (
+                      <div className="relative border-l border-white/[0.08] ml-2 pl-4 space-y-4">
+                        {auditLogs.map((log) => (
+                          <div key={log.id} className="relative">
+                            <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500/80 border border-[#16161a]" />
+                            <div className="text-xs font-semibold text-white flex items-center gap-2">
+                              <span>{log.action.replace(/_/g, ' ').toUpperCase()}</span>
+                              <span className="text-[10px] font-medium text-slate-500">{new Date(log.createdAt).toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-
-                        {/* Executive Summary */}
-                        <div>
-                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Executive Summary</h4>
-                          <p className="text-slate-400 text-sm leading-relaxed">{reportData.executiveSummary}</p>
-                        </div>
-
-                        {/* SWOT */}
-                        <div>
-                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">SWOT Analysis</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="p-4 bg-emerald-950/30 border border-emerald-800/25 rounded-xl">
-                              <div className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-2.5">Strengths</div>
-                              <ul className="space-y-1.5">
-                                {reportData.swotAnalysis.strengths.map((s, i) => (
-                                  <li key={i} className="flex gap-2 items-start text-[11px] text-emerald-300/80">
-                                    <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>
-                                    <span>{s}</span>
-                                  </li>
-                                ))}
-                              </ul>
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              Actor: <span className="font-bold text-slate-300">{log.userId}</span> ({log.actorType})
                             </div>
-                            <div className="p-4 bg-rose-950/30 border border-rose-800/25 rounded-xl">
-                              <div className="text-[9px] font-bold text-rose-500 uppercase tracking-widest mb-2.5">Weaknesses & Risks</div>
-                              <ul className="space-y-1.5">
-                                {reportData.swotAnalysis.weaknesses.map((w, i) => (
-                                  <li key={i} className="flex gap-2 items-start text-[11px] text-rose-300/80">
-                                    <span className="text-rose-500 mt-0.5 shrink-0">⚠</span>
-                                    <span>{w}</span>
-                                  </li>
-                                ))}
-                              </ul>
+                            {log.fromState && (
+                              <div className="text-[9px] text-slate-500 font-mono mt-1">
+                                State transition: {log.fromState} → {log.toState}
+                              </div>
+                            )}
+                            <div className="bg-black/20 border border-white/5 rounded-lg p-2 mt-1.5 text-[9px] font-mono text-slate-500 overflow-x-auto">
+                              {JSON.stringify(log.metadata)}
                             </div>
                           </div>
-                        </div>
+                        ))}
                       </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+            )}
+          </div>
+
+          {/* ─── Column 3 — Co-Pilot Chat ────────────────────────────── */}
+          {reportData && isChatOpen && !loading && (
+            <div className="w-full lg:w-[400px] shrink-0 border-l border-white/[0.06] bg-[#141417]/80 backdrop-blur-xl flex flex-col h-full overflow-hidden shadow-2xl">
+              {/* Premium Header */}
+              <div className="px-5 py-4.5 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-[#0f0f13] to-[#141418]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white tracking-widest uppercase">AI Co-Pilot</h3>
+                    <p className="text-[9px] text-slate-500 font-medium">Recompute & Analysis Agent</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsChatOpen(false)} className="text-slate-500 hover:text-white p-1.5 hover:bg-white/[0.05] rounded-lg transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Chat feed */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-transparent to-[#0d0d10]/40 scrollbar-thin">
+                {chatMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-6">
+                    <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-2xl">
+                      <Activity className="w-8 h-8 text-blue-400/80" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2">Interactive AI Co-Pilot</h4>
+                      <p className="text-[11px] text-slate-500 leading-relaxed max-w-[240px]">
+                        Ask the agent to recompute ratios, change financial values, or compile peer valuations.
+                      </p>
+                    </div>
+                    {/* Quick suggestions */}
+                    <div className="w-full space-y-2">
+                      {[
+                        "Change target price to 650",
+                        "Recalculate EBITDA margin for FY24",
+                        "Verify debt-to-equity ratio errors"
+                      ].map((suggest) => (
+                        <button
+                          key={suggest}
+                          type="button"
+                          onClick={() => setChatInput(suggest)}
+                          className="w-full text-left p-2.5 bg-white/[0.02] hover:bg-blue-600/10 border border-white/[0.05] hover:border-blue-500/30 text-[10px] text-slate-400 hover:text-blue-300 rounded-xl transition-all font-semibold"
+                        >
+                          💡 "{suggest}"
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    {/* Role label */}
+                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">
+                      {msg.role === 'user' ? 'You' : 'Co-Pilot Agent'}
+                    </span>
+                    <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-md leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white rounded-tr-none border border-blue-500/20'
+                        : 'bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none'
+                    }`}>
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex flex-col items-start">
+                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">Co-Pilot Agent</span>
+                    <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl rounded-tl-none px-4.5 py-3 flex items-center gap-2.5 shadow-sm">
+                      <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                      <span className="text-[10px] text-slate-500 font-semibold">Agent running tools...</span>
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* Input container */}
+              <form onSubmit={sendChatMessage} className="p-4 border-t border-white/[0.06] bg-[#0c0c10] flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask the co-pilot or run a tool..."
+                  disabled={chatLoading}
+                  className="flex-1 px-4 py-3 bg-black/60 border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all"
+                />
+                <button
+                  type="submit"
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="px-4.5 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 flex items-center gap-1.5 shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Send</span>
+                </button>
+              </form>
             </div>
-          </div>
+          )}
+
         </div>
       </div>
+
 
       {/* ── Settings Modal ─────────────────────────────────────────────── */}
       {isSettingsOpen && (
@@ -1597,6 +2150,40 @@ export function Dashboard() {
                 disabled={isSigning}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 shadow-lg shadow-emerald-600/20 flex items-center gap-1.5">
                 {isSigning ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Signing...</> : 'Sign & Publish'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fork Warning Modal ─────────────────────────────────────────── */}
+      {isForkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#16161a] border border-white/[0.1] rounded-2xl p-6 w-full max-w-md shadow-2xl mx-4">
+            <div className="flex items-center justify-between border-b border-white/[0.07] pb-4 mb-5">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                Fork Approved Report?
+              </h3>
+              <button onClick={() => { setIsForkModalOpen(false); setPendingForkPrompt(''); }}
+                className="p-1.5 hover:bg-white/[0.07] rounded-lg text-slate-500 hover:text-slate-200 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed mb-5">
+              This report is already <span className="font-bold text-white">{activeReportStatus}</span>. Any changes will fork a new draft version, leaving the signed-off document intact and published. The report will return to <span className="text-amber-400 font-bold">changes_requested</span> status for review.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.07]">
+              <button onClick={() => { setIsForkModalOpen(false); setPendingForkPrompt(''); }}
+                className="px-4 py-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] text-slate-400 font-bold rounded-xl text-xs transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={confirmForkChat}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition-colors shadow-lg shadow-amber-600/20">
+                Confirm Fork
               </button>
             </div>
           </div>

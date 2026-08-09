@@ -3,11 +3,13 @@ import { prisma } from '@/lib/db';
 import { pdfGenerationService } from '@/lib/pdf';
 import { EquityResearchData } from '@/types';
 import { requireApiSecret } from '@/lib/utils/auth';
+import { transitionReportStatus } from '@/lib/report/state-machine';
+import { computeSHA256 } from '@/lib/utils/hash';
 
 /**
  * POST /api/approve
- * Captures SEBI RA sign-off credentials, regenerates the PDF with attestation/disclosures,
- * and updates the report status to "published" in the database.
+ * Captures SEBI RA sign-off credentials, recalculates/records SHA-256 integrity hash,
+ * transitions state to approved & published, renders attested PDF, and writes audit trail.
  */
 export async function POST(req: NextRequest) {
   const authError = requireApiSecret(req);
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Missing required sign-off parameters.' }, { status: 400 });
     }
 
-    // Find the draft report
+    // Find the report
     const dbReport = await prisma.reportHistory.findUnique({
       where: { id: reportId }
     });
@@ -33,7 +35,24 @@ export async function POST(req: NextRequest) {
     }
 
     const reportData = dbReport.reportData as unknown as EquityResearchData;
+    const contentHash = computeSHA256(reportData);
     const approvedAt = new Date();
+
+    // Get request IP
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '127.0.0.1';
+
+    // Transition state from current status (should be under_review/draft etc.) to approved
+    await transitionReportStatus(reportId, 'approved', {
+      actorId: reviewerName,
+      actorType: 'human',
+      ipAddress,
+      metadata: {
+        reviewerName,
+        sebiRegNo,
+        contentHash,
+        approvedAt
+      }
+    });
 
     // Recompile the PDF in published state with attestation metadata
     const reportBuffer = await pdfGenerationService.generateReportPDF(reportData, 'published', {
@@ -42,26 +61,55 @@ export async function POST(req: NextRequest) {
       approvedAt
     });
 
-    // Update report in database to published status
-    const updatedReport = await prisma.reportHistory.update({
-      where: { id: reportId },
-      data: {
-        status: 'published',
+    // Transition state from approved to published (auto publish transition)
+    const updatedReport = await transitionReportStatus(reportId, 'published', {
+      actorId: 'system',
+      actorType: 'system',
+      ipAddress,
+      metadata: {
         reviewerName,
         sebiRegNo,
+        contentHash,
         approvedAt,
-        pdfBase64: reportBuffer.toString('base64')
+        pdfBase64: reportBuffer.toString('base64').substring(0, 100) + '...' // trim log size
+      }
+    });
+
+    // Update ReportHistory to save the generated PDF buffer
+    const finalReport = await prisma.reportHistory.update({
+      where: { id: reportId },
+      data: {
+        pdfBase64: reportBuffer.toString('base64'),
+        contentHash
+      }
+    });
+
+    // Log the publication / sign_off action to AuditLog
+    await prisma.auditLog.create({
+      data: {
+        reportId,
+        userId: reviewerName,
+        actorType: 'human',
+        action: 'sign_off',
+        metadata: {
+          reviewerName,
+          sebiRegNo,
+          contentHash,
+          ip: ipAddress,
+          approvedAt
+        }
       }
     });
 
     return NextResponse.json({
       success: true,
-      reportId: updatedReport.id,
-      pdfBase64: updatedReport.pdfBase64,
-      status: updatedReport.status,
-      reviewerName: updatedReport.reviewerName,
-      sebiRegNo: updatedReport.sebiRegNo,
-      approvedAt: updatedReport.approvedAt
+      reportId: finalReport.id,
+      pdfBase64: finalReport.pdfBase64,
+      status: finalReport.status,
+      reviewerName: finalReport.reviewerName,
+      sebiRegNo: finalReport.sebiRegNo,
+      approvedAt: finalReport.approvedAt,
+      contentHash: finalReport.contentHash
     });
 
   } catch (error: unknown) {

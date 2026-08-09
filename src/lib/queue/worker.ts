@@ -46,6 +46,7 @@ export function triggerBackgroundJob(
 
       // Save complete result to ReportHistory table automatically
       const reportId = 'report_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+      const contentHash = require('@/lib/utils/hash').computeSHA256(extractedData);
       await prisma.reportHistory.create({
         data: {
           id: reportId,
@@ -53,7 +54,9 @@ export function triggerBackgroundJob(
           fileName: currentJob.fileName, // Use actual filename stored in job record
           status: 'draft',
           reportData: extractedData as unknown as import('@prisma/client').Prisma.InputJsonValue,
-          modelUsedForFinancials: extractedData.modelUsedForFinancials || null
+          modelUsedForFinancials: extractedData.modelUsedForFinancials || null,
+          contentHash,
+          versionNo: 1
         }
       });
 
@@ -125,6 +128,7 @@ export function resumeBackgroundJob(
 
       // Save complete result to ReportHistory table automatically
       const reportId = 'report_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+      const contentHash = require('@/lib/utils/hash').computeSHA256(extractedData);
       await prisma.reportHistory.create({
         data: {
           id: reportId,
@@ -132,7 +136,9 @@ export function resumeBackgroundJob(
           fileName: job.fileName,           // Use actual filename stored in job record
           status: 'draft',
           reportData: extractedData as unknown as import('@prisma/client').Prisma.InputJsonValue,
-          modelUsedForFinancials: extractedData.modelUsedForFinancials || null
+          modelUsedForFinancials: extractedData.modelUsedForFinancials || null,
+          contentHash,
+          versionNo: 1
         }
       });
 

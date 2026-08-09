@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireApiSecret } from '@/lib/utils/auth';
+import { computeSHA256 } from '@/lib/utils/hash';
 
 export async function GET() {
   try {
@@ -30,6 +31,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
     }
 
+    const contentHash = computeSHA256(reportData);
+
+    // Fetch existing report to compute version number increment if changed
+    const existing = await prisma.reportHistory.findUnique({
+      where: { id }
+    });
+
+    let versionNo = 1;
+    if (existing) {
+      const oldHash = existing.contentHash || computeSHA256(existing.reportData);
+      if (oldHash !== contentHash) {
+        versionNo = existing.versionNo + 1;
+      } else {
+        versionNo = existing.versionNo;
+      }
+    }
+
     const report = await prisma.reportHistory.upsert({
       where: { id },
       update: {
@@ -42,6 +60,8 @@ export async function POST(req: Request) {
         sebiRegNo: sebiRegNo || undefined,
         approvedAt: approvedAt ? new Date(approvedAt) : undefined,
         modelUsedForFinancials: modelUsedForFinancials || undefined,
+        contentHash,
+        versionNo,
         createdAt: new Date()
       },
       create: {
@@ -54,7 +74,26 @@ export async function POST(req: Request) {
         reviewerName: reviewerName || null,
         sebiRegNo: sebiRegNo || null,
         approvedAt: approvedAt ? new Date(approvedAt) : null,
-        modelUsedForFinancials: modelUsedForFinancials || null
+        modelUsedForFinancials: modelUsedForFinancials || null,
+        contentHash,
+        versionNo: 1
+      }
+    });
+
+    // Write audit log trace
+    await prisma.auditLog.create({
+      data: {
+        reportId: id,
+        userId: reviewerName || 'analyst',
+        actorType: 'human',
+        action: existing ? 'EDIT' : 'GENERATE',
+        fromState: existing?.status || null,
+        toState: report.status,
+        metadata: {
+          versionNo,
+          contentHash,
+          fileName
+        }
       }
     });
 
