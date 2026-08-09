@@ -26,6 +26,7 @@
     "papaparse": "^5.5.4",
     "pdfkit": "^0.15.0",
     "pg": "^8.22.0",
+    "puppeteer": "^25.5.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "tailwind-merge": "^2.5.5",
@@ -54,6 +55,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "canvas"
+    ],
+    "ignoredBuiltDependencies": [
+      "puppeteer",
+      "sharp",
+      "unrs-resolver"
     ]
   }
 }
