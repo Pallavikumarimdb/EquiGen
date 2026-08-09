@@ -41,6 +41,10 @@ model ExtractionJob {
   mathErrors        Json?
   errorMessage      String?
   retryAfterSeconds Int?                          // set on throttled status — seconds to wait before auto-resume
+  /** Human-readable reason while the job is paused internally (e.g. waiting for AI token budget) */
+  waitMessage       String?
+  /** Absolute time when the internal wait ends — lets the client show a live countdown */
+  waitUntil         DateTime?
   /** ID of the ReportHistory record created after successful completion */
   reportId          String?
   createdAt         DateTime @default(now())

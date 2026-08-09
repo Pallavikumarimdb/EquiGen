@@ -52,8 +52,14 @@ class TokenBudgetManager {
    * Waits until `estimatedTokens` of budget is free for `model`.
    * Returns the number of ms actually waited (for logging/telemetry).
    * Throws REQUEST_EXCEEDS_MODEL_CEILING if the request is fundamentally too large.
+   * `onWaitStart` fires before each sleep with the computed wait duration so callers
+   * can surface a live "waiting for capacity" estimate to the user (e.g. via job status).
    */
-  async waitForBudget(model: string, estimatedTokens: number): Promise<number> {
+  async waitForBudget(
+    model: string,
+    estimatedTokens: number,
+    onWaitStart?: (waitMs: number) => void
+  ): Promise<number> {
     const limit = this.limits.get(model) ?? 12000;
 
     if (estimatedTokens > limit) {
@@ -72,6 +78,7 @@ class TokenBudgetManager {
       const msUntilExpires = this.windowMs - (Date.now() - oldest.timestamp) + 250; // +250ms safety margin
       const waitMs = Math.max(250, msUntilExpires);
       console.log(`[TokenBudget] Waiting ${waitMs}ms for ${estimatedTokens} tokens on ${model} (available: ${this.availableBudget(model)})`);
+      onWaitStart?.(waitMs);
       await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 

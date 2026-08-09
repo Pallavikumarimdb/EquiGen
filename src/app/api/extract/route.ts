@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
         status: 'running',
         stepIndex: 0,
         errorMessage: null,
-        retryAfterSeconds: null
+        retryAfterSeconds: null,
+        waitMessage: null,
+        waitUntil: null
       },
       create: {
         id: activeJobId,

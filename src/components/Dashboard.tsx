@@ -81,6 +81,20 @@ type Toast = {
   type: 'success' | 'error' | 'info';
 };
 
+// Shared duration formatter used by the live wait countdowns
+function formatDuration(totalSecs: number): string {
+  if (totalSecs >= 3600) {
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    return `${hrs}h ${mins}m`;
+  } else if (totalSecs >= 60) {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}m ${secs}s`;
+  }
+  return `${totalSecs}s`;
+}
+
 export function Dashboard() {
   const [companyName, setCompanyName] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -125,8 +139,11 @@ export function Dashboard() {
   const [tempGroqModel, setTempGroqModel] = useState('llama-3.3-70b-versatile');
   const [tempOpenaiModel, setTempOpenaiModel] = useState('gpt-4o-mini');
 
-  // Throttle countdown state for live UI tracking
-  const [throttleCountdown, setThrottleCountdown] = useState<string | null>(null);
+// Throttle countdown state for live UI tracking
+const [throttleCountdown, setThrottleCountdown] = useState<string | null>(null);
+// Live countdown for internal "waiting for AI capacity" pauses (token budget waits)
+const [capacityWaitUntil, setCapacityWaitUntil] = useState<number | null>(null);
+const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(null);
 
   // Compliance & Unified Review states
   const [activeTab, setActiveTab] = useState<'preview' | 'diffs' | 'audit'>('preview');
@@ -217,6 +234,22 @@ export function Dashboard() {
       }
     };
   }, []);
+
+  // Live tick while the worker is internally waiting for AI capacity (token budget).
+  // Server provides an absolute waitUntil timestamp — we count down to it every second.
+  useEffect(() => {
+    if (!loading || capacityWaitUntil === null) {
+      setCapacityWaitSeconds(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((capacityWaitUntil - Date.now()) / 1000));
+      setCapacityWaitSeconds(remaining > 0 ? remaining : null);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [loading, capacityWaitUntil]);
 
   const saveSettings = async (
     provider: 'groq' | 'openai',
@@ -747,7 +780,40 @@ export function Dashboard() {
     showToast('File removed.', 'info');
   };
 
-  const startGeneration = async (e: React.FormEvent) => {
+  const startThrottledCountdown = (waitSeconds: number, currentSteps = steps, activeIndex = currentStepIndex) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    // Keep the throttled/running step status
+    const updatedSteps = [...currentSteps];
+    if (updatedSteps[activeIndex]) {
+      updatedSteps[activeIndex].status = 'running';
+      setSteps(updatedSteps);
+    }
+
+    let remainingSeconds = waitSeconds;
+    setThrottleCountdown(formatDuration(remainingSeconds));
+
+    const intervalId = setInterval(() => {
+      remainingSeconds--;
+      if (remainingSeconds <= 0) {
+        clearInterval(intervalId);
+        setThrottleCountdown(null);
+      } else {
+        setThrottleCountdown(formatDuration(remainingSeconds));
+      }
+    }, 1000);
+
+    setTimeout(() => {
+      clearInterval(intervalId);
+      setThrottleCountdown(null);
+      resumeGeneration();
+    }, waitSeconds * 1000);
+  };
+
+  async function startGeneration(e: React.FormEvent) {
     e.preventDefault();
     if (!companyName.trim()) {
       showToast('Please enter a company name.', 'error');
@@ -778,7 +844,7 @@ export function Dashboard() {
     showToast('Starting report generation pipeline...', 'info');
 
     // Helper to format duration text
-    const formatDuration = (totalSecs: number) => {
+    const formatDurationText = (totalSecs: number) => {
       if (totalSecs >= 3600) {
         const hrs = Math.floor(totalSecs / 3600);
         const mins = Math.floor((totalSecs % 3600) / 60);
@@ -868,12 +934,43 @@ export function Dashboard() {
           setCurrentStepIndex(activeStepIdx);
           setSteps([...updatedSteps]);
 
+          // Surface internal "waiting for AI capacity" pauses with a live countdown
+          if (statusData.status === 'running' && statusData.waitSeconds != null && statusData.waitSeconds > 0) {
+            setCapacityWaitUntil(new Date(statusData.waitUntil).getTime());
+          } else {
+            setCapacityWaitUntil(null);
+          }
+
           if (statusData.status === 'throttled') {
             const waitSeconds = statusData.retryAfterSeconds || 20;
+            // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+            if (waitSeconds > 300) {
+              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+              const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              const durationText = formatDurationText(waitSeconds);
+              const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+              setError(limitMsg);
+              showToast(limitMsg, 'error');
+              
+              // Correctly mark active running step as failed and clear others
+              for (let i = 0; i < updatedSteps.length; i++) {
+                if (i === activeStepIdx) {
+                  updatedSteps[i].status = 'failed';
+                } else if (updatedSteps[i].status === 'running') {
+                  updatedSteps[i].status = 'idle';
+                }
+              }
+              setSteps([...updatedSteps]);
+              setLoading(false);
+              setThrottleCountdown(null);
+              return;
+            }
 
-            const durationText = formatDuration(waitSeconds);
-            showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
-            setThrottleCountdown(durationText);
+            startThrottledCountdown(waitSeconds, updatedSteps, activeStepIdx);
+            return;
           } else {
             setThrottleCountdown(null);
           }
@@ -907,15 +1004,17 @@ export function Dashboard() {
             const extractedData = createdReport.reportData as EquityResearchData;
             setReportPdfBase64(createdReport.pdfBase64);
 
+            // Give the user a visible beat on "Formatting financial sheets & ratios"
+            await new Promise(resolve => setTimeout(resolve, 1200));
             updatedSteps[2].status = 'completed';
             setSteps([...updatedSteps]);
 
-            // --- Step 4: Compile Geojit PDF ---
+            // --- Step- 4: Compile Geojit PDF ---
             setCurrentStepIndex(3);
             updatedSteps[3].status = 'running';
             setSteps([...updatedSteps]);
 
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await new Promise(resolve => setTimeout(resolve, 1200));
             updatedSteps[3].status = 'completed';
             setSteps([...updatedSteps]);
 
@@ -954,24 +1053,11 @@ export function Dashboard() {
           waitSeconds = (hrs * 3600) + (mins * 60) + Math.ceil(secs);
         }
 
-        // Format duration helper
-        const formatDuration = (totalSecs: number) => {
-          if (totalSecs >= 3600) {
-            const hrs = Math.floor(totalSecs / 3600);
-            const mins = Math.floor((totalSecs % 3600) / 60);
-            return `${hrs}h ${mins}m`;
-          } else if (totalSecs >= 60) {
-            const mins = Math.floor(totalSecs / 60);
-            const secs = totalSecs % 60;
-            return `${mins}m ${secs}s`;
-          }
-          return `${totalSecs}s`;
-        };
-
-        const durationText = formatDuration(waitSeconds);
+        const durationText = formatDurationText(waitSeconds);
 
         // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
         if (waitSeconds > 300) {
+          if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
           const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
             hour: '2-digit',
             minute: '2-digit'
@@ -979,43 +1065,23 @@ export function Dashboard() {
           const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
           setError(limitMsg);
           showToast(limitMsg, 'error');
-          if (updatedSteps[currentStepIndex]) {
-            updatedSteps[currentStepIndex].status = 'failed';
-            setSteps([...updatedSteps]);
+          
+          const activeIdx = updatedSteps.findIndex(s => s.status === 'running');
+          const targetIdx = activeIdx !== -1 ? activeIdx : currentStepIndex;
+          for (let i = 0; i < updatedSteps.length; i++) {
+            if (i === targetIdx) {
+              updatedSteps[i].status = 'failed';
+            } else if (updatedSteps[i].status === 'running') {
+              updatedSteps[i].status = 'idle';
+            }
           }
+          setSteps([...updatedSteps]);
           setLoading(false);
           setThrottleCountdown(null);
           return;
         }
 
-        showToast(`Rate limit reached — retrying in ${durationText}...`, 'info');
-
-        // Keep the throttled step as 'running' (no red failure state — it will resume)
-        if (updatedSteps[currentStepIndex]) {
-          updatedSteps[currentStepIndex].status = 'running';
-          setSteps([...updatedSteps]);
-        }
-
-        // Start dynamic live countdown ticking loop in UI
-        let remainingSeconds = waitSeconds;
-        setThrottleCountdown(formatDuration(remainingSeconds));
-        const intervalId = setInterval(() => {
-          remainingSeconds--;
-          if (remainingSeconds <= 0) {
-            clearInterval(intervalId);
-            setThrottleCountdown(null);
-          } else {
-            setThrottleCountdown(formatDuration(remainingSeconds));
-          }
-        }, 1000);
-
-        // Auto-trigger resume after the exact wait time Groq suggested
-        setTimeout(() => {
-          clearInterval(intervalId);
-          setThrottleCountdown(null);
-          resumeGeneration();
-        }, waitSeconds * 1000);
-
+        startThrottledCountdown(waitSeconds, updatedSteps, currentStepIndex);
         return;
       }
 
@@ -1023,16 +1089,27 @@ export function Dashboard() {
       setError(errMsg);
       showToast(errMsg, 'error');
 
-      if (updatedSteps[currentStepIndex]) {
-        updatedSteps[currentStepIndex].status = 'failed';
-        setSteps([...updatedSteps]);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
+
+      const activeIdx = updatedSteps.findIndex(s => s.status === 'running');
+      const targetIdx = activeIdx !== -1 ? activeIdx : currentStepIndex;
+      for (let i = 0; i < updatedSteps.length; i++) {
+        if (i === targetIdx) {
+          updatedSteps[i].status = 'failed';
+        } else if (updatedSteps[i].status === 'running') {
+          updatedSteps[i].status = 'idle';
+        }
+      }
+      setSteps([...updatedSteps]);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const resumeGeneration = async () => {
+  async function resumeGeneration() {
     if (!currentJobId) return;
     setLoading(true);
     setError(null);
@@ -1051,7 +1128,7 @@ export function Dashboard() {
     setSteps([...updatedSteps]);
     setCurrentStepIndex(startIdx);
 
-    const formatDuration = (totalSecs: number) => {
+    const formatDurationText = (totalSecs: number) => {
       if (totalSecs >= 3600) {
         const hrs = Math.floor(totalSecs / 3600);
         const mins = Math.floor((totalSecs % 3600) / 60);
@@ -1081,8 +1158,8 @@ export function Dashboard() {
         throw new Error(data.message || 'Resume extraction failed');
       }
 
-      // Start Polling loop for resumption progress
-      const pollInterval = setInterval(async () => {
+      // Start Polling loop for resumption progress (stored in ref)
+      pollIntervalRef.current = setInterval(async () => {
         try {
           const statusRes = await fetch(`/api/extract/status?jobId=${currentJobId}`);
           if (!statusRes.ok) return;
@@ -1097,27 +1174,66 @@ export function Dashboard() {
             setSteps([...updatedSteps]);
           }
 
+          // Surface internal "waiting for AI capacity" pauses with a live countdown
+          if (statusData.status === 'running' && statusData.waitSeconds != null && statusData.waitSeconds > 0) {
+            setCapacityWaitUntil(new Date(statusData.waitUntil).getTime());
+          } else {
+            setCapacityWaitUntil(null);
+          }
+
           if (statusData.status === 'throttled') {
             const waitSeconds = statusData.retryAfterSeconds || 20;
-            const durationText = formatDuration(waitSeconds);
-            showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
-            setThrottleCountdown(durationText);
+            // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+            if (waitSeconds > 300) {
+              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+              const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              const durationText = formatDurationText(waitSeconds);
+              const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+              setError(limitMsg);
+              showToast(limitMsg, 'error');
+              
+              const activeIdx = statusData.stepIndex !== undefined ? statusData.stepIndex : startIdx;
+              for (let i = 0; i < updatedSteps.length; i++) {
+                if (i === activeIdx) {
+                  updatedSteps[i].status = 'failed';
+                } else if (updatedSteps[i].status === 'running') {
+                  updatedSteps[i].status = 'idle';
+                }
+              }
+              setSteps([...updatedSteps]);
+              setLoading(false);
+              setThrottleCountdown(null);
+              return;
+            }
+
+            const activeIdx = statusData.stepIndex !== undefined ? statusData.stepIndex : startIdx;
+            startThrottledCountdown(waitSeconds, updatedSteps, activeIdx);
+            return;
           } else {
             setThrottleCountdown(null);
           }
 
           if (statusData.status === 'failed') {
-            clearInterval(pollInterval);
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
             setError(statusData.errorMessage || 'Resume failed');
-            if (updatedSteps[currentStepIndex]) {
-              updatedSteps[currentStepIndex].status = 'failed';
-              setSteps([...updatedSteps]);
+            
+            const activeIdx = statusData.stepIndex !== undefined ? statusData.stepIndex : startIdx;
+            for (let i = 0; i < updatedSteps.length; i++) {
+              if (i === activeIdx) {
+                updatedSteps[i].status = 'failed';
+              } else if (updatedSteps[i].status === 'running') {
+                updatedSteps[i].status = 'idle';
+              }
             }
+            setSteps([...updatedSteps]);
             setLoading(false);
           }
 
           if (statusData.status === 'completed') {
-            clearInterval(pollInterval);
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
 
             // Complete all remaining steps in UI
             for (let i = startIdx; i < updatedSteps.length; i++) {
@@ -1157,16 +1273,27 @@ export function Dashboard() {
       const errMessage = err instanceof Error ? err.message : 'Unknown Error';
       setError(errMessage);
       showToast(errMessage, 'error');
-      const currentIdx = steps.findIndex(s => s.status === 'running');
-      if (currentIdx !== -1) {
-        updatedSteps[currentIdx].status = 'failed';
-        setSteps([...updatedSteps]);
+      
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
+
+      const activeIdx = updatedSteps.findIndex(s => s.status === 'running');
+      const targetIdx = activeIdx !== -1 ? activeIdx : startIdx;
+      for (let i = 0; i < updatedSteps.length; i++) {
+        if (i === targetIdx) {
+          updatedSteps[i].status = 'failed';
+        } else if (updatedSteps[i].status === 'running') {
+          updatedSteps[i].status = 'idle';
+        }
+      }
+      setSteps([...updatedSteps]);
       setLoading(false);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const triggerDownload = async (reportId: string) => {
     setIsDownloading(true);
@@ -1549,7 +1676,11 @@ export function Dashboard() {
                       {loading ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          Processing Pipeline...
+                          {throttleCountdown
+                            ? `Resuming in ${throttleCountdown}...`
+                            : capacityWaitSeconds != null
+                              ? `Resuming in ${formatDuration(capacityWaitSeconds)}...`
+                              : 'Processing Pipeline...'}
                         </>
                       ) : (
                         <>
@@ -1626,7 +1757,11 @@ export function Dashboard() {
                 <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-white">
-                      {throttleCountdown ? `Throttled: Resuming in ${throttleCountdown}...` : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
+                      {throttleCountdown
+                        ? `Throttled: Resuming in ${throttleCountdown}...`
+                        : capacityWaitSeconds != null
+                          ? `AI at capacity — resuming in ${formatDuration(capacityWaitSeconds)}...`
+                          : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
                     </h3>
                     <p className="text-[10px] text-slate-600 font-mono mt-0.5">
                       {currentJobId ? `JOB · ${currentJobId}` : 'Initializing...'}
@@ -1657,6 +1792,11 @@ export function Dashboard() {
                         {step.status === 'running' && throttleCountdown && idx === currentStepIndex && (
                           <span className="text-[10px] text-blue-400 font-bold animate-pulse">
                             ⚠ Rate limit reached — Auto-resuming in {throttleCountdown}
+                          </span>
+                        )}
+                        {step.status === 'running' && !throttleCountdown && capacityWaitSeconds != null && idx === currentStepIndex && (
+                          <span className="text-[10px] text-amber-400 font-bold animate-pulse">
+                            ⏳ AI model at capacity — auto-resuming in ~{formatDuration(capacityWaitSeconds)}
                           </span>
                         )}
                       </span>

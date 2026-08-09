@@ -45,7 +45,9 @@ export function parseRetryAfterSeconds(errorMessage: string): number {
  */
 export async function withRateLimitRetry<T>(
   fn: () => Promise<T>,
-  maxAttempts = 2
+  maxAttempts = 2,
+  onWaitStart?: (waitSeconds: number) => Promise<void> | void,
+  onWaitEnd?: () => Promise<void> | void
 ): Promise<T> {
   let lastError: unknown;
 
@@ -69,7 +71,21 @@ export async function withRateLimitRetry<T>(
         }
 
         if (attempt < maxAttempts - 1) {
+          if (onWaitStart) {
+            try {
+              await onWaitStart(waitSeconds);
+            } catch (e) {
+              console.error('Failed calling onWaitStart in retry wrapper:', e);
+            }
+          }
           await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+          if (onWaitEnd) {
+            try {
+              await onWaitEnd();
+            } catch (e) {
+              console.error('Failed calling onWaitEnd in retry wrapper:', e);
+            }
+          }
           continue; // retry
         }
 

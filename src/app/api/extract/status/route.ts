@@ -24,12 +24,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ message: 'Job not found.' }, { status: 404 });
     }
 
+    const waitUntilMs = job.waitUntil ? job.waitUntil.getTime() : null;
+    const waitSeconds = waitUntilMs !== null ? Math.max(0, Math.ceil((waitUntilMs - Date.now()) / 1000)) : null;
+
     return NextResponse.json({
       jobId: job.id,
       status: job.status,
       stepIndex: job.stepIndex,
       errorMessage: job.errorMessage,
       retryAfterSeconds: job.retryAfterSeconds,
+      waitMessage: job.waitMessage ?? null,
+      waitUntil: job.waitUntil ? job.waitUntil.toISOString() : null,
+      waitSeconds,
       reportId: job.reportId ?? null,   // directly from the job record — no secondary lookup needed
       updatedAt: job.updatedAt
     }, { status: 200 });

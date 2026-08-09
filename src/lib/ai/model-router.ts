@@ -33,11 +33,14 @@ const COMPLETION_TOKEN_BUFFER = 1500;
  * Picks the right model for a request, rerouting BEFORE sending if the
  * estimated size would exceed the primary model's ceiling outright (fixes the 413 case),
  * and waiting for real budget if there's just temporary contention (fixes the 429 case).
+ * `onWaitStart` fires with the wait duration whenever budget contention forces a delay,
+ * so callers can surface a live countdown to the user.
  */
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
-  preferredModel = 'llama-3.3-70b-versatile'
+  preferredModel = 'llama-3.3-70b-versatile',
+  onWaitStart?: (waitMs: number) => void
 ): Promise<ModelChoice> {
   const estimated = estimateTokens(promptText) + COMPLETION_TOKEN_BUFFER;
   const provider = options.provider;
@@ -70,7 +73,7 @@ export async function getModelForRequest(
   }
 
   // --- Normal path: wait for real budget, then return preferred model ---
-  const waitedMs = await tokenBudgetManager.waitForBudget(preferredModel, estimated);
+  const waitedMs = await tokenBudgetManager.waitForBudget(preferredModel, estimated, onWaitStart);
   if (waitedMs > 0) {
     console.log(`[ModelRouter] Waited ${waitedMs}ms for budget headroom on ${preferredModel}.`);
   }
