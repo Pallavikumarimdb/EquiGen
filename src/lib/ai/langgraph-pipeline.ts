@@ -381,13 +381,22 @@ export async function runOrResumeResearchPipeline(
     if (!companyName || !rawText || !options) {
       throw new Error('Missing parameters to initialize a new extraction job.');
     }
-    // Create new job in DB
-    job = await prisma.extractionJob.create({
-      data: {
-        id: jobId,
+    // Upsert job in DB (idempotent — the API route may have already created it)
+    job = await prisma.extractionJob.upsert({
+      where: { id: jobId },
+      update: {
         companyName,
-        fileName: 'uploaded_document.pdf',
         rawText,
+        status: 'running',
+        stepIndex: 0,
+        errorMessage: null,
+        retryAfterSeconds: null
+      },
+      create: {
+        id: jobId,
+        companyName: companyName!,
+        fileName: 'uploaded_document.pdf', // fallback — API route upsert always runs first with real name
+        rawText: rawText!,
         status: 'running',
         stepIndex: 0
       }

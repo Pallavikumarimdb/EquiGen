@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { requireApiSecret } from '@/lib/utils/auth';
 
 export async function GET() {
   try {
@@ -65,6 +66,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const authError = requireApiSecret(req as Parameters<typeof requireApiSecret>[0]);
+  if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ message: 'Database not configured' }, { status: 400 });

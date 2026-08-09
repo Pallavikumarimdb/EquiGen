@@ -105,9 +105,10 @@ export class PDFExtractor implements DocumentExtractor {
   }
 
   public async runVisionFallback(imgDataUrl: string, apiKey: string): Promise<string> {
+    const visionModel = process.env.GROQ_VISION_MODEL || 'llama-3.2-11b-vision-preview';
     const groq = new Groq({ apiKey });
     const response = await groq.chat.completions.create({
-      model: 'llama-3.2-11b-vision-preview',
+      model: visionModel,
       messages: [
         {
           role: 'user',

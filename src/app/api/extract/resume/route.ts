@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { langchainAIService } from '@/lib/ai';
-import { RateLimitError } from '@/lib/ai/retry-wrapper';
+import { getDecryptedApiKey } from '@/lib/utils/api-keys';
+import { resumeBackgroundJob } from '@/lib/queue/worker';
 
 const ResumePayloadSchema = z.object({
   jobId: z.string().min(1, 'Job ID is required to resume'),
@@ -30,35 +30,29 @@ export async function POST(req: NextRequest) {
     const { jobId, provider, modelName, apiKey } = parsedPayload.data;
     activeJobId = jobId;
 
-    const extractedData = await langchainAIService.extractOrResumeFinancialData(
-      activeJobId,
-      undefined,
-      undefined,
-      { provider, modelName, apiKey },
-      true
-    );
+    // Resolve API key: check database (BYOK) first, then fallback to request payload
+    let resolvedApiKey = apiKey;
+    if (!resolvedApiKey) {
+      const dbKey = await getDecryptedApiKey('default-org', provider);
+      if (dbKey) resolvedApiKey = dbKey;
+    }
+
+    // Trigger background resumption worker
+    resumeBackgroundJob(activeJobId, {
+      provider,
+      modelName,
+      apiKey: resolvedApiKey
+    });
 
     return NextResponse.json({
       success: true,
       jobId: activeJobId,
-      reportData: extractedData
-    }, { status: 200 });
+      status: 'running',
+      message: 'Job recovery initialized in the background.'
+    }, { status: 202 });
 
   } catch (error: unknown) {
     console.error('API Error: /api/extract/resume failed:', error);
-
-    if (error instanceof RateLimitError) {
-      return NextResponse.json(
-        {
-          message: `Rate limited — auto-resume in ${error.retryAfterSeconds}s`,
-          status: 'throttled',
-          retryAfterSeconds: error.retryAfterSeconds,
-          jobId: activeJobId
-        },
-        { status: 429 }
-      );
-    }
-
     const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json(
       { message: errMsg, jobId: activeJobId },

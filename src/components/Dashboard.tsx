@@ -62,6 +62,7 @@ export function Dashboard() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -98,37 +99,62 @@ export function Dashboard() {
 
   // Load AI Settings from localStorage on mount
   useEffect(() => {
-    try {
-      const storedSettings = localStorage.getItem('equigen_settings');
-      if (storedSettings) {
-        const parsed = JSON.parse(storedSettings);
-        if (parsed.provider) {
-          setAiProvider(parsed.provider);
-          setTempProvider(parsed.provider);
+    const initSettings = async () => {
+      try {
+        const storedSettings = localStorage.getItem('equigen_settings');
+        // Only restore provider and model preferences — never API keys from localStorage
+        if (storedSettings) {
+          const parsed = JSON.parse(storedSettings);
+          if (parsed.provider) {
+            setAiProvider(parsed.provider);
+            setTempProvider(parsed.provider);
+          }
+          if (parsed.groqModel) {
+            setGroqModel(parsed.groqModel);
+            setTempGroqModel(parsed.groqModel);
+          }
+          if (parsed.openaiModel) {
+            setOpenaiModel(parsed.openaiModel);
+            setTempOpenaiModel(parsed.openaiModel);
+          }
         }
-        if (parsed.groqApiKey !== undefined) {
-          setGroqApiKey(parsed.groqApiKey);
-          setTempGroqApiKey(parsed.groqApiKey);
+
+        // Verify if keys exist in DB and update config flags accordingly
+        // NOTE: We never store API keys in localStorage — only provider/model preferences.
+        //       Keys are encrypted in the database; we show a masked placeholder if configured.
+        const groqDbRes = await fetch('/api/settings/keys?provider=groq').catch(() => null);
+        if (groqDbRes && groqDbRes.ok) {
+          const data = await groqDbRes.json();
+          if (data.configured) {
+            setGroqApiKey('••••••••••••••••');
+            setTempGroqApiKey('••••••••••••••••');
+          }
         }
-        if (parsed.openaiApiKey !== undefined) {
-          setOpenaiApiKey(parsed.openaiApiKey);
-          setTempOpenaiApiKey(parsed.openaiApiKey);
+        const openaiDbRes = await fetch('/api/settings/keys?provider=openai').catch(() => null);
+        if (openaiDbRes && openaiDbRes.ok) {
+          const data = await openaiDbRes.json();
+          if (data.configured) {
+            setOpenaiApiKey('••••••••••••••••');
+            setTempOpenaiApiKey('••••••••••••••••');
+          }
         }
-        if (parsed.groqModel) {
-          setGroqModel(parsed.groqModel);
-          setTempGroqModel(parsed.groqModel);
-        }
-        if (parsed.openaiModel) {
-          setOpenaiModel(parsed.openaiModel);
-          setTempOpenaiModel(parsed.openaiModel);
-        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
       }
-    } catch (e) {
-      console.error('Failed to load settings:', e);
-    }
+    };
+    initSettings();
   }, []);
 
-  const saveSettings = (
+  // Clear the polling interval on component unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const saveSettings = async (
     provider: 'groq' | 'openai', 
     gKey: string, 
     oKey: string, 
@@ -141,14 +167,27 @@ export function Dashboard() {
     setGroqModel(gModel);
     setOpenaiModel(oModel);
     try {
+      // Persist only non-sensitive preferences — never store API keys in localStorage
       localStorage.setItem('equigen_settings', JSON.stringify({
         provider,
-        groqApiKey: gKey,
-        openaiApiKey: oKey,
         groqModel: gModel,
         openaiModel: oModel
       }));
-      showToast('AI configurations saved successfully!', 'success');
+
+      // Push encrypted keys server-side in database securely
+      await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'groq', apiKey: gKey })
+      });
+
+      await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai', apiKey: oKey })
+      });
+
+      showToast('AI configurations saved securely!', 'success');
       setIsSettingsOpen(false);
     } catch (e) {
       console.error('Failed to save settings:', e);
@@ -205,6 +244,7 @@ export function Dashboard() {
     fetchHistory();
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const addToHistory = async (name: string, fName: string, data: EquityResearchData, pdfBase64: string | null) => {
     // Generate a completely unique ID for every report entry to prevent overwriting existing ones
     const uniqueId = 'rep_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
@@ -463,9 +503,19 @@ export function Dashboard() {
     setSteps(updatedSteps);
     showToast('Starting report generation pipeline...', 'info');
 
-    let rawText = '';
-    let extractedData: EquityResearchData | null = null;
-    let reportResponse: { reportId: string; pdfBase64: string } | null = null;
+    // Helper to format duration text
+    const formatDuration = (totalSecs: number) => {
+      if (totalSecs >= 3600) {
+        const hrs = Math.floor(totalSecs / 3600);
+        const mins = Math.floor((totalSecs % 3600) / 60);
+        return `${hrs}h ${mins}m`;
+      } else if (totalSecs >= 60) {
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
+        return `${mins}m ${secs}s`;
+      }
+      return `${totalSecs}s`;
+    };
 
     try {
       // --- Step 1: Upload & Extract Raw Text ---
@@ -487,14 +537,18 @@ export function Dashboard() {
       }
 
       const uploadData = await uploadRes.json();
-      rawText = uploadData.text;
+      const rawText = uploadData.text;
       updatedSteps[0].status = 'completed';
       setSteps([...updatedSteps]);
 
-      // --- Step 2: AI Metric Extraction ---
+      // --- Step 2: Queue AI Metric Extraction Job ---
       setCurrentStepIndex(1);
       updatedSteps[1].status = 'running';
       setSteps([...updatedSteps]);
+
+      const rawApiKey = aiProvider === 'groq' ? groqApiKey : openaiApiKey;
+      // Don't send the masked placeholder — the DB already has the encrypted key
+      const resolvedApiKey = rawApiKey && rawApiKey.includes('•') ? undefined : rawApiKey || undefined;
 
       const extractRes = await fetch('/api/extract', {
         method: 'POST',
@@ -502,136 +556,99 @@ export function Dashboard() {
         body: JSON.stringify({ 
           companyName, 
           rawText,
+          fileName: file.name,       // ← pass the real filename
           provider: aiProvider,
           modelName: aiProvider === 'groq' ? groqModel : openaiModel,
-          apiKey: (aiProvider === 'groq' ? groqApiKey : openaiApiKey) || undefined,
+          apiKey: resolvedApiKey,
           jobId
         })
       });
 
       const extractData = await extractRes.json();
-
-      // --- Throttled (429): auto-resume after Groq's suggested delay ---
-      if (extractRes.status === 429 && extractData.status === 'throttled') {
-        const waitSeconds: number = extractData.retryAfterSeconds || 20;
-        setCurrentJobId(extractData.jobId || jobId);
-
-        // Format duration helper
-        const formatDuration = (totalSecs: number) => {
-          if (totalSecs >= 3600) {
-            const hrs = Math.floor(totalSecs / 3600);
-            const mins = Math.floor((totalSecs % 3600) / 60);
-            return `${hrs}h ${mins}m`;
-          } else if (totalSecs >= 60) {
-            const mins = Math.floor(totalSecs / 60);
-            const secs = totalSecs % 60;
-            return `${mins}m ${secs}s`;
-          }
-          return `${totalSecs}s`;
-        };
-
-        const durationText = formatDuration(waitSeconds);
-
-        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
-        if (waitSeconds > 300) {
-          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
-          setError(limitMsg);
-          showToast(limitMsg, 'error');
-          if (updatedSteps[1]) {
-            updatedSteps[1].status = 'failed';
-            setSteps([...updatedSteps]);
-          }
-          setLoading(false);
-          setThrottleCountdown(null);
-          return;
-        }
-
-        showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
-
-        // Keep step 2 (AI Metric Extraction) as 'running' — it will seamlessly resume
-        updatedSteps[1].status = 'running';
-        setSteps([...updatedSteps]);
-        setCurrentStepIndex(1);
-
-        // Start dynamic live countdown ticking loop in UI
-        let remainingSeconds = waitSeconds;
-        setThrottleCountdown(formatDuration(remainingSeconds));
-        const intervalId = setInterval(() => {
-          remainingSeconds--;
-          if (remainingSeconds <= 0) {
-            clearInterval(intervalId);
-            setThrottleCountdown(null);
-          } else {
-            setThrottleCountdown(formatDuration(remainingSeconds));
-          }
-        }, 1000);
-
-        // Auto-trigger resume after the exact wait time Groq suggested
-        setTimeout(() => {
-          clearInterval(intervalId);
-          setThrottleCountdown(null);
-          resumeGeneration();
-        }, waitSeconds * 1000);
-        return; // skip the generic error handling entirely
-      }
-
-      if (!extractRes.ok) {
-        setCurrentJobId(extractData.jobId || jobId);
+      if (!extractRes.ok && extractRes.status !== 202) {
         throw new Error(extractData.message || 'AI extraction failed.');
       }
 
-      extractedData = extractData.reportData as EquityResearchData;
-      updatedSteps[1].status = 'completed';
-      setSteps([...updatedSteps]);
+      const activeJob = extractData.jobId;
+      setCurrentJobId(activeJob);
 
-      // --- Step 3: Format Financial Ratios & Generate Charts ---
-      setCurrentStepIndex(2);
-      updatedSteps[2].status = 'running';
-      setSteps([...updatedSteps]);
+      // Start Polling loop (stored in ref so it can be cleared on unmount)
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/extract/status?jobId=${activeJob}`);
+          if (!statusRes.ok) return;
 
-      const reportRes = await fetch('/api/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(extractedData)
-      });
+          const statusData = await statusRes.json();
 
-      if (!reportRes.ok) {
-        const errData = await reportRes.json().catch(() => ({}));
-        throw new Error(errData.message || 'Formatting financial ratios failed.');
-      }
+          // Sync current checkpoint index
+          if (statusData.stepIndex > 1) {
+            updatedSteps[1].status = 'completed';
+            setSteps([...updatedSteps]);
+          }
 
-      reportResponse = await reportRes.json();
-      if (reportResponse && extractedData && extractedData.company) {
-        extractedData.company.ticker = reportResponse.reportId;
-      }
-      if (reportResponse && typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
-        setReportPdfBase64(reportResponse.pdfBase64);
-      }
-      updatedSteps[2].status = 'completed';
-      setSteps([...updatedSteps]);
+          if (statusData.status === 'throttled') {
+            const waitSeconds = statusData.retryAfterSeconds || 20;
+            const durationText = formatDuration(waitSeconds);
+            showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
+            setThrottleCountdown(durationText);
+          } else {
+            setThrottleCountdown(null);
+          }
 
-      // --- Step 4: Compile Geojit PDF ---
-      setCurrentStepIndex(3);
-      updatedSteps[3].status = 'running';
-      setSteps([...updatedSteps]);
+          if (statusData.status === 'failed') {
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            setError(statusData.errorMessage || 'AI generation failed');
+            updatedSteps[1].status = 'failed';
+            setSteps([...updatedSteps]);
+            setLoading(false);
+          }
 
-      await new Promise(resolve => setTimeout(resolve, 800));
-      updatedSteps[3].status = 'completed';
-      setSteps([...updatedSteps]);
+          if (statusData.status === 'completed') {
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            
+            // --- Step 3: Format Financial Ratios & Generate Charts ---
+            setCurrentStepIndex(2);
+            updatedSteps[2].status = 'running';
+            setSteps([...updatedSteps]);
 
-      setReportData(extractedData);
-      // Save to history & state
-      const createdId = await addToHistory(companyName, file.name, extractedData!, reportResponse?.pdfBase64 || null);
-      setActiveReportId(createdId);
-      setActiveReportStatus('draft');
-      showToast('Equity report compiled successfully!', 'success');
+            // Fetch report details created by the worker
+            const historyRes = await fetch('/api/history');
+            const historyData = await historyRes.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const createdReport = historyData.find((h: any) => h.id === statusData.reportId);
+
+            if (!createdReport) {
+              throw new Error('Report could not be resolved from history database.');
+            }
+
+            const extractedData = createdReport.reportData as EquityResearchData;
+            setReportPdfBase64(createdReport.pdfBase64);
+            
+            updatedSteps[2].status = 'completed';
+            setSteps([...updatedSteps]);
+
+            // --- Step 4: Compile Geojit PDF ---
+            setCurrentStepIndex(3);
+            updatedSteps[3].status = 'running';
+            setSteps([...updatedSteps]);
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+            updatedSteps[3].status = 'completed';
+            setSteps([...updatedSteps]);
+
+            setReportData(extractedData);
+            setActiveReportId(createdReport.id);
+            setActiveReportStatus(createdReport.status || 'draft');
+            showToast('Equity report compiled successfully!', 'success');
+            setLoading(false);
+          }
+        } catch (pollErr) {
+          console.error('Status polling error:', pollErr);
+        }
+      }, 2000);
+
     } catch (err: unknown) {
       console.error('Generation pipeline failed:', err);
-
       const errMsg = err instanceof Error ? err.message : 'An error occurred during report generation.';
 
       // Detect throttled signal from API response message or error message
@@ -748,6 +765,19 @@ export function Dashboard() {
     setSteps([...updatedSteps]);
     setCurrentStepIndex(startIdx);
 
+    const formatDuration = (totalSecs: number) => {
+      if (totalSecs >= 3600) {
+        const hrs = Math.floor(totalSecs / 3600);
+        const mins = Math.floor((totalSecs % 3600) / 60);
+        return `${hrs}h ${mins}m`;
+      } else if (totalSecs >= 60) {
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
+        return `${mins}m ${secs}s`;
+      }
+      return `${totalSecs}s`;
+    };
+
     try {
       const res = await fetch('/api/extract/resume', {
         method: 'POST',
@@ -761,181 +791,89 @@ export function Dashboard() {
       });
 
       const data = await res.json();
-
-      // --- Throttled (429) inside resume endpoint ---
-      if (res.status === 429 && data.status === 'throttled') {
-        const waitSeconds: number = data.retryAfterSeconds || 20;
-        setCurrentJobId(data.jobId || currentJobId);
-
-        // Format duration into readable text
-        let durationText = `${waitSeconds}s`;
-        if (waitSeconds >= 3600) {
-          const hrs = Math.floor(waitSeconds / 3600);
-          const mins = Math.floor((waitSeconds % 3600) / 60);
-          durationText = `${hrs}h ${mins}m`;
-        } else if (waitSeconds >= 60) {
-          const mins = Math.floor(waitSeconds / 60);
-          const secs = waitSeconds % 60;
-          durationText = `${mins}m ${secs}s`;
-        }
-
-        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
-        if (waitSeconds > 300) {
-          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
-          setError(limitMsg);
-          showToast(limitMsg, 'error');
-          if (updatedSteps[currentStepIndex]) {
-            updatedSteps[currentStepIndex].status = 'failed';
-            setSteps([...updatedSteps]);
-          }
-          setLoading(false);
-          return;
-        }
-
-        showToast(`Rate limit reached during resume — retrying in ${durationText}...`, 'info');
-
-        if (updatedSteps[currentStepIndex]) {
-          updatedSteps[currentStepIndex].status = 'running';
-          setSteps([...updatedSteps]);
-        }
-
-        setTimeout(() => resumeGeneration(), waitSeconds * 1000);
-        return;
-      }
-
-      if (!res.ok) {
-        setCurrentJobId(data.jobId || currentJobId);
+      if (!res.ok && res.status !== 202) {
         throw new Error(data.message || 'Resume extraction failed');
       }
 
-      const extractedData = data.reportData as EquityResearchData;
+      // Start Polling loop for resumption progress
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/extract/status?jobId=${currentJobId}`);
+          if (!statusRes.ok) return;
 
-      // Complete all remaining steps in UI
-      for (let i = startIdx; i < updatedSteps.length; i++) {
-        updatedSteps[i].status = 'completed';
-      }
-      setSteps([...updatedSteps]);
+          const statusData = await statusRes.json();
 
-      // Compile report PDF
-      const reportRes = await fetch('/api/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(extractedData)
-      });
+          // Sync current checkpoint steps index
+          if (statusData.stepIndex > startIdx) {
+            for (let i = startIdx; i < statusData.stepIndex; i++) {
+              if (updatedSteps[i]) updatedSteps[i].status = 'completed';
+            }
+            setSteps([...updatedSteps]);
+          }
 
-      if (!reportRes.ok) {
-        const errData = await reportRes.json().catch(() => ({}));
-        throw new Error(errData.message || 'PDF compile failed');
-      }
+          if (statusData.status === 'throttled') {
+            const waitSeconds = statusData.retryAfterSeconds || 20;
+            const durationText = formatDuration(waitSeconds);
+            showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
+            setThrottleCountdown(durationText);
+          } else {
+            setThrottleCountdown(null);
+          }
 
-      const reportResponse = await reportRes.json();
-      if (extractedData && extractedData.company) {
-        extractedData.company.ticker = reportResponse.reportId;
-      }
-      if (typeof reportResponse.pdfBase64 === 'string' && reportResponse.pdfBase64) {
-        setReportPdfBase64(reportResponse.pdfBase64);
-      }
+          if (statusData.status === 'failed') {
+            clearInterval(pollInterval);
+            setError(statusData.errorMessage || 'Resume failed');
+            if (updatedSteps[currentStepIndex]) {
+              updatedSteps[currentStepIndex].status = 'failed';
+              setSteps([...updatedSteps]);
+            }
+            setLoading(false);
+          }
 
-      setReportData(extractedData);
-      const createdId = await addToHistory(companyName, file?.name || 'document.pdf', extractedData, reportResponse.pdfBase64);
-      setActiveReportId(createdId);
-      setActiveReportStatus('draft');
-      showToast('Equity report successfully recovered and compiled!', 'success');
+          if (statusData.status === 'completed') {
+            clearInterval(pollInterval);
+            
+            // Complete all remaining steps in UI
+            for (let i = startIdx; i < updatedSteps.length; i++) {
+              updatedSteps[i].status = 'completed';
+            }
+            setSteps([...updatedSteps]);
+
+            // Fetch report details created by the worker
+            const historyRes = await fetch('/api/history');
+            const historyData = await historyRes.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const createdReport = historyData.find((h: any) => h.id === statusData.reportId);
+
+            if (!createdReport) {
+              throw new Error('Report could not be resolved from history database.');
+            }
+
+            const extractedData = createdReport.reportData as EquityResearchData;
+            setReportPdfBase64(createdReport.pdfBase64);
+
+            setReportData(extractedData);
+            setActiveReportId(createdReport.id);
+            setActiveReportStatus(createdReport.status || 'draft');
+            showToast('Equity report successfully recovered and compiled!', 'success');
+            setLoading(false);
+          }
+        } catch (pollErr) {
+          console.error('Status polling error during resume:', pollErr);
+        }
+      }, 2000);
 
     } catch (err: unknown) {
       console.error('Resume pipeline failed:', err);
       const errMessage = err instanceof Error ? err.message : 'Unknown Error';
-
-      // Detect throttled signal in text response
-      const isThrottled = errMessage.toLowerCase().includes('throttled') ||
-        errMessage.toLowerCase().includes('rate limit') ||
-        errMessage.toLowerCase().includes('rate_limit_exceeded');
-
-      if (isThrottled && currentJobId) {
-        const matchDelay = errMessage.match(/(?:auto-resume in|try again in|in)\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
-        let waitSeconds = 20;
-
-        if (matchDelay) {
-          const hrs = matchDelay[1] ? parseInt(matchDelay[1], 10) : 0;
-          const mins = matchDelay[2] ? parseInt(matchDelay[2], 10) : 0;
-          const secs = matchDelay[3] ? parseFloat(matchDelay[3]) : 0;
-          waitSeconds = (hrs * 3600) + (mins * 60) + Math.ceil(secs);
-        }
-
-        // Format duration helper
-        const formatDuration = (totalSecs: number) => {
-          if (totalSecs >= 3600) {
-            const hrs = Math.floor(totalSecs / 3600);
-            const mins = Math.floor((totalSecs % 3600) / 60);
-            return `${hrs}h ${mins}m`;
-          } else if (totalSecs >= 60) {
-            const mins = Math.floor(totalSecs / 60);
-            const secs = totalSecs % 60;
-            return `${mins}m ${secs}s`;
-          }
-          return `${totalSecs}s`;
-        };
-
-        const durationText = formatDuration(waitSeconds);
-
-        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
-        if (waitSeconds > 300) {
-          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
-          setError(limitMsg);
-          showToast(limitMsg, 'error');
-          if (updatedSteps[currentStepIndex]) {
-            updatedSteps[currentStepIndex].status = 'failed';
-            setSteps([...updatedSteps]);
-          }
-          setLoading(false);
-          setThrottleCountdown(null);
-          return;
-        }
-
-        showToast(`Rate limit reached during resume — retrying in ${durationText}...`, 'info');
-
-        if (updatedSteps[currentStepIndex]) {
-          updatedSteps[currentStepIndex].status = 'running';
-          setSteps([...updatedSteps]);
-        }
-
-        // Start dynamic live countdown ticking loop in UI
-        let remainingSeconds = waitSeconds;
-        setThrottleCountdown(formatDuration(remainingSeconds));
-        const intervalId = setInterval(() => {
-          remainingSeconds--;
-          if (remainingSeconds <= 0) {
-            clearInterval(intervalId);
-            setThrottleCountdown(null);
-          } else {
-            setThrottleCountdown(formatDuration(remainingSeconds));
-          }
-        }, 1000);
-
-        setTimeout(() => {
-          clearInterval(intervalId);
-          setThrottleCountdown(null);
-          resumeGeneration();
-        }, waitSeconds * 1000);
-        return;
-      }
-
       setError(errMessage);
       showToast(errMessage, 'error');
-
       const currentIdx = steps.findIndex(s => s.status === 'running');
       if (currentIdx !== -1) {
         updatedSteps[currentIdx].status = 'failed';
         setSteps([...updatedSteps]);
       }
+      setLoading(false);
     } finally {
       setLoading(false);
     }

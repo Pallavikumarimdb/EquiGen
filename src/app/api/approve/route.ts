@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { pdfGenerationService } from '@/lib/pdf';
 import { EquityResearchData } from '@/types';
+import { requireApiSecret } from '@/lib/utils/auth';
 
 /**
  * POST /api/approve
@@ -9,6 +10,8 @@ import { EquityResearchData } from '@/types';
  * and updates the report status to "published" in the database.
  */
 export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ message: 'Database not configured' }, { status: 400 });

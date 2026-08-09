@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { langchainAIService } from '@/lib/ai';
-import { RateLimitError } from '@/lib/ai/retry-wrapper';
+import { prisma } from '@/lib/db';
+import { getDecryptedApiKey } from '@/lib/utils/api-keys';
+import { triggerBackgroundJob } from '@/lib/queue/worker';
 
 const ExtractPayloadSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
   rawText: z.string().min(1, 'Document content raw text is required'),
+  fileName: z.string().optional().default('uploaded_document.pdf'),
   provider: z.enum(['groq', 'openai']).optional().default('groq'),
   modelName: z.string().optional(),
   apiKey: z.string().optional(),
@@ -30,38 +32,55 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { companyName, rawText, provider, modelName, apiKey, jobId } = parsedPayload.data;
+    const { companyName, rawText, fileName, provider, modelName, apiKey, jobId } = parsedPayload.data;
     if (jobId) {
       activeJobId = jobId;
     }
 
-    const extractedData = await langchainAIService.extractOrResumeFinancialData(activeJobId, companyName, rawText, {
+    // Resolve API key: check database (BYOK) first, then fallback to request payload
+    let resolvedApiKey = apiKey;
+    if (!resolvedApiKey) {
+      const dbKey = await getDecryptedApiKey('default-org', provider);
+      if (dbKey) resolvedApiKey = dbKey;
+    }
+
+    // Initialize job record in database as running, storing the real filename
+    await prisma.extractionJob.upsert({
+      where: { id: activeJobId },
+      update: {
+        companyName,
+        fileName,
+        rawText,
+        status: 'running',
+        stepIndex: 0,
+        errorMessage: null,
+        retryAfterSeconds: null
+      },
+      create: {
+        id: activeJobId,
+        companyName,
+        fileName,
+        rawText,
+        status: 'running',
+        stepIndex: 0
+      }
+    });
+
+    // Fire background execution trigger without waiting
+    triggerBackgroundJob(activeJobId, companyName, rawText, {
       provider,
       modelName,
-      apiKey
-    }, false);
+      apiKey: resolvedApiKey
+    });
 
     return NextResponse.json({
       success: true,
       jobId: activeJobId,
-      reportData: extractedData
-    }, { status: 200 });
+      status: 'running',
+      message: 'Extraction job initialized in the background.'
+    }, { status: 202 });
   } catch (error: unknown) {
     console.error('API Error: /api/extract failed:', error);
-
-    // Rate-limit errors: job is throttled (resumable), not permanently failed
-    if (error instanceof RateLimitError) {
-      return NextResponse.json(
-        {
-          message: `Rate limited — auto-resume in ${error.retryAfterSeconds}s`,
-          status: 'throttled',
-          retryAfterSeconds: error.retryAfterSeconds,
-          jobId: activeJobId
-        },
-        { status: 429 }
-      );
-    }
-
     const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json(
       { message: errMsg, jobId: activeJobId },

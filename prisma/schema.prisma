@@ -38,6 +38,28 @@ model ExtractionJob {
   mathErrors        Json?
   errorMessage      String?
   retryAfterSeconds Int?                          // set on throttled status — seconds to wait before auto-resume
+  /** ID of the ReportHistory record created after successful completion */
+  reportId          String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model ApiKey {
+  id           String   @id @default(uuid())
+  orgId        String   @default("default-org")
+  provider     String   // "groq" | "openai"
+  encryptedKey String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, provider])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  reportId  String
+  userId    String   @default("anonymous")
+  action    String   // "GENERATE" | "EDIT" | "APPROVE" | "PUBLISH"
+  metadata  Json     // Includes details like hash, ip, status changes
+  createdAt DateTime @default(now())
 }
