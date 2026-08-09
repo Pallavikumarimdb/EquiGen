@@ -93,6 +93,9 @@ export function Dashboard() {
   const [tempGroqModel, setTempGroqModel] = useState('llama-3.3-70b-versatile');
   const [tempOpenaiModel, setTempOpenaiModel] = useState('gpt-4o-mini');
 
+  // Throttle countdown state for live UI tracking
+  const [throttleCountdown, setThrottleCountdown] = useState<string | null>(null);
+
   // Load AI Settings from localStorage on mount
   useEffect(() => {
     try {
@@ -225,9 +228,9 @@ export function Dashboard() {
     // Set active model flag so sign-off modal can show the warning immediately
     setActiveModelUsedForFinancials(data.modelUsedForFinancials || null);
 
-    // Save to Database
+    // Save to Database first, to verify it persists correctly
     try {
-      await fetch('/api/history', {
+      const res = await fetch('/api/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -240,8 +243,14 @@ export function Dashboard() {
           modelUsedForFinancials: data.modelUsedForFinancials || null
         })
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error('Failed to save to database history:', errData.message || res.statusText);
+        showToast(`Warning: Report not saved to database. (${errData.message || res.statusText})`, 'error');
+      }
     } catch (e) {
-      console.warn('Failed to save to database history:', e);
+      console.error('Failed to save to database history:', e);
+      showToast('Database connection failed. Saving locally only.', 'error');
     }
 
     // Save to state and local storage
@@ -506,16 +515,67 @@ export function Dashboard() {
       if (extractRes.status === 429 && extractData.status === 'throttled') {
         const waitSeconds: number = extractData.retryAfterSeconds || 20;
         setCurrentJobId(extractData.jobId || jobId);
-        showToast(`Rate limit reached — auto-resuming in ${waitSeconds}s...`, 'info');
 
-        // Keep step as 'running' — it will seamlessly resume, no crash/failure UI
-        if (updatedSteps[currentStepIndex]) {
-          updatedSteps[currentStepIndex].status = 'running';
-          setSteps([...updatedSteps]);
+        // Format duration helper
+        const formatDuration = (totalSecs: number) => {
+          if (totalSecs >= 3600) {
+            const hrs = Math.floor(totalSecs / 3600);
+            const mins = Math.floor((totalSecs % 3600) / 60);
+            return `${hrs}h ${mins}m`;
+          } else if (totalSecs >= 60) {
+            const mins = Math.floor(totalSecs / 60);
+            const secs = totalSecs % 60;
+            return `${mins}m ${secs}s`;
+          }
+          return `${totalSecs}s`;
+        };
+
+        const durationText = formatDuration(waitSeconds);
+
+        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+        if (waitSeconds > 300) {
+          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+          setError(limitMsg);
+          showToast(limitMsg, 'error');
+          if (updatedSteps[1]) {
+            updatedSteps[1].status = 'failed';
+            setSteps([...updatedSteps]);
+          }
+          setLoading(false);
+          setThrottleCountdown(null);
+          return;
         }
 
+        showToast(`Rate limit reached — auto-resuming in ${durationText}...`, 'info');
+
+        // Keep step 2 (AI Metric Extraction) as 'running' — it will seamlessly resume
+        updatedSteps[1].status = 'running';
+        setSteps([...updatedSteps]);
+        setCurrentStepIndex(1);
+
+        // Start dynamic live countdown ticking loop in UI
+        let remainingSeconds = waitSeconds;
+        setThrottleCountdown(formatDuration(remainingSeconds));
+        const intervalId = setInterval(() => {
+          remainingSeconds--;
+          if (remainingSeconds <= 0) {
+            clearInterval(intervalId);
+            setThrottleCountdown(null);
+          } else {
+            setThrottleCountdown(formatDuration(remainingSeconds));
+          }
+        }, 1000);
+
         // Auto-trigger resume after the exact wait time Groq suggested
-        setTimeout(() => resumeGeneration(), waitSeconds * 1000);
+        setTimeout(() => {
+          clearInterval(intervalId);
+          setThrottleCountdown(null);
+          resumeGeneration();
+        }, waitSeconds * 1000);
         return; // skip the generic error handling entirely
       }
 
@@ -572,9 +632,6 @@ export function Dashboard() {
     } catch (err: unknown) {
       console.error('Generation pipeline failed:', err);
 
-      // --- Check if the extract API returned a throttled status ---
-      // The extract API populates extractData.status = 'throttled' when Groq rate-limits us
-      // In that case, we auto-resume after the suggested delay instead of showing a hard failure
       const errMsg = err instanceof Error ? err.message : 'An error occurred during report generation.';
 
       // Detect throttled signal from API response message or error message
@@ -584,10 +641,51 @@ export function Dashboard() {
 
       if (isThrottled && currentJobId) {
         // Parse retry delay from error message (e.g. "auto-resume in 23s" or "try again in 23.22s")
-        const matchDelay = errMsg.match(/(?:auto-resume in|try again in|in)\s+([\d.]+)s/i);
-        const waitSeconds = matchDelay ? Math.ceil(parseFloat(matchDelay[1])) : 20;
+        const matchDelay = errMsg.match(/(?:auto-resume in|try again in|in)\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+        let waitSeconds = 20;
 
-        showToast(`Rate limit reached — automatically resuming in ${waitSeconds}s...`, 'info');
+        if (matchDelay) {
+          const hrs = matchDelay[1] ? parseInt(matchDelay[1], 10) : 0;
+          const mins = matchDelay[2] ? parseInt(matchDelay[2], 10) : 0;
+          const secs = matchDelay[3] ? parseFloat(matchDelay[3]) : 0;
+          waitSeconds = (hrs * 3600) + (mins * 60) + Math.ceil(secs);
+        }
+
+        // Format duration helper
+        const formatDuration = (totalSecs: number) => {
+          if (totalSecs >= 3600) {
+            const hrs = Math.floor(totalSecs / 3600);
+            const mins = Math.floor((totalSecs % 3600) / 60);
+            return `${hrs}h ${mins}m`;
+          } else if (totalSecs >= 60) {
+            const mins = Math.floor(totalSecs / 60);
+            const secs = totalSecs % 60;
+            return `${mins}m ${secs}s`;
+          }
+          return `${totalSecs}s`;
+        };
+
+        const durationText = formatDuration(waitSeconds);
+
+        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+        if (waitSeconds > 300) {
+          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+          setError(limitMsg);
+          showToast(limitMsg, 'error');
+          if (updatedSteps[currentStepIndex]) {
+            updatedSteps[currentStepIndex].status = 'failed';
+            setSteps([...updatedSteps]);
+          }
+          setLoading(false);
+          setThrottleCountdown(null);
+          return;
+        }
+
+        showToast(`Rate limit reached — retrying in ${durationText}...`, 'info');
         
         // Keep the throttled step as 'running' (no red failure state — it will resume)
         if (updatedSteps[currentStepIndex]) {
@@ -595,12 +693,26 @@ export function Dashboard() {
           setSteps([...updatedSteps]);
         }
 
+        // Start dynamic live countdown ticking loop in UI
+        let remainingSeconds = waitSeconds;
+        setThrottleCountdown(formatDuration(remainingSeconds));
+        const intervalId = setInterval(() => {
+          remainingSeconds--;
+          if (remainingSeconds <= 0) {
+            clearInterval(intervalId);
+            setThrottleCountdown(null);
+          } else {
+            setThrottleCountdown(formatDuration(remainingSeconds));
+          }
+        }, 1000);
+
         // Auto-trigger resume after the exact wait time Groq suggested
         setTimeout(() => {
+          clearInterval(intervalId);
+          setThrottleCountdown(null);
           resumeGeneration();
         }, waitSeconds * 1000);
 
-        // Don't fall through to generic error toast or stop loading
         return;
       }
 
@@ -649,6 +761,52 @@ export function Dashboard() {
       });
 
       const data = await res.json();
+
+      // --- Throttled (429) inside resume endpoint ---
+      if (res.status === 429 && data.status === 'throttled') {
+        const waitSeconds: number = data.retryAfterSeconds || 20;
+        setCurrentJobId(data.jobId || currentJobId);
+
+        // Format duration into readable text
+        let durationText = `${waitSeconds}s`;
+        if (waitSeconds >= 3600) {
+          const hrs = Math.floor(waitSeconds / 3600);
+          const mins = Math.floor((waitSeconds % 3600) / 60);
+          durationText = `${hrs}h ${mins}m`;
+        } else if (waitSeconds >= 60) {
+          const mins = Math.floor(waitSeconds / 60);
+          const secs = waitSeconds % 60;
+          durationText = `${mins}m ${secs}s`;
+        }
+
+        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+        if (waitSeconds > 300) {
+          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+          setError(limitMsg);
+          showToast(limitMsg, 'error');
+          if (updatedSteps[currentStepIndex]) {
+            updatedSteps[currentStepIndex].status = 'failed';
+            setSteps([...updatedSteps]);
+          }
+          setLoading(false);
+          return;
+        }
+
+        showToast(`Rate limit reached during resume — retrying in ${durationText}...`, 'info');
+
+        if (updatedSteps[currentStepIndex]) {
+          updatedSteps[currentStepIndex].status = 'running';
+          setSteps([...updatedSteps]);
+        }
+
+        setTimeout(() => resumeGeneration(), waitSeconds * 1000);
+        return;
+      }
+
       if (!res.ok) {
         setCurrentJobId(data.jobId || currentJobId);
         throw new Error(data.message || 'Resume extraction failed');
@@ -691,6 +849,85 @@ export function Dashboard() {
     } catch (err: unknown) {
       console.error('Resume pipeline failed:', err);
       const errMessage = err instanceof Error ? err.message : 'Unknown Error';
+
+      // Detect throttled signal in text response
+      const isThrottled = errMessage.toLowerCase().includes('throttled') ||
+        errMessage.toLowerCase().includes('rate limit') ||
+        errMessage.toLowerCase().includes('rate_limit_exceeded');
+
+      if (isThrottled && currentJobId) {
+        const matchDelay = errMessage.match(/(?:auto-resume in|try again in|in)\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+        let waitSeconds = 20;
+
+        if (matchDelay) {
+          const hrs = matchDelay[1] ? parseInt(matchDelay[1], 10) : 0;
+          const mins = matchDelay[2] ? parseInt(matchDelay[2], 10) : 0;
+          const secs = matchDelay[3] ? parseFloat(matchDelay[3]) : 0;
+          waitSeconds = (hrs * 3600) + (mins * 60) + Math.ceil(secs);
+        }
+
+        // Format duration helper
+        const formatDuration = (totalSecs: number) => {
+          if (totalSecs >= 3600) {
+            const hrs = Math.floor(totalSecs / 3600);
+            const mins = Math.floor((totalSecs % 3600) / 60);
+            return `${hrs}h ${mins}m`;
+          } else if (totalSecs >= 60) {
+            const mins = Math.floor(totalSecs / 60);
+            const secs = totalSecs % 60;
+            return `${mins}m ${secs}s`;
+          }
+          return `${totalSecs}s`;
+        };
+
+        const durationText = formatDuration(waitSeconds);
+
+        // If wait time is more than 5 minutes (300 seconds), stop and request manual retry later
+        if (waitSeconds > 300) {
+          const resetTime = new Date(Date.now() + waitSeconds * 1000).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          const limitMsg = `Daily Groq rate limit reached. Reset window requires a wait of ${durationText}. Please retry after ${resetTime}.`;
+          setError(limitMsg);
+          showToast(limitMsg, 'error');
+          if (updatedSteps[currentStepIndex]) {
+            updatedSteps[currentStepIndex].status = 'failed';
+            setSteps([...updatedSteps]);
+          }
+          setLoading(false);
+          setThrottleCountdown(null);
+          return;
+        }
+
+        showToast(`Rate limit reached during resume — retrying in ${durationText}...`, 'info');
+
+        if (updatedSteps[currentStepIndex]) {
+          updatedSteps[currentStepIndex].status = 'running';
+          setSteps([...updatedSteps]);
+        }
+
+        // Start dynamic live countdown ticking loop in UI
+        let remainingSeconds = waitSeconds;
+        setThrottleCountdown(formatDuration(remainingSeconds));
+        const intervalId = setInterval(() => {
+          remainingSeconds--;
+          if (remainingSeconds <= 0) {
+            clearInterval(intervalId);
+            setThrottleCountdown(null);
+          } else {
+            setThrottleCountdown(formatDuration(remainingSeconds));
+          }
+        }, 1000);
+
+        setTimeout(() => {
+          clearInterval(intervalId);
+          setThrottleCountdown(null);
+          resumeGeneration();
+        }, waitSeconds * 1000);
+        return;
+      }
+
       setError(errMessage);
       showToast(errMessage, 'error');
 
@@ -1057,7 +1294,7 @@ export function Dashboard() {
                     <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
                       <div>
                         <h3 className="text-sm font-bold text-white">
-                          {loading ? 'Executing pipeline...' : 'Pipeline paused'}
+                          {throttleCountdown ? `Throttled: Resuming in ${throttleCountdown}...` : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
                         </h3>
                         <p className="text-[10px] text-slate-600 font-mono mt-0.5">
                           {currentJobId ? `JOB · ${currentJobId}` : 'Initializing...'}
@@ -1080,12 +1317,19 @@ export function Dashboard() {
                             {step.status === 'failed' && <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />}
                             {step.status === 'idle' && <div className="w-4 h-4 rounded-full border border-white/[0.1] bg-white/[0.03]" />}
                           </div>
-                          <span className={`text-xs font-semibold flex-1 ${
+                          <span className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${
                             step.status === 'running' ? 'text-blue-300' :
                             step.status === 'completed' ? 'text-slate-500' :
                             step.status === 'failed' ? 'text-rose-300' :
                             'text-slate-600'
-                          }`}>{step.label}</span>
+                          }`}>
+                            <span>{step.label}</span>
+                            {step.status === 'running' && throttleCountdown && idx === currentStepIndex && (
+                              <span className="text-[10px] text-blue-400 font-bold animate-pulse">
+                                ⚠ Rate limit reached — Auto-resuming in {throttleCountdown}
+                              </span>
+                            )}
+                          </span>
                           {step.status === 'failed' && !loading && (
                             <button
                               type="button"

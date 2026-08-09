@@ -44,48 +44,48 @@ const FONT_BOLD = 'BodyBold';
 // ---------------------------------------------------------------------------
 
 function sectionTitle(doc: PDFKit.PDFDocument, title: string): void {
-  ensureSpace(doc, 46);
-  doc.save();
-  doc.fillColor(SECONDARY).rect(MARGIN_LEFT, doc.y, 4, 16).fill();
-  doc.fillColor(PRIMARY)
-    .font(FONT_BOLD)
-    .fontSize(15)
-    .text(title.toUpperCase(), MARGIN_LEFT + 10, doc.y + 1, { width: CONTENT_WIDTH - 10 });
-  doc.restore();
-  doc.moveDown(0.8);
-}
-
-function paragraph(doc: PDFKit.PDFDocument, text: string, size = 12, color = BODY_TEXT): void {
-  if (!text || !text.trim()) return;
   ensureSpace(doc, 30);
   doc.save();
-  doc.font(FONT_BODY).fontSize(size).fillColor(color).text(text, MARGIN_LEFT, doc.y + 2, {
+  doc.fillColor(SECONDARY).rect(MARGIN_LEFT, doc.y, 4, 14).fill();
+  doc.fillColor(PRIMARY)
+    .font(FONT_BOLD)
+    .fontSize(13)
+    .text(title.toUpperCase(), MARGIN_LEFT + 8, doc.y + 1, { width: CONTENT_WIDTH - 8 });
+  doc.restore();
+  doc.moveDown(0.5);
+}
+
+function paragraph(doc: PDFKit.PDFDocument, text: string, size = 10, color = BODY_TEXT): void {
+  if (!text || !text.trim()) return;
+  ensureSpace(doc, 20);
+  doc.save();
+  doc.font(FONT_BODY).fontSize(size).fillColor(color).text(text, MARGIN_LEFT, doc.y + 1, {
     width: CONTENT_WIDTH,
-    lineGap: 3
+    lineGap: 2
   });
   doc.restore();
-  doc.moveDown(0.6);
+  doc.moveDown(0.4);
 }
 
 function bulletList(doc: PDFKit.PDFDocument, items: string[], color = BODY_TEXT): void {
   doc.save();
   for (const item of items) {
     if (!item || !item.trim()) continue;
-    const lines = doc.heightOfString(item, { width: CONTENT_WIDTH - 16 });
-    ensureSpace(doc, lines + 10);
-    doc.fillColor(SECONDARY).circle(MARGIN_LEFT + 3, doc.y + 6, 2.2).fill();
-    doc.font(FONT_BODY).fontSize(11.5).fillColor(color).text(item, MARGIN_LEFT + 14, doc.y + 2, {
-      width: CONTENT_WIDTH - 14,
-      lineGap: 2
+    const lines = doc.heightOfString(item, { width: CONTENT_WIDTH - 12 });
+    ensureSpace(doc, lines + 6);
+    doc.fillColor(SECONDARY).circle(MARGIN_LEFT + 3, doc.y + 5, 2).fill();
+    doc.font(FONT_BODY).fontSize(10).fillColor(color).text(item, MARGIN_LEFT + 12, doc.y + 1, {
+      width: CONTENT_WIDTH - 12,
+      lineGap: 1.5
     });
-    doc.moveDown(0.35);
+    doc.moveDown(0.25);
   }
   doc.restore();
-  doc.moveDown(0.4);
+  doc.moveDown(0.3);
 }
 
 function ensureSpace(doc: PDFKit.PDFDocument, needed: number): void {
-  if (doc.y + needed > CONTENT_BOTTOM) {
+  if (doc.y + needed > CONTENT_BOTTOM - 10) {
     doc.addPage();
   }
 }
@@ -100,35 +100,38 @@ function parseNum(value: string | number): number {
 // ---------------------------------------------------------------------------
 
 function renderHeader(doc: PDFKit.PDFDocument, report: CompiledReport): void {
+  // Ensure we start drawing below any draft banner
+  const startY = doc.y;
+  
   // Double-rule brand header
   doc.save();
-  doc.font(FONT_BOLD).fontSize(24).fillColor(PRIMARY).text('EQUIGEN RESEARCH', MARGIN_LEFT, doc.y, { width: CONTENT_WIDTH });
-  doc.font(FONT_BODY).fontSize(11).fillColor(SECONDARY).text('EQUITY RESEARCH DIVISION', MARGIN_LEFT, doc.y + 4, { width: CONTENT_WIDTH });
-  doc.y += 2;
-  doc.strokeColor(PRIMARY).lineWidth(1.5).moveTo(MARGIN_LEFT, doc.y).lineTo(PAGE_WIDTH - MARGIN_RIGHT, doc.y).stroke();
-  doc.moveDown(0.35);
-  doc.strokeColor(PRIMARY).lineWidth(0.7).moveTo(MARGIN_LEFT, doc.y).lineTo(PAGE_WIDTH - MARGIN_RIGHT, doc.y).stroke();
-  doc.moveDown(1.4);
+  doc.font(FONT_BOLD).fontSize(20).fillColor(PRIMARY).text('EQUIGEN RESEARCH', MARGIN_LEFT, startY, { width: CONTENT_WIDTH });
+  doc.font(FONT_BODY).fontSize(9).fillColor(SECONDARY).text('EQUITY RESEARCH DIVISION', MARGIN_LEFT, startY + 22, { width: CONTENT_WIDTH });
+  
+  const lineY = startY + 36;
+  doc.strokeColor(PRIMARY).lineWidth(1.2).moveTo(MARGIN_LEFT, lineY).lineTo(PAGE_WIDTH - MARGIN_RIGHT, lineY).stroke();
+  doc.strokeColor(PRIMARY).lineWidth(0.5).moveTo(MARGIN_LEFT, lineY + 3).lineTo(PAGE_WIDTH - MARGIN_RIGHT, lineY + 3).stroke();
   doc.restore();
 
   // Published line
   doc.save();
-  doc.font(FONT_BODY).fontSize(10.5).fillColor(MUTED).text(
+  doc.font(FONT_BODY).fontSize(9).fillColor(MUTED).text(
     `Published: ${report.summary.reportDate} | Ticker: ${report.summary.ticker}`,
     MARGIN_LEFT,
-    doc.y,
+    lineY + 8,
     { width: CONTENT_WIDTH, align: 'right' }
   );
-  doc.moveDown(0.8);
   doc.restore();
 
   // Company title
   doc.save();
-  doc.font(FONT_BOLD).fontSize(21).fillColor(STRONG).text(report.summary.companyName, MARGIN_LEFT, doc.y, { width: CONTENT_WIDTH });
-  doc.moveDown(0.2);
-  doc.font(FONT_BODY).fontSize(13.5).fillColor(MUTED).text('Comprehensive Valuation & Quantitative Analysis', MARGIN_LEFT, doc.y, { width: CONTENT_WIDTH });
-  doc.moveDown(1.1);
+  const titleY = lineY + 24;
+  doc.font(FONT_BOLD).fontSize(18).fillColor(STRONG).text(report.summary.companyName, MARGIN_LEFT, titleY, { width: CONTENT_WIDTH });
+  doc.font(FONT_BODY).fontSize(11).fillColor(MUTED).text('Comprehensive Valuation & Quantitative Analysis', MARGIN_LEFT, titleY + 22, { width: CONTENT_WIDTH });
   doc.restore();
+
+  // Update doc.y to point below the entire header block
+  doc.y = titleY + 40;
 }
 
 function renderRecommendationCard(doc: PDFKit.PDFDocument, report: CompiledReport): void {
@@ -471,8 +474,7 @@ export function renderReportPDF(
   sectionTitle(doc, 'Financial Performance');
   renderFinancialTable(doc, report);
 
-  // Charts (own page)
-  doc.addPage();
+  // Charts ( flows dynamically )
   sectionTitle(doc, 'Performance Charts');
   renderCharts(doc, report);
 
@@ -489,12 +491,24 @@ export function renderReportPDF(
   doc.restore();
   paragraph(doc, report.narratives.outlook);
 
+  // Business Overview
+  sectionTitle(doc, 'Business Overview');
+  paragraph(doc, report.narratives.businessOverview);
+
+  // Industry Overview
+  sectionTitle(doc, 'Industry Dynamics');
+  paragraph(doc, report.narratives.industryOverview);
+
+  // Future Growth
+  sectionTitle(doc, 'Future Growth & Outlook');
+  paragraph(doc, report.narratives.futureGrowth);
+
   // Investment risks
   sectionTitle(doc, 'Investment Risks');
   if (report.risks.length > 0) {
     bulletList(doc, report.risks.map((r) => r.description));
   } else {
-    paragraph(doc, 'No material investment risks identified.', 11, MUTED);
+    paragraph(doc, 'No material investment risks identified.', 10, MUTED);
   }
 
   // Valuation
@@ -506,15 +520,15 @@ export function renderReportPDF(
     renderSignoffBlock(doc, metadata);
     renderSebiDisclosureBlock(doc, metadata, report.summary.ticker || 'UNKNOWN');
   } else {
-    ensureSpace(doc, 90);
+    ensureSpace(doc, 70);
     doc.save();
     doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(MARGIN_LEFT, doc.y).lineTo(PAGE_WIDTH - MARGIN_RIGHT, doc.y).stroke();
-    doc.moveDown(0.6);
-    doc.font(FONT_BODY).fontSize(9).fillColor(MUTED).text(
+    doc.moveDown(0.5);
+    doc.font(FONT_BODY).fontSize(8.5).fillColor(MUTED).text(
       'Disclaimer: This report is compiled by EquiGen Research Division for information purposes only. The information contained herein is extracted using AI modules from public and corporate documentation and is subject to verification. It does not constitute investment advice, solicitation, or recommendation to buy or sell securities. Investors are advised to perform independent due diligence before making investment decisions.',
       MARGIN_LEFT,
       doc.y,
-      { width: CONTENT_WIDTH, lineGap: 2 }
+      { width: CONTENT_WIDTH, lineGap: 1.5 }
     );
     doc.restore();
   }

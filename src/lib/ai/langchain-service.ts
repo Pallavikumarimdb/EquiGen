@@ -122,6 +122,10 @@ export class LangChainAIService {
       return this.mapToEquityResearchData(response);
     } catch (error) {
       console.error('LangGraph stateful research extraction failed:', error);
+      // Let RateLimitError bubble up directly so it can trigger the HTTP 429 response flow
+      if (error && typeof error === 'object' && ('retryAfterSeconds' in error)) {
+        throw error;
+      }
       throw new Error(`AI Extraction Pipeline Failed: ${error instanceof Error ? error.message : 'Unknown Error'}`);
     }
   }

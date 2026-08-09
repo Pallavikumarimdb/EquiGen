@@ -24,8 +24,15 @@ export class RateLimitError extends Error {
  * Falls back to 15s if the message can't be parsed.
  */
 export function parseRetryAfterSeconds(errorMessage: string): number {
-  const match = errorMessage.match(/try again in ([\d.]+)s/i);
-  return match ? Math.ceil(parseFloat(match[1])) + 1 : 15; // +1s safety margin
+  const match = errorMessage.match(/try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+  if (!match) return 15;
+
+  const hours = match[1] ? parseInt(match[1], 10) : 0;
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  const seconds = match[3] ? parseFloat(match[3]) : 0;
+
+  const total = (hours * 3600) + (minutes * 60) + seconds;
+  return total > 0 ? Math.ceil(total) + 1 : 15; // +1s safety margin
 }
 
 /**
@@ -55,6 +62,11 @@ export async function withRateLimitRetry<T>(
       if (status === 429 || message.includes('rate_limit_exceeded') || message.includes('Rate limit')) {
         const waitSeconds = parseRetryAfterSeconds(message);
         console.warn(`[RetryWrapper] Rate limited (attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per Groq's response.`);
+
+        // Abort and throw immediately if wait duration exceeds 5 minutes (300s) to avoid freezing server processes
+        if (waitSeconds > 300) {
+          throw new RateLimitError(message, waitSeconds);
+        }
 
         if (attempt < maxAttempts - 1) {
           await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));

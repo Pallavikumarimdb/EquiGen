@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { langchainAIService } from '@/lib/ai';
+import { RateLimitError } from '@/lib/ai/retry-wrapper';
 
 const ResumePayloadSchema = z.object({
   jobId: z.string().min(1, 'Job ID is required to resume'),
@@ -45,6 +46,19 @@ export async function POST(req: NextRequest) {
 
   } catch (error: unknown) {
     console.error('API Error: /api/extract/resume failed:', error);
+
+    if (error instanceof RateLimitError) {
+      return NextResponse.json(
+        {
+          message: `Rate limited — auto-resume in ${error.retryAfterSeconds}s`,
+          status: 'throttled',
+          retryAfterSeconds: error.retryAfterSeconds,
+          jobId: activeJobId
+        },
+        { status: 429 }
+      );
+    }
+
     const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json(
       { message: errMsg, jobId: activeJobId },
