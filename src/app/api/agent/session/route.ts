@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { requireApiSecret } from '@/lib/utils/auth';
 
 /**
  * GET /api/agent/session?reportId=...
  * Retrieves the current session (or creates a new one if not found) for a report.
  */
 export async function GET(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get('reportId');

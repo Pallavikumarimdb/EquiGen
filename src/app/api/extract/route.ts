@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getDecryptedApiKey } from '@/lib/utils/api-keys';
 import { triggerBackgroundJob } from '@/lib/queue/worker';
+import { requireApiSecret } from '@/lib/utils/auth';
+
+const MAX_RAW_TEXT_BYTES = 10 * 1024 * 1024; // 10 MB
 
 const ExtractPayloadSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
@@ -20,6 +23,8 @@ const ExtractPayloadSchema = z.object({
  * On rate-limit, returns status 429 with retryAfterSeconds so the client can auto-resume.
  */
 export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   let activeJobId = 'job_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
   try {
     const body = await req.json();
@@ -34,7 +39,16 @@ export async function POST(req: NextRequest) {
 
     const { companyName, rawText, fileName, provider, modelName, apiKey, jobId } = parsedPayload.data;
     if (jobId) {
+      // Resume / re-trigger of an EXISTING job — the raw text lives in the DB,
+      // so ignore any client-submitted text and keep the stored record authoritative.
       activeJobId = jobId;
+    }
+
+    if (rawText.length > MAX_RAW_TEXT_BYTES) {
+      return NextResponse.json(
+        { message: `Document text exceeds the 10 MB limit (received ${Math.round(rawText.length / (1024 * 1024))} MB).` },
+        { status: 413 }
+      );
     }
 
     // Resolve API key: check database (BYOK) first, then fallback to request payload
@@ -45,12 +59,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Initialize job record in database as running, storing the real filename
+    // When a client-supplied jobId targets an existing job, keep the stored
+    // document authoritative so re-triggers can't stomp in-flight work.
+    const existingJob = jobId ? await prisma.extractionJob.findUnique({ where: { id: activeJobId } }) : null;
+    const effectiveCompanyName = existingJob?.companyName ?? companyName;
+    const effectiveFileName = existingJob?.fileName ?? fileName;
+    const effectiveRawText = existingJob?.rawText ?? rawText;
+
     await prisma.extractionJob.upsert({
       where: { id: activeJobId },
       update: {
-        companyName,
-        fileName,
-        rawText,
+        companyName: effectiveCompanyName,
+        fileName: effectiveFileName,
+        rawText: effectiveRawText,
         status: 'running',
         stepIndex: 0,
         errorMessage: null,
@@ -60,16 +81,16 @@ export async function POST(req: NextRequest) {
       },
       create: {
         id: activeJobId,
-        companyName,
-        fileName,
-        rawText,
+        companyName: effectiveCompanyName,
+        fileName: effectiveFileName,
+        rawText: effectiveRawText,
         status: 'running',
         stepIndex: 0
       }
     });
 
     // Fire background execution trigger without waiting
-    triggerBackgroundJob(activeJobId, companyName, rawText, {
+    triggerBackgroundJob(activeJobId, effectiveCompanyName, effectiveRawText, {
       provider,
       modelName,
       apiKey: resolvedApiKey
