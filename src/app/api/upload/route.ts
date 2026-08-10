@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parserService } from '@/lib/parsers';
+import { requireApiSecret } from '@/lib/utils/auth';
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 /**
  * POST /api/upload
  * Accepts a file in FormData, parses it (PDF, CSV, TXT), and returns the raw parsed text.
  */
 export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File;
 
     if (!file) {
       return NextResponse.json({ message: 'No file uploaded.' }, { status: 400 });
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { message: `File exceeds the 10 MB upload limit (received ${Math.round(file.size / (1024 * 1024))} MB).` },
+        { status: 413 }
+      );
     }
 
     const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();

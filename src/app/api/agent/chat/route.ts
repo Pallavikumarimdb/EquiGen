@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { agentOrchestrator } from '@/lib/ai/agent-orchestrator';
 import { RateLimitError } from '@/lib/ai/retry-wrapper';
+import { requireApiSecret } from '@/lib/utils/auth';
 
 /**
  * POST /api/agent/chat
  * Submits a chat message to the Agent orchestrator and triggers the ReAct workflow.
  */
 export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     const body = await req.json();
     const { sessionId, prompt, provider, apiKey, modelName } = body;

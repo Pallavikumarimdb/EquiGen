@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { requireApiSecret } from '@/lib/utils/auth';
 
 /**
  * GET /api/extract/status?jobId=...
@@ -8,6 +9,8 @@ import { prisma } from '@/lib/db';
  * (avoids the fragile companyName+fileName compound lookup that breaks on multiple uploads).
  */
 export async function GET(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get('jobId');

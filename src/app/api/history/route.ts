@@ -1,16 +1,34 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireApiSecret } from '@/lib/utils/auth';
 import { computeSHA256 } from '@/lib/utils/hash';
 
-export async function GET() {
+const ALLOWED_STATUSES = new Set(['draft', 'under_review', 'changes_requested', 'approved', 'published']);
+
+export async function GET(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
       // Gracefully return empty history if database is not configured
       return NextResponse.json([]);
     }
     const reports = await prisma.reportHistory.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: 100, // cap the list payload — full history is retrievable one report at a time
+      select: {
+        id: true,
+        companyName: true,
+        fileName: true,
+        status: true,
+        reviewerName: true,
+        sebiRegNo: true,
+        approvedAt: true,
+        contentHash: true,
+        versionNo: true,
+        modelUsedForFinancials: true,
+        createdAt: true
+      }
     });
     return NextResponse.json(reports);
   } catch (error) {
@@ -19,7 +37,9 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ message: 'Database not configured' }, { status: 400 });
@@ -29,6 +49,10 @@ export async function POST(req: Request) {
     
     if (!id || !companyName || !fileName || !reportData) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
+    }
+
+    if (status && !ALLOWED_STATUSES.has(status)) {
+      return NextResponse.json({ message: `Invalid status: ${status}` }, { status: 400 });
     }
 
     const contentHash = computeSHA256(reportData);

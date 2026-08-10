@@ -4,12 +4,21 @@ import { prisma } from '@/lib/db';
 // Get server-side master key from environment — REQUIRED for AES-256-GCM key encryption.
 // Generate with: openssl rand -hex 16
 if (!process.env.ENCRYPTION_KEY) {
+  if (process.env.NODE_ENV === 'production') {
+    // Refuse to run with a publicly-known key — stored provider keys would be decryptable
+    // by anyone who reads the repository.
+    throw new Error(
+      '[api-keys] ENCRYPTION_KEY must be set in production. ' +
+      'Generate one with `openssl rand -hex 16` and set it in your .env.'
+    );
+  }
   console.warn(
     '[api-keys] WARNING: ENCRYPTION_KEY is not set. ' +
-    'Falling back to an insecure hardcoded key — set ENCRYPTION_KEY in your .env for production.'
+    'Using a hardcoded DEVELOPMENT-ONLY key — set ENCRYPTION_KEY in your .env before deploying. ' +
+    'Keys encrypted with the dev key cannot be decrypted after a real key is configured.'
   );
 }
-const MASTER_KEY = process.env.ENCRYPTION_KEY || 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'; // Must be exactly 32 bytes
+const MASTER_KEY = process.env.ENCRYPTION_KEY || 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'; // development-only, 32 bytes
 
 /**
  * Encrypts a raw text key using AES-256-GCM.
