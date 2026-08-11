@@ -13,6 +13,8 @@ import { ChatGroq } from '@langchain/groq';
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { tokenBudgetManager, estimateTokens } from './rate-limiter';
+import { modelLimitRegistry, MODEL_IDS } from './budget/model-limit-registry';
+import { ensureLimitsDiscovered } from './budget/limit-discovery';
 import { AIServiceOptions } from './langchain-service';
 
 export interface ModelChoice {
@@ -22,17 +24,42 @@ export interface ModelChoice {
   downgraded: boolean;
 }
 
-// Groq free-tier TPM ceilings (verify at https://console.groq.com/settings/limits)
-const GROQ_MODEL_LIMITS: Record<string, number> = {
-  'llama-3.3-70b-versatile': 12000,
-  'llama-3.1-8b-instant': 500000,
-};
+/**
+ * Groq free-tier TPM ceilings are live-discovered from response headers (limit-discovery.ts),
+ * with conservative configured defaults below discovery. Do NOT hardcode numbers here —
+ * Groq's free tier moved during 2026; the registry + runtime headers track reality.
+ */
+export { MODEL_IDS as GROQ_MODELS };
 
-/** The always-available fallback model — high TPM and its own daily quota. */
-export const FALLBACK_GROQ_MODEL = 'llama-3.1-8b-instant';
+/** The always-available fallback model — separate quota lane used when the primary is blocked. */
+export const FALLBACK_GROQ_MODEL = MODEL_IDS.BULK_8B;
+
+/** Vision model used by the table-extraction ladder / OCR fallback path. */
+export { VISION_MODEL as GROQ_VISION_MODEL } from './budget/model-limit-registry';
 
 // Completion token buffer: don't consume the entire window on a single request
 const COMPLETION_TOKEN_BUFFER = 1500;
+
+let budgetStoreAttached = false;
+
+/**
+ * One-time bootstrap: attach the shared Postgres budget store and probe live rate limits.
+ * Coalesced + cached per process; failures never block the request.
+ */
+async function ensureBudgetSystem(apiKey: string): Promise<void> {
+  if (!budgetStoreAttached) {
+    budgetStoreAttached = true;
+    if (process.env.DATABASE_URL) {
+      try {
+        const { PostgresBudgetStore } = await import('./budget/postgres-store');
+        tokenBudgetManager.setStore(new PostgresBudgetStore());
+      } catch (err) {
+        console.warn('[ModelRouter] Budget store unavailable — running in-memory only:', err);
+      }
+    }
+  }
+  await ensureLimitsDiscovered(apiKey);
+}
 
 /** Builds a ChatGroq wrapper for the fallback (8B) model. */
 export function getFallbackGroqModel(options: AIServiceOptions): ChatGroq {
@@ -67,9 +94,12 @@ export async function getModelForRequest(
 
   if (!apiKey) throw new Error(`API key for provider "${provider}" is not configured.`);
 
+  // Hydrate store limits + probe live ceilings BEFORE pre-flighting so constants never gate requests
+  await ensureBudgetSystem(apiKey);
+
   // Determine the effective TPM limit for the preferred model
   const primaryLimit = provider === 'groq'
-    ? (GROQ_MODEL_LIMITS[preferredModel] ?? 12000)
+    ? modelLimitRegistry.getTpm(preferredModel)
     : 200000;
 
   // --- Pre-flight: request itself too large for the model, no waiting will help ---

@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
         id: true,
         companyName: true,
         fileName: true,
+        reportData: true,
+        pdfBase64: true,
         status: true,
         reviewerName: true,
         sebiRegNo: true,

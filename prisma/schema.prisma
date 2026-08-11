@@ -15,7 +15,7 @@ model ReportHistory {
   fileName              String
   reportData            Json
   pdfBase64             String?
-  status                String    @default("draft") // "draft" | "under_review" | "changes_requested" | "approved" | "published"
+  status                String    @default("draft") // "draft" | "pending_review" | "under_review" | "changes_requested" | "approved" | "published"
   reviewerName          String?
   sebiRegNo             String?
   approvedAt            DateTime?
@@ -24,6 +24,8 @@ model ReportHistory {
   versionNo             Int       @default(1)
   /** Which model ran financials extraction — null = 70B (standard), 'llama-3.1-8b-instant' = fallback */
   modelUsedForFinancials String?
+  /** Data quality flag from chunk extraction: "ok" | "degraded". "blocked_financials" never becomes a report. */
+  dataQuality           String    @default("ok")
   createdAt             DateTime  @default(now())
 }
 
@@ -32,7 +34,7 @@ model ExtractionJob {
   companyName       String
   fileName          String
   rawText           String
-  status            String   @default("running") // "running", "failed", "throttled", "completed"
+  status            String   @default("running") // "running", "failed", "throttled", "completed", "blocked_financials"
   stepIndex         Int      @default(0)          // 0: preprocessor, 1: general, 2: swot, 3: financials
   condensedContext  String?
   companyGeneral    Json?
@@ -47,8 +49,141 @@ model ExtractionJob {
   waitUntil         DateTime?
   /** ID of the ReportHistory record created after successful completion */
   reportId          String?
+  /** ID of the parsed source Document; null for pre-document-pipeline uploads */
+  documentId        String?
+  /** inputHash was computed with this PROMPT_VERSIONS snapshot — bumping versions invalidates ok chunks */
+  schemaVersion     String?
+  /** Verdict from the section detector: "ok" | "ocr_recheck" | "full_document" */
+  targetingVerdict  String?
+  /** Number of chunks that ended degraded/failed (drives dataQuality + reviewer flow) */
+  degradedChunks    Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+/** A parsed source document — one row per uploaded file, with per-page records below. */
+model Document {
+  id               String        @id @default(uuid())
+  storageKey       String
+  fileName         String
+  sha256           String?
+  totalPages       Int           @default(0)
+  status           String        @default("parsing") // "parsing" | "parsed" | "failed"
+  /** SectionMap + confidence from the section detector */
+  targetingJson    Json?
+  /** "ok" | "ocr_recheck" | "full_document" | "blocked" */
+  targetingVerdict String?
+  createdAt        DateTime      @default(now())
+  pages            DocumentPage[]
+  tables           DocumentTable[]
+}
+
+/** Per-page record: native text, OCR text, raw table structures, targeting annotations. */
+model DocumentPage {
+  id          String         @id @default(uuid())
+  documentId  String
+  pageNo      Int
+  nativeText  String?
+  ocrText     String?
+  hasTables   Boolean        @default(false)
+  isScanned   Boolean        @default(false)
+  charCount   Int            @default(0)
+  /** Target classes assigned by the section detector, e.g. { financials: true, narrative: true } */
+  annotations Json?
+  createdAt   DateTime       @default(now())
+  document    Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tables      DocumentTable[]
+
+  @@unique([documentId, pageNo])
+  @@index([documentId])
+}
+
+/** Raw extracted table structure (literal record of the PDF) + separate normalized output. */
+model DocumentTable {
+  id             String       @id @default(uuid())
+  documentId     String
+  pageNo         Int
+  tableNo        Int          @default(1)
+  /** "layout" (native text heuristics) | "vision" (LLM on rendered page) | "ocr" (tesseract) */
+  detectedBy     String       @default("layout")
+  /** Raw rows/columns as extracted — source of truth for what the PDF literally says */
+  rawJson        Json?
+  /** Model-normalized schema output — kept separate so extraction bugs vs normalization bugs are diagnosable */
+  normalizedJson Json?
+  /** Fraction of numeric cells that passed Indian-format validation (0..1) */
+  quality        Float?
+  status         String       @default("ok") // "ok" | "degraded" | "failed"
+  error          String?
+  modelUsed      String?
+  createdAt      DateTime     @default(now())
+  document       Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  page           DocumentPage @relation(fields: [pageNo, documentId], references: [pageNo, documentId], onDelete: Cascade)
+
+  @@unique([documentId, pageNo, tableNo])
+  @@index([documentId])
+}
+
+/** Per-chunk extraction state — granular idempotent retries/resume instead of whole-step checkpoints. */
+model ChunkExtraction {
+  id             String   @id @default(uuid())
+  jobId          String
+  /** Page number or section key this chunk covers */
+  chunkKey       String
+  /** "narrative" | "financials" | "swot" | "general" */
+  extractType    String
+  /** sha256(chunkText + extractType + promptVersion[extractType]) — schema/prompt bumps invalidate "ok" chunks */
+  inputHash      String
+  extractionJson Json?
+  /** Per-value page provenance, e.g. [{ value: "...", page: 87 }] */
+  citePages      Json?
+  status         String   @default("pending") // "pending" | "ok" | "degraded" | "failed"
+  retries        Int      @default(0)
+  error          String?
+  latencyMs      Int?
+  modelUsed      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([jobId, chunkKey, extractType])
+  @@index([jobId, status])
+}
+
+/**
+ * Shared per-minute token usage (Postgres-backed token bucket).
+ * Backend for TokenBudgetStore — swap for Redis (INCR/EXPIRE) via the store interface without touching callers.
+ */
+model TokenBudgetUsage {
+  model     String
+  /** UTC minute key "yyyy-MM-ddTHH:mm" — window reads sum the last 60s of buckets */
+  minuteKey String
+  used      Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([model, minuteKey])
+  @@index([model])
+}
+
+/** Model rate-limit registry — configured defaults overridden by live x-ratelimit-* header discovery. */
+model ModelLimit {
+  model             String   @id
+  tpm               Int      @default(6000)
+  tpd               Int      @default(1000000)
+  /** "configured" | "discovered" | "env" */
+  source            String   @default("configured")
+  lastDiscoveredAt  DateTime?
+  updatedAt         DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  reportId  String?
+  jobId     String?
+  /** "pending_review" | "blocked_financials" | "degraded" | "budget_warning" */
+  type      String
+  message   String
+  payload   Json?
+  status    String   @default("unread") // "unread" | "read" | "resolved"
+  createdAt DateTime @default(now())
 }
 
 model ApiKey {

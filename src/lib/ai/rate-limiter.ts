@@ -3,7 +3,15 @@
  * and makes callers wait for actual headroom instead of guessing with fixed delays.
  * Also tracks tokens-per-day (TPD) so the router can switch models before Groq's
  * daily quota is exhausted (each model has its own separate daily quota).
+ *
+ * v2 (Phase 0): ceilings come from the ModelLimitRegistry (env > live-discovered > configured),
+ * and every usage record is mirrored to the shared TokenBudgetStore so multi-instance deploys
+ * converge on one budget instead of each process guessing its own. The in-process map stays the
+ * fast path for the hot wait loop; store persistence is best-effort and never blocks a call.
  */
+
+import { modelLimitRegistry } from './budget/model-limit-registry';
+import { TokenBudgetStore } from './budget/types';
 
 interface UsageEntry {
   tokens: number;
@@ -18,26 +26,18 @@ interface DailyUsageEntry {
 class TokenBudgetManager {
   private usage: Map<string, UsageEntry[]> = new Map();
   private dailyUsage: Map<string, DailyUsageEntry> = new Map();
-  private limits: Map<string, number> = new Map([
-    ['llama-3.3-70b-versatile', 12000],
-    ['llama-3.1-8b-instant', 500000],
-    ['gpt-4o-mini', 200000],
-    ['gpt-4o', 800000],
-  ]);
-
-  // Tokens-per-day ceilings (provisional — 70B's on-demand quota is ~100k/day,
-  // a small buffer is kept below the real cap to absorb token-estimation drift).
-  private readonly tpds: Map<string, number> = new Map([
-    ['llama-3.3-70b-versatile', 97000],
-    ['llama-3.1-8b-instant', 97000],
-    ['gpt-4o-mini', 2000000],
-    ['gpt-4o', 400000],
-  ]);
+  private store: TokenBudgetStore | null = null;
 
   private readonly windowMs = 60_000;
 
+  /** Attach the shared store (Postgres today). Call once at bootstrap; null keeps pure in-memory. */
+  setStore(store: TokenBudgetStore | null): void {
+    this.store = store;
+  }
+
   setLimit(model: string, tpm: number) {
-    this.limits.set(model, tpm);
+    // Limits now live in the registry — this setter exists for tests/overrides.
+    void modelLimitRegistry.setDiscovered({ model, tpm, tpd: modelLimitRegistry.getTpd(model), source: 'env' });
   }
 
   private todayKey(): string {
@@ -53,9 +53,9 @@ class TokenBudgetManager {
 
   /** True if the model still has tokens-per-day headroom for an estimated request. */
   hasDailyBudget(model: string, estimatedTokens: number): boolean {
-    const limit = this.tpds.get(model);
-    if (limit === undefined) return true;
-    return this.dailyUsedToday(model) + estimatedTokens <= limit;
+    const tpd = modelLimitRegistry.getTpd(model);
+    if (!tpd || tpd <= 0) return true;
+    return this.dailyUsedToday(model) + estimatedTokens <= tpd;
   }
 
   /** Records tokens consumed today for a model (summed across the UTC day). */
@@ -82,7 +82,7 @@ class TokenBudgetManager {
 
   /** Returns how many tokens are free right now for this model. */
   availableBudget(model: string): number {
-    const limit = this.limits.get(model) ?? 12000;
+    const limit = modelLimitRegistry.getTpm(model);
     return Math.max(0, limit - this.currentUsage(model));
   }
 
@@ -91,6 +91,13 @@ class TokenBudgetManager {
     const entries = this.usage.get(model) || [];
     entries.push({ tokens, timestamp: Date.now() });
     this.usage.set(model, entries);
+
+    // Mirror to the shared store — never blocks, never throws into the caller.
+    if (this.store) {
+      this.store
+        .recordUsage(model, tokens)
+        .catch((err) => console.warn(`[TokenBudget] Store sync failed for ${model}:`, err));
+    }
   }
 
   /**
@@ -105,7 +112,7 @@ class TokenBudgetManager {
     estimatedTokens: number,
     onWaitStart?: (waitMs: number) => void
   ): Promise<number> {
-    const limit = this.limits.get(model) ?? 12000;
+    const limit = modelLimitRegistry.getTpm(model);
 
     if (estimatedTokens > limit) {
       throw new Error(

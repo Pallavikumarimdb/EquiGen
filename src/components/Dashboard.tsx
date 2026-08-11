@@ -281,7 +281,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
   // Live tick while the worker is internally waiting for AI capacity (token budget).
   // Server provides an absolute waitUntil timestamp — we count down to it every second.
   useEffect(() => {
-    if (!loading || capacityWaitUntil === null) {
+    if (capacityWaitUntil === null) {
       setCapacityWaitSeconds(null);
       return;
     }
@@ -292,7 +292,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [loading, capacityWaitUntil]);
+  }, [capacityWaitUntil]);
 
   const saveSettings = async (
     provider: 'groq' | 'openai',
@@ -1005,6 +1005,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
       const uploadData = await uploadRes.json();
       const rawText = uploadData.text;
+      const docTargeting = uploadData.targeting;
       updatedSteps[0].status = 'completed';
       setSteps([...updatedSteps]);
 
@@ -1027,7 +1028,9 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
           provider: aiProvider,
           modelName: aiProvider === 'groq' ? groqModel : openaiModel,
           apiKey: resolvedApiKey,
-          jobId
+          jobId,
+          documentId: docTargeting?.documentId,
+          targetingVerdict: docTargeting?.verdict
         })
       });
 
@@ -1102,15 +1105,19 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             setThrottleCountdown(null);
           }
 
-          if (statusData.status === 'failed') {
+          if (statusData.status === 'failed' || statusData.status === 'blocked_financials') {
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
             setError(statusData.errorMessage || 'AI generation failed');
             updatedSteps[1].status = 'failed';
             setSteps([...updatedSteps]);
             setLoading(false);
+            setThrottleCountdown(null);
+            setCapacityWaitUntil(null);
           }
 
           if (statusData.status === 'completed') {
+            // The worker finalizes the report row after extraction — keep polling until reportId exists
+            if (!statusData.reportId) return;
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
 
             // --- Step 3: Format Financial Ratios & Generate Charts ---
@@ -1343,7 +1350,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             setThrottleCountdown(null);
           }
 
-          if (statusData.status === 'failed') {
+          if (statusData.status === 'failed' || statusData.status === 'blocked_financials') {
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
             setError(statusData.errorMessage || 'Resume failed');
             
@@ -1360,6 +1367,8 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
           }
 
           if (statusData.status === 'completed') {
+            // The worker finalizes the report row after extraction — keep polling until reportId exists
+            if (!statusData.reportId) return;
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
 
             // Complete all remaining steps in UI
@@ -1797,10 +1806,10 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                     {/* CTA */}
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || steps.some(s => s.status === 'running')}
                       className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-white/[0.04] disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98] flex items-center justify-center gap-2"
                     >
-                      {loading ? (
+                      {loading || steps.some(s => s.status === 'running') ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
                           {throttleCountdown
@@ -1859,7 +1868,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
           <div className="flex-1 h-full flex flex-col overflow-y-auto p-6 min-w-0 scrollbar-thin space-y-4">
 
             {/* Empty state */}
-            {!loading && !reportData && !steps.some(s => s.status === 'failed') && (
+            {!loading && !reportData && !steps.some(s => s.status === 'failed') && !steps.some(s => s.status === 'running') && (
               <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-16 flex flex-col items-center justify-center text-center min-h-[420px] my-auto">
                 <div className="p-5 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-5">
                   <BarChart3 className="w-10 h-10 text-slate-700" />
@@ -1879,7 +1888,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             )}
 
             {/* Pipeline Progress Panel */}
-            {(loading || steps.some(s => s.status === 'failed')) && (
+            {(loading || steps.some(s => s.status === 'failed' || s.status === 'running')) && (
               <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
                   <div>
@@ -1888,13 +1897,13 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                         ? `Throttled: Resuming in ${throttleCountdown}...`
                         : capacityWaitSeconds != null
                           ? `AI at capacity — resuming in ${formatDuration(capacityWaitSeconds)}...`
-                          : (loading ? 'Executing pipeline...' : 'Pipeline paused')}
+                          : (loading || steps.some(s => s.status === 'running') ? 'Executing pipeline...' : 'Pipeline paused')}
                     </h3>
                     <p className="text-[10px] text-slate-600 font-mono mt-0.5">
                       {currentJobId ? `JOB · ${currentJobId}` : 'Initializing...'}
                     </p>
                   </div>
-                  {loading && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                  {(loading || steps.some(s => s.status === 'running')) && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
                 </div>
 
                 <div className="p-5 space-y-3">
