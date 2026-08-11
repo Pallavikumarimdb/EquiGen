@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/db';
+import { pdfGenerationService } from '@/lib/pdf';
 
 /**
  * GET /api/download?id=<reportId>
@@ -11,6 +12,8 @@ import { prisma } from '@/lib/db';
  *  1. Check local filesystem (public/temp/reports/<ID>.pdf) — works for `/api/report`-generated files.
  *  2. Check the ReportHistory database record's pdfBase64 column — covers approve-regenerated PDFs
  *     and background-pipeline reports that were never written to disk.
+ *  3. Compile on demand from stored reportData (background-pipeline reports have no PDF until
+ *     first download), then cache the result back to the database.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
     if (process.env.DATABASE_URL) {
       const report = await prisma.reportHistory.findUnique({
         where: { id },
-        select: { id: true, companyName: true, pdfBase64: true }
+        select: { id: true, companyName: true, status: true, reportData: true, pdfBase64: true }
       });
 
       if (report?.pdfBase64) {
@@ -55,6 +58,21 @@ export async function GET(req: NextRequest) {
 
       // Record exists but no PDF yet (e.g., draft before first compile)
       if (report && !report.pdfBase64) {
+        // Pipeline-created reports have reportData but no compiled PDF — compile on demand
+        if (report.reportData) {
+          const reportBuffer = await pdfGenerationService.generateReportPDF(report.reportData as unknown as Parameters<typeof pdfGenerationService.generateReportPDF>[0], report.status || 'draft');
+          await prisma.reportHistory.update({
+            where: { id },
+            data: { pdfBase64: reportBuffer.toString('base64') }
+          });
+          const safeName = report.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          return new NextResponse(new Uint8Array(reportBuffer), {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="equity-report-${safeName}.pdf"`
+            }
+          });
+        }
         return NextResponse.json(
           { message: 'PDF not yet generated for this report. Please compile it first.' },
           { status: 404 }

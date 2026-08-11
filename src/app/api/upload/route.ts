@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parserService } from '@/lib/parsers';
 import { requireApiSecret } from '@/lib/utils/auth';
+import { processPdfDocument } from '@/lib/parsers/document-processor';
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+// Raised for large annual reports (500-page filings can exceed 50 MB)
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 
 /**
  * POST /api/upload
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { message: `File exceeds the 10 MB upload limit (received ${Math.round(file.size / (1024 * 1024))} MB).` },
+        { message: `File exceeds the 100 MB upload limit (received ${Math.round(file.size / (1024 * 1024))} MB).` },
         { status: 413 }
       );
     }
@@ -41,7 +43,32 @@ export async function POST(req: NextRequest) {
     // Parse using parser service
     const parseResult = await parserService.parseFile(buffer, file.name, file.type);
 
-    return NextResponse.json(parseResult, { status: 200 });
+    // Phase 0 document pipeline: per-page persistence + section targeting (PDF only, best-effort)
+    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+    let targeting = null;
+    if (isPdf) {
+      try {
+        const docResult = await processPdfDocument(buffer, file.name);
+        targeting = {
+          documentId: docResult.documentId,
+          verdict: docResult.targeting.verdict,
+          financialsConfidence: docResult.targeting.confidence.financials,
+          narrativeConfidence: docResult.targeting.confidence.narrative,
+          financialPages: docResult.targeting.map.financials,
+          scannedPages: docResult.targeting.scannedPages,
+          missingCoreMarkers: docResult.targeting.missingCoreMarkers,
+        };
+        console.log(
+          `[Upload] Targeting verdict for ${file.name}: ${targeting.verdict} ` +
+          `(financials confidence ${targeting.financialsConfidence.toFixed(2)}, ` +
+          `${targeting.financialPages.length} statement pages, ${targeting.scannedPages.length} scanned)`
+        );
+      } catch (err) {
+        console.warn('[Upload] Document pipeline failed (upload continues):', err);
+      }
+    }
+
+    return NextResponse.json({ ...parseResult, targeting }, { status: 200 });
   } catch (error: unknown) {
     console.error('API Error: /api/upload failed:', error);
     const errMsg = error instanceof Error ? error.message : 'Internal Server Error';

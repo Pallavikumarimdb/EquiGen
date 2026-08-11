@@ -4,8 +4,9 @@ import { prisma } from '@/lib/db';
 import { getDecryptedApiKey } from '@/lib/utils/api-keys';
 import { triggerBackgroundJob } from '@/lib/queue/worker';
 import { requireApiSecret } from '@/lib/utils/auth';
+import { currentSchemaVersion } from '@/lib/ai/versions';
 
-const MAX_RAW_TEXT_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
 
 const ExtractPayloadSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
@@ -14,7 +15,11 @@ const ExtractPayloadSchema = z.object({
   provider: z.enum(['groq', 'openai']).optional().default('groq'),
   modelName: z.string().optional(),
   apiKey: z.string().optional(),
-  jobId: z.string().optional()
+  jobId: z.string().optional(),
+  /** Optional: parsed-document id from /api/upload (document pipeline). Null when persistence was skipped/failed. */
+  documentId: z.string().optional().nullable(),
+  /** Optional: section-detector verdict from /api/upload. */
+  targetingVerdict: z.string().optional().nullable()
 });
 
 /**
@@ -37,7 +42,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { companyName, rawText, fileName, provider, modelName, apiKey, jobId } = parsedPayload.data;
+    const { companyName, rawText, fileName, provider, modelName, apiKey, jobId, documentId, targetingVerdict } = parsedPayload.data;
     if (jobId) {
       // Resume / re-trigger of an EXISTING job — the raw text lives in the DB,
       // so ignore any client-submitted text and keep the stored record authoritative.
@@ -46,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     if (rawText.length > MAX_RAW_TEXT_BYTES) {
       return NextResponse.json(
-        { message: `Document text exceeds the 10 MB limit (received ${Math.round(rawText.length / (1024 * 1024))} MB).` },
+        { message: `Document text exceeds the 100 MB limit (received ${Math.round(rawText.length / (1024 * 1024))} MB).` },
         { status: 413 }
       );
     }
@@ -77,7 +82,10 @@ export async function POST(req: NextRequest) {
         errorMessage: null,
         retryAfterSeconds: null,
         waitMessage: null,
-        waitUntil: null
+        waitUntil: null,
+        documentId: documentId ?? undefined,
+        targetingVerdict: targetingVerdict ?? undefined,
+        schemaVersion: currentSchemaVersion()
       },
       create: {
         id: activeJobId,
@@ -85,7 +93,10 @@ export async function POST(req: NextRequest) {
         fileName: effectiveFileName,
         rawText: effectiveRawText,
         status: 'running',
-        stepIndex: 0
+        stepIndex: 0,
+        documentId: documentId ?? null,
+        targetingVerdict: targetingVerdict ?? null,
+        schemaVersion: currentSchemaVersion()
       }
     });
 

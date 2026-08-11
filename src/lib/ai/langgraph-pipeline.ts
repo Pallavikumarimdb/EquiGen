@@ -6,6 +6,7 @@ import { AIServiceOptions } from './langchain-service';
 import { AIExtractionResult } from './schema';
 import { getModelForRequest, getFallbackGroqModel, recordActualUsage } from './model-router';
 import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
+import { runParallelChunkExtraction } from './parallel-extract';
 
 // --- Helper: Simple Character Chunker with overlap ---
 
@@ -489,14 +490,36 @@ export async function runOrResumeResearchPipeline(
   };
 
   try {
-    // Step 0: Preprocessing (Chunking / Map-Reduce)
+    // Step 0: Preprocessing (Parallel 8B chunk extraction for parsed documents, else Map-Reduce)
     if (job.stepIndex <= 0) {
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: { status: 'running', stepIndex: 0 }
       });
-      const preprocessOut = await preprocessChunksNode(state);
-      state.condensedContext = preprocessOut.condensedContext || state.rawText;
+
+      let condensed = '';
+      if (job.documentId && state.modelOptions.provider === 'groq') {
+        try {
+          const parallelOut = await runParallelChunkExtraction({
+            jobId,
+            documentId: job.documentId,
+            companyName: job.companyName,
+            options: state.modelOptions
+          });
+          condensed = parallelOut.mergedContext;
+          if (condensed) {
+            console.log(`[Pipeline] Parallel chunk extraction complete for document ${job.documentId} (${parallelOut.degradedCount} degraded).`);
+          }
+        } catch (err) {
+          console.warn('[Pipeline] Parallel chunk extraction failed — falling back to sequential preprocessor:', err);
+        }
+      }
+
+      if (!condensed) {
+        const preprocessOut = await preprocessChunksNode(state);
+        condensed = preprocessOut.condensedContext || state.rawText;
+      }
+      state.condensedContext = condensed;
       
       await prisma.extractionJob.update({
         where: { id: jobId },
@@ -585,7 +608,6 @@ export async function runOrResumeResearchPipeline(
           financials: state.financials as any,
           mathErrors: state.mathErrors,
           stepIndex: 4,
-          status: 'completed',
           waitMessage: null,
           waitUntil: null
         }
