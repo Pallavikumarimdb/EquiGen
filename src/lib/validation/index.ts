@@ -38,6 +38,65 @@ export const CompetitorInfoSchema = z.object({
   targetPrice: z.number().optional()
 });
 
+export const CompanyDataSchema = z.object({
+  marketCap: z.union([z.string(), z.number()]).nullable().optional(),
+  highLow52W: z.string().nullable().optional(),
+  enterpriseValue: z.union([z.string(), z.number()]).nullable().optional(),
+  ev: z.union([z.string(), z.number()]).nullable().optional(),
+  outstandingShares: z.union([z.string(), z.number()]).nullable().optional(),
+  freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
+  dividendYield: z.string().nullable().optional(),
+  avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
+  avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
+  beta: z.union([z.string(), z.number()]).nullable().optional(),
+  faceValue: z.union([z.string(), z.number()]).nullable().optional(),
+}).nullable().optional();
+
+export const ShareholdingDataSchema = z.object({
+  category: z.string(),
+  periods: z.array(z.string()).optional(),
+  values: z.array(z.union([z.string(), z.number()])).optional()
+});
+
+export const PricePerformanceDataSchema = z.object({
+  period: z.string(),
+  absoluteReturn: z.string().nullable().optional(),
+  absoluteSensex: z.string().nullable().optional(),
+  relativeReturn: z.string().nullable().optional()
+});
+
+export const EstimatesDataSchema = z.object({
+  metric: z.string(),
+  oldFY26: z.union([z.string(), z.number()]).nullable().optional(),
+  oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
+  newFY26: z.union([z.string(), z.number()]).nullable().optional(),
+  newFY27: z.union([z.string(), z.number()]).nullable().optional(),
+  changeFY26: z.string().nullable().optional(),
+  changeFY27: z.string().nullable().optional()
+});
+
+export const QuarterlyFinancialDataSchema = z.object({
+  metric: z.string(),
+  q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
+  q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
+  yoyGrowth: z.string().nullable().optional(),
+  q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
+  qoqGrowth: z.string().nullable().optional()
+});
+
+export const DetailedFinancialsDataSchema = z.object({
+  incomeStatement: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+  balanceSheet: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+  cashFlow: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+  ratios: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional()
+}).nullable().optional();
+
+export const RecommendationSummaryDataSchema = z.object({
+  date: z.string(),
+  rating: z.string(),
+  target: z.union([z.string(), z.number()])
+});
+
 export const EquityResearchDataSchema = z.object({
   company: CompanyMetadataSchema,
   recommendation: AnalystRecommendationSchema,
@@ -55,10 +114,26 @@ export const EquityResearchDataSchema = z.object({
   narrativeSummary: z.string().nullable().optional(),
   industryOverview: z.string().nullable().optional(),
   businessOverview: z.string().nullable().optional(),
-  futureGrowth: z.string().nullable().optional()
+  futureGrowth: z.string().nullable().optional(),
+  
+  // Geojit-specific fields
+  nseCode: z.string().nullable().optional(),
+  bseCode: z.string().nullable().optional(),
+  bloombergCode: z.string().nullable().optional(),
+  timeFrame: z.string().nullable().optional(),
+  stockType: z.string().nullable().optional(),
+  companyData: CompanyDataSchema,
+  shareholding: z.array(ShareholdingDataSchema).nullable().optional(),
+  promoterPledge: z.string().nullable().optional(),
+  pricePerformance: z.array(PricePerformanceDataSchema).nullable().optional(),
+  estimates: z.array(EstimatesDataSchema).nullable().optional(),
+  quarterlyFinancials: z.array(QuarterlyFinancialDataSchema).nullable().optional(),
+  detailedFinancials: DetailedFinancialsDataSchema,
+  recommendationSummary: z.array(RecommendationSummaryDataSchema).nullable().optional()
 });
 
 export const ReportUploadInputSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
   file: z.any() // File reference validated at Route handler level
 });
+

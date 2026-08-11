@@ -42,7 +42,7 @@ export const SwotAndThesisSchema = z.object({
   highlights: z.array(z.string()).describe('Key highlights (strengths, expansion, strategic positioning)'),
   investmentThesis: z.string().describe('Main investment case and rationale'),
   risks: z.array(z.string()).describe('Primary business and financial risks/weaknesses'),
-  futureGrowth: z.string().describe('Key growth drivers and pipeline plans')
+  futureGrowth: z.union([z.string(), z.array(z.string())]).describe('Key growth drivers and pipeline plans')
 });
 
 export const FinancialsSchema = z.object({
@@ -61,9 +61,69 @@ export const FinancialsSchema = z.object({
     value: z.number().describe('PAT value'),
     unit: z.string().describe('Cr or Mn')
   })).describe('PAT/Net Profit statement entries'),
-  currentPrice: z.number().describe('Current market stock trading price'),
-  targetPrice: z.number().describe('Stock price target recommendation'),
-  recommendation: z.enum(['BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL']).describe('Investment rating')
+  currentPrice: z.number().nullable().optional().describe('Current market stock trading price'),
+  targetPrice: z.number().nullable().optional().describe('Stock price target recommendation'),
+  recommendation: z.enum(['BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL']).nullable().optional().describe('Investment rating'),
+  
+  // Geojit-specific fields
+  nseCode: z.string().describe('Stock market NSE ticker symbol or null').nullable().optional(),
+  bseCode: z.string().describe('Stock market BSE ticker symbol or null').nullable().optional(),
+  bloombergCode: z.string().describe('Bloomberg ticker symbol or null').nullable().optional(),
+  timeFrame: z.string().describe('Investment time frame, default is "12 Months"').nullable().optional(),
+  stockType: z.string().describe('Stock category, e.g. Large Cap, Mid Cap, Small Cap').nullable().optional(),
+  companyData: z.object({
+    marketCap: z.union([z.string(), z.number()]).nullable().optional(),
+    highLow52W: z.string().nullable().optional(),
+    enterpriseValue: z.union([z.string(), z.number()]).nullable().optional(),
+    ev: z.union([z.string(), z.number()]).nullable().optional(),
+    outstandingShares: z.union([z.string(), z.number()]).nullable().optional(),
+    freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
+    dividendYield: z.string().nullable().optional(),
+    avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
+    avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
+    beta: z.union([z.string(), z.number()]).nullable().optional(),
+    faceValue: z.union([z.string(), z.number()]).nullable().optional(),
+  }).nullable().optional(),
+  shareholding: z.array(z.object({
+    category: z.string().describe('e.g. Promoters, FIIs, MFs/Institutions, Public, Others'),
+    periods: z.array(z.string()).describe('e.g. ["Q3FY25", "Q4FY25", "Q1FY26"]'),
+    values: z.array(z.union([z.string(), z.number()])).describe('percentage values')
+  })).nullable().optional(),
+  promoterPledge: z.string().describe('e.g. Nil').nullable().optional(),
+  pricePerformance: z.array(z.object({
+    period: z.string().describe('e.g. 3 Month, 6 Month, 1 Year'),
+    absoluteReturn: z.string().nullable().optional(),
+    absoluteSensex: z.string().nullable().optional(),
+    relativeReturn: z.string().nullable().optional()
+  })).nullable().optional(),
+  estimates: z.array(z.object({
+    metric: z.string(),
+    oldFY26: z.union([z.string(), z.number()]).nullable().optional(),
+    oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
+    newFY26: z.union([z.string(), z.number()]).nullable().optional(),
+    newFY27: z.union([z.string(), z.number()]).nullable().optional(),
+    changeFY26: z.string().nullable().optional(),
+    changeFY27: z.string().nullable().optional()
+  })).nullable().optional(),
+  quarterlyFinancials: z.array(z.object({
+    metric: z.string(),
+    q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    yoyGrowth: z.string().nullable().optional(),
+    q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    qoqGrowth: z.string().nullable().optional()
+  })).nullable().optional(),
+  detailedFinancials: z.object({
+    incomeStatement: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+    balanceSheet: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+    cashFlow: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
+    ratios: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional()
+  }).nullable().optional(),
+  recommendationSummary: z.array(z.object({
+    date: z.string(),
+    rating: z.string(),
+    target: z.union([z.string(), z.number()])
+  })).nullable().optional()
 });
 
 // --- State Definition ---
@@ -142,7 +202,7 @@ function notifyBudgetWait(state: typeof ResearchState.State, waitMs: number): vo
 
 async function preprocessChunksNode(state: typeof ResearchState.State) {
   // If text is short, skip chunking map-reduce and use it raw
-  if (state.rawText.length < 25000) {
+  if (state.rawText.length < 200000) {
     return { condensedContext: state.rawText };
   }
 
@@ -278,7 +338,21 @@ async function extractFinancialsNode(state: typeof ResearchState.State) {
     feedback = `\n\n[WARNING: Previous extraction had errors! Please pay special attention to the following calculation issues and correct them:\n- ${state.mathErrors.join('\n- ')}]`;
   }
 
-  const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract revenue, EBITDA, and PAT/Net Profit series across fiscal periods. Also extract currentPrice, targetPrice, and recommendation.${feedback}`;
+  const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
+1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods.
+2. CurrentPrice, targetPrice, and recommendation. Note: If these broker valuation metrics (CMP, Target Price, Rating) are not explicitly stated in the document, you MUST suggest/calculate realistic values based on the financial data:
+   - Suggest CurrentPrice (CMP) using outstanding shares and market cap if available (CMP = Market Cap / Outstanding Shares).
+   - Suggest a Target Price by applying a reasonable forward P/E multiple (e.g. 25-35x depending on growth) to the current/projected annualized earnings, or a standard premium (e.g. 15-25% upside).
+   - Suggest a recommendation rating (BUY, ACCUMULATE, HOLD, REDUCE, SELL) that aligns with this target upside.
+3. NSE/BSE/Bloomberg codes, time frame, stock type, companyData (Market Cap, 52W High-Low, EV, outstanding shares, free float, dividend yield, avg volume, beta, face value).
+4. Shareholding details (categories and percentages across recent periods) and promoterPledge.
+5. Price performance returns (3m, 6m, 1yr for company and Sensex benchmark).
+6. Old vs New estimates (Revenue, EBITDA, Margins, PAT, EPS changes for FY26E/FY27E).
+7. Quarterly financials (Sales, EBITDA, margin, EBIT, PBT, PAT for recent quarters).
+8. Detailed financial statements (Consolidated Income Statement, Balance Sheet, Cash Flow, Ratios) across years (e.g. FY23, FY24, FY25, FY26E, FY27E).
+9. Historic Recommendation summary (dates, rating, target).
+
+Ensure that for general fields or financial statement tables, if they are missing from the document, set them to null or keep them empty, but ALWAYS calculate/suggest realistic estimates for currentPrice, targetPrice, and recommendation if they are missing.${feedback}`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -402,7 +476,8 @@ export async function runResearchPipeline(
 
   return {
     companyName: result.companyGeneral.companyName,
-    recommendation: result.financials.recommendation,
+    ticker: result.companyGeneral.ticker,
+    recommendation: result.financials.recommendation || 'HOLD',
     highlights: result.swotAndThesis.highlights,
     investmentThesis: result.swotAndThesis.investmentThesis,
     outlook: result.companyGeneral.narrativeSummary,
@@ -411,12 +486,27 @@ export async function runResearchPipeline(
     ebitda: result.financials.ebitda,
     pat: result.financials.pat,
     ratios: null,
-    currentPrice: result.financials.currentPrice,
-    targetPrice: result.financials.targetPrice,
+    currentPrice: result.financials.currentPrice ?? null,
+    targetPrice: result.financials.targetPrice ?? null,
     narrativeSummary: result.companyGeneral.narrativeSummary,
     industryOverview: result.companyGeneral.industryOverview,
     businessOverview: result.companyGeneral.businessOverview,
-    futureGrowth: result.swotAndThesis.futureGrowth
+    futureGrowth: Array.isArray(result.swotAndThesis.futureGrowth)
+      ? result.swotAndThesis.futureGrowth.join('\n')
+      : result.swotAndThesis.futureGrowth,
+    nseCode: result.financials.nseCode,
+    bseCode: result.financials.bseCode,
+    bloombergCode: result.financials.bloombergCode,
+    timeFrame: result.financials.timeFrame,
+    stockType: result.financials.stockType,
+    companyData: result.financials.companyData,
+    shareholding: result.financials.shareholding,
+    promoterPledge: result.financials.promoterPledge,
+    pricePerformance: result.financials.pricePerformance,
+    estimates: result.financials.estimates,
+    quarterlyFinancials: result.financials.quarterlyFinancials,
+    detailedFinancials: result.financials.detailedFinancials,
+    recommendationSummary: result.financials.recommendationSummary
   };
 }
 
@@ -617,7 +707,8 @@ export async function runOrResumeResearchPipeline(
     // Return compiled result
     return {
       companyName: state.companyGeneral.companyName,
-      recommendation: state.financials.recommendation,
+      ticker: state.companyGeneral.ticker,
+      recommendation: state.financials.recommendation || 'HOLD',
       highlights: state.swotAndThesis.highlights,
       investmentThesis: state.swotAndThesis.investmentThesis,
       outlook: state.companyGeneral.narrativeSummary,
@@ -626,12 +717,27 @@ export async function runOrResumeResearchPipeline(
       ebitda: state.financials.ebitda,
       pat: state.financials.pat,
       ratios: null,
-      currentPrice: state.financials.currentPrice,
-      targetPrice: state.financials.targetPrice,
+      currentPrice: state.financials.currentPrice ?? null,
+      targetPrice: state.financials.targetPrice ?? null,
       narrativeSummary: state.companyGeneral.narrativeSummary,
       industryOverview: state.companyGeneral.industryOverview,
       businessOverview: state.companyGeneral.businessOverview,
-      futureGrowth: state.swotAndThesis.futureGrowth,
+      futureGrowth: Array.isArray(state.swotAndThesis.futureGrowth)
+        ? state.swotAndThesis.futureGrowth.join('\n')
+        : state.swotAndThesis.futureGrowth,
+      nseCode: state.financials.nseCode,
+      bseCode: state.financials.bseCode,
+      bloombergCode: state.financials.bloombergCode,
+      timeFrame: state.financials.timeFrame,
+      stockType: state.financials.stockType,
+      companyData: state.financials.companyData,
+      shareholding: state.financials.shareholding,
+      promoterPledge: state.financials.promoterPledge,
+      pricePerformance: state.financials.pricePerformance,
+      estimates: state.financials.estimates,
+      quarterlyFinancials: state.financials.quarterlyFinancials,
+      detailedFinancials: state.financials.detailedFinancials,
+      recommendationSummary: state.financials.recommendationSummary,
       // Audit trail: which model ran the financials extraction
       modelUsedForFinancials: state.modelUsedForFinancials || null
     };

@@ -62,7 +62,7 @@ export class LangChainAIService {
     return {
       company: {
         name: aiResult.companyName || 'Unknown Company',
-        ticker: (aiResult.companyName || 'UNKN').substring(0, 4).toUpperCase(),
+        ticker: aiResult.ticker || (aiResult.companyName || 'UNKN').substring(0, 4).toUpperCase(),
         sector: 'General Corporate',
         industry: 'Unclassified Industry',
         reportDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -91,7 +91,26 @@ export class LangChainAIService {
       narrativeSummary: aiResult.narrativeSummary,
       industryOverview: aiResult.industryOverview,
       businessOverview: aiResult.businessOverview,
-      futureGrowth: aiResult.futureGrowth
+      futureGrowth: aiResult.futureGrowth,
+      
+      // Map Geojit fields
+      nseCode: aiResult.nseCode,
+      bseCode: aiResult.bseCode,
+      bloombergCode: aiResult.bloombergCode,
+      timeFrame: aiResult.timeFrame || '12 Months',
+      stockType: aiResult.stockType || 'Large Cap',
+      companyData: aiResult.companyData ? {
+        ...aiResult.companyData,
+        enterpriseValue: aiResult.companyData.enterpriseValue ?? aiResult.companyData.ev,
+        avgVolume6m: aiResult.companyData.avgVolume6m ?? aiResult.companyData.avgVolume
+      } : null,
+      shareholding: aiResult.shareholding,
+      promoterPledge: aiResult.promoterPledge,
+      pricePerformance: aiResult.pricePerformance,
+      estimates: aiResult.estimates,
+      quarterlyFinancials: aiResult.quarterlyFinancials,
+      detailedFinancials: aiResult.detailedFinancials,
+      recommendationSummary: aiResult.recommendationSummary
     };
   }
 
