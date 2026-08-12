@@ -1,3 +1,4 @@
+import './math-sumprecise-polyfill'; // MUST precede unpdf: bundled pdf.js calls Math.sumPrecise unguarded (absent in Node)
 import { extractText, getMeta, renderPageAsImage, extractImages } from 'unpdf';
 import { DocumentExtractor, ExtractedDocument } from './types';
 import { createWorker } from 'tesseract.js';

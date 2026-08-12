@@ -65,6 +65,10 @@ const ParallelChunkSchema = z.object({
   financials: z.array(z.object({
     text: z.string().describe('A specific financial figure, statement line, or target with its period and unit'),
     page: z.number().describe('The exact page number the figure appears on'),
+    metric: z.string().optional().describe('E.g. Revenue, EBITDA, PAT, EPS, Market Cap, or null'),
+    period: z.string().optional().describe('E.g. Q1FY26, FY25, Q2FY26, or null'),
+    value: z.number().optional().describe('Numeric value extracted, or null'),
+    unit: z.string().optional().describe('E.g. Cr, Mn, Rs., %, or null'),
   })).describe('Financial figures found in this section (empty if none)'),
 });
 
@@ -178,7 +182,7 @@ export async function runParallelChunkExtraction(params: {
     while (cursor < chunks.length) {
       const chunk = chunks[cursor++];
       const chunkText = chunk.pages.map((p) => `[Page ${p.pageNo}]\n${p.text}`).join('\n\n');
-      const systemPrompt = 'You are a corporate data extraction analyst. Read the annual report / prospectus pages below and extract narrative facts, SWOT factors, and financial figures. Respond with a single JSON object exactly matching this shape (no markdown, no commentary, empty arrays when a section has nothing):\n{"narrative": ["key fact", ...], "swot": ["strength/weakness/risk", ...], "financials": [{"text": "specific figure, statement line, or target with its period and unit", "page": 3}, ...]}\nDo not invent figures — "page" must be the exact page number from the [Page N] headers.';
+      const systemPrompt = 'You are a corporate data extraction analyst. Read the annual report / prospectus pages below and extract narrative facts, SWOT factors, and financial figures. Respond with a single JSON object exactly matching this shape (no markdown, no commentary, empty arrays when a section has nothing):\n{"narrative": ["key fact", ...], "swot": ["strength/weakness/risk", ...], "financials": [{"text": "specific figure, statement line, or target with its period and unit", "page": 3, "metric": "Revenue", "period": "Q1FY26", "value": 1250, "unit": "Cr"}, ...]}\nDo not invent figures — "page" must be the exact page number from the [Page N] headers. Always populate metric, period, value, and unit fields when possible for numeric financial data.';
       const userPrompt = `Company: ${companyName}\n\nPages ${chunk.key}:\n\n${chunkText}`;
 
       const startedAt = Date.now();

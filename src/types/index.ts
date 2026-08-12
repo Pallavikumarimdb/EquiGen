@@ -73,6 +73,23 @@ export interface EstimatesData {
   changeFY27?: string | null;
 }
 
+export interface FiveYearSummaryData {
+  period: string;
+  sales?: string | number | null;
+  salesGrowth?: string | number | null;
+  ebitda?: string | number | null;
+  ebitdaMargin?: string | number | null;
+  patAdjusted?: string | number | null;
+  patGrowth?: string | number | null;
+  adjEps?: string | number | null;
+  epsGrowth?: string | number | null;
+  pe?: string | number | null;
+  pb?: string | number | null;
+  evEbitda?: string | number | null;
+  roe?: string | number | null;
+  deRatio?: string | number | null;
+}
+
 export interface QuarterlyFinancialData {
   metric: string;
   q1fy26?: string | number | null;
@@ -126,12 +143,13 @@ export interface EquityResearchData {
   pricePerformance?: PricePerformanceData[] | null;
   estimates?: EstimatesData[] | null;
   quarterlyFinancials?: QuarterlyFinancialData[] | null;
-  detailedFinancials?: DetailedFinancialsData | null;
+  detailedFinancials?: DetailedFinancialsData[] | DetailedFinancialsData | null;
   recommendationSummary?: RecommendationSummaryData[] | null;
-
-  /** Which model actually performed the financials extraction. 'llama-3.1-8b-instant' means
-   *  the lighter fallback model was used (request was too large for the 70B quota).
-   *  Undefined = 70B was used (standard path). */
+  pageOneHighlights?: string[] | null;
+  pageTwoHighlights?: string[] | null;
+  sensexValue?: string | number | null;
+  fiveYearSummary?: FiveYearSummaryData[] | null;
+  headlineTakeaway?: string | null;
   modelUsedForFinancials?: string | null;
 }
 
@@ -141,4 +159,3 @@ export interface ParseResult {
   fileName: string;
   fileType: 'pdf' | 'csv' | 'txt';
 }
-

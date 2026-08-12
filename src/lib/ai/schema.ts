@@ -47,6 +47,23 @@ export const AIEstimatesSchema = z.object({
   changeFY27: z.string().nullable().optional()
 });
 
+export const AIFiveYearSummarySchema = z.object({
+  period: z.string(),
+  sales: z.union([z.string(), z.number()]).nullable().optional(),
+  salesGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+  ebitda: z.union([z.string(), z.number()]).nullable().optional(),
+  ebitdaMargin: z.union([z.string(), z.number()]).nullable().optional(),
+  patAdjusted: z.union([z.string(), z.number()]).nullable().optional(),
+  patGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+  adjEps: z.union([z.string(), z.number()]).nullable().optional(),
+  epsGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+  pe: z.union([z.string(), z.number()]).nullable().optional(),
+  pb: z.union([z.string(), z.number()]).nullable().optional(),
+  evEbitda: z.union([z.string(), z.number()]).nullable().optional(),
+  roe: z.union([z.string(), z.number()]).nullable().optional(),
+  deRatio: z.union([z.string(), z.number()]).nullable().optional()
+});
+
 export const AIQuarterlyFinancialSchema = z.object({
   metric: z.string(),
   q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
@@ -79,7 +96,8 @@ export const AIExtractionSchema = z.object({
   ebitda: z.array(AIFinancialMetricSchema).nullable(),
   pat: z.array(AIFinancialMetricSchema).nullable(),
   ratios: AIRatiosSchema.nullable(),
-  highlights: z.array(z.string()),
+  pageOneHighlights: z.array(z.string()),
+  pageTwoHighlights: z.array(z.string()),
   risks: z.array(z.string()),
   outlook: z.string().nullable(),
   investmentThesis: z.string().nullable(),
@@ -87,6 +105,7 @@ export const AIExtractionSchema = z.object({
   narrativeSummary: z.string().nullable(),
   industryOverview: z.string().nullable(),
   businessOverview: z.string().nullable(),
+  headlineTakeaway: z.string().nullable().optional(),
   
   // Geojit Specific Fields
   nseCode: z.string().nullable().optional(),
@@ -102,10 +121,11 @@ export const AIExtractionSchema = z.object({
   quarterlyFinancials: z.array(AIQuarterlyFinancialSchema).nullable().optional(),
   detailedFinancials: AIDetailedFinancialsSchema.nullable().optional(),
   recommendationSummary: z.array(AIRecommendationSummarySchema).nullable().optional(),
+  sensexValue: z.union([z.string(), z.number()]).nullable().optional(),
+  fiveYearSummary: z.array(AIFiveYearSummarySchema).nullable().optional(),
   
   /** Which model extracted the financials. 'llama-3.1-8b-instant' = fallback used. */
   modelUsedForFinancials: z.string().nullable().optional()
 });
 
 export type AIExtractionResult = z.infer<typeof AIExtractionSchema>;
-

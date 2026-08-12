@@ -35,7 +35,8 @@ export const CompanyGeneralSchema = z.object({
   ticker: z.string().describe('Stock market ticker symbol'),
   narrativeSummary: z.string().describe('Narrative summary of findings (outlook, recommendation, key drivers)'),
   industryOverview: z.string().describe('High-level outlook of the industry vertical'),
-  businessOverview: z.string().describe('Brief operational overview of business divisions')
+  businessOverview: z.string().describe('Brief operational overview of business divisions'),
+  headlineTakeaway: z.string().describe('A punchy, editorial-style headline under 12 words summarizing the thesis. E.g. "Blinkit propels growth; valuation limits upside"')
 });
 
 export const SwotAndThesisSchema = z.object({
@@ -123,6 +124,23 @@ export const FinancialsSchema = z.object({
     date: z.string(),
     rating: z.string(),
     target: z.union([z.string(), z.number()])
+  })).nullable().optional(),
+  sensexValue: z.union([z.string(), z.number()]).nullable().optional(),
+  fiveYearSummary: z.array(z.object({
+    period: z.string(),
+    sales: z.union([z.string(), z.number()]).nullable().optional(),
+    salesGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+    ebitda: z.union([z.string(), z.number()]).nullable().optional(),
+    ebitdaMargin: z.union([z.string(), z.number()]).nullable().optional(),
+    patAdjusted: z.union([z.string(), z.number()]).nullable().optional(),
+    patGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+    adjEps: z.union([z.string(), z.number()]).nullable().optional(),
+    epsGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+    pe: z.union([z.string(), z.number()]).nullable().optional(),
+    pb: z.union([z.string(), z.number()]).nullable().optional(),
+    evEbitda: z.union([z.string(), z.number()]).nullable().optional(),
+    roe: z.union([z.string(), z.number()]).nullable().optional(),
+    deRatio: z.union([z.string(), z.number()]).nullable().optional()
   })).nullable().optional()
 });
 
@@ -265,8 +283,40 @@ function clearJobWait(state: typeof ResearchState.State): void {
 // --- Node 1: Company General details ---
 
 async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
-  const contextText = state.condensedContext || state.rawText;
-  const systemPrompt = `You are an expert equity analyst. Read the provided text and extract general company corporate details: full name, stock ticker symbol, business operational overview, industry segment vertical overview, and a comprehensive narrative summary.`;
+  let contextText = '';
+  const job = await prisma.extractionJob.findUnique({
+    where: { id: state.jobId }
+  });
+  if (job?.documentId) {
+    const narrativeExtractions = await prisma.chunkExtraction.findMany({
+      where: {
+        jobId: state.jobId,
+        extractType: 'narrative',
+        status: 'ok'
+      }
+    });
+    contextText = narrativeExtractions
+      .map((e) => {
+        if (e.extractionJson && Array.isArray(e.extractionJson)) {
+          return (e.extractionJson as string[]).join('\n');
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  if (!contextText) {
+    contextText = state.condensedContext || state.rawText;
+  }
+  const systemPrompt = `You are an expert SEBI-registered equity research analyst. Write in the house style of Geojit's "Retail Equity Research" reports.
+Read the provided document text and extract the following:
+1. companyName (exact full official name)
+2. ticker (ticker symbol)
+3. businessOverview (A detailed paragraph of exactly 4-5 lines describing core divisions, revenue mix, and operational focus)
+4. industryOverview (high-level sector outlook)
+5. narrativeSummary (analytical overview of quarterly performance, margins, and management stance)
+6. headlineTakeaway: a single short editorial line (under 12 words) formatted exactly as:
+   "<growth driver clause>; <constraint/risk clause>" (joined by a semicolon). First clause names the strongest positive driver, second clause names the main constraint (e.g. valuation, margin pressures).`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -278,7 +328,7 @@ async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
   clearJobWait(state);
 
   if (downgraded) {
-    console.warn(`[extract_general] Rerouted to ${modelName} due to request size — review output quality for dense documents.`);
+    console.warn(`[extract_general] Rerouted to ${modelName} due to request size.`);
   }
 
   const structuredModel = model.withStructuredOutput(CompanyGeneralSchema);
@@ -299,8 +349,36 @@ async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
 // --- Node 2: SWOT & Investment Thesis ---
 
 async function extractSwotNode(state: typeof ResearchState.State) {
-  const contextText = state.condensedContext || state.rawText;
-  const systemPrompt = `You are an expert equity research auditor. Read the text and extract strategic qualitative metrics: SWOT strengths (highlights), SWOT weaknesses (risks), investment thesis case, and future growth triggers/pipelines.`;
+  let contextText = '';
+  const job = await prisma.extractionJob.findUnique({
+    where: { id: state.jobId }
+  });
+  if (job?.documentId) {
+    const swotExtractions = await prisma.chunkExtraction.findMany({
+      where: {
+        jobId: state.jobId,
+        extractType: 'swot',
+        status: 'ok'
+      }
+    });
+    contextText = swotExtractions
+      .map((e) => {
+        if (e.extractionJson && Array.isArray(e.extractionJson)) {
+          return (e.extractionJson as string[]).join('\n');
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  if (!contextText) {
+    contextText = state.condensedContext || state.rawText;
+  }
+  const systemPrompt = `You are an expert equity research auditor. Read the text and extract strategic qualitative metrics:
+1. highlights: 10-12 short quantitative/factual bullet points detailing key positive facts, segment growth, and strategic gains. (Note: These will be split for Page 1 and Page 2 in the report. The first 5 bullets should represent headline-level financial stats - e.g. revenue and margin growth; the remaining 5-7 bullets represent deeper qualitative/operational insights).
+2. investmentThesis: core investment rationale case.
+3. risks: primary business, structural, and financial risks.
+4. futureGrowth: key drivers and pipelines.`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -332,27 +410,54 @@ async function extractSwotNode(state: typeof ResearchState.State) {
 // --- Node 3: Financials ---
 
 async function extractFinancialsNode(state: typeof ResearchState.State) {
-  const contextText = state.condensedContext || state.rawText;
+  let contextText = '';
+  const job = await prisma.extractionJob.findUnique({
+    where: { id: state.jobId }
+  });
+  if (job?.documentId) {
+    const financialExtractions = await prisma.chunkExtraction.findMany({
+      where: {
+        jobId: state.jobId,
+        extractType: 'financials',
+        status: 'ok'
+      }
+    });
+    const facts: string[] = [];
+    interface ExtractedFinancialFact {
+      text?: string;
+      page?: number;
+    }
+    for (const ext of financialExtractions) {
+      if (ext.extractionJson && Array.isArray(ext.extractionJson)) {
+        for (const item of ext.extractionJson as unknown as ExtractedFinancialFact[]) {
+          if (item && typeof item === 'object' && item.text) {
+            facts.push(`- ${item.text} [Page ${item.page || ext.chunkKey}]`);
+          }
+        }
+      }
+    }
+    contextText = facts.join('\n');
+    console.log(`[Pipeline] Routing ${facts.length} extracted financial facts directly to 70B node (bypassing summarizer).`);
+  }
+  if (!contextText) {
+    contextText = state.condensedContext || state.rawText;
+  }
   let feedback = '';
   if (state.mathErrors && state.mathErrors.length > 0) {
     feedback = `\n\n[WARNING: Previous extraction had errors! Please pay special attention to the following calculation issues and correct them:\n- ${state.mathErrors.join('\n- ')}]`;
   }
 
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
-1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods.
-2. CurrentPrice, targetPrice, and recommendation. Note: If these broker valuation metrics (CMP, Target Price, Rating) are not explicitly stated in the document, you MUST suggest/calculate realistic values based on the financial data:
+1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods (periods must include recent actuals plus estimates e.g. FY25A, FY26E, FY27E).
+2. CurrentPrice (CMP), targetPrice, and recommendation. Note: If these broker valuation metrics (CMP, Target Price, Rating) are not explicitly stated in the document, you MUST suggest/calculate realistic values based on the financial data:
    - Suggest CurrentPrice (CMP) using outstanding shares and market cap if available (CMP = Market Cap / Outstanding Shares).
    - Suggest a Target Price by applying a reasonable forward P/E multiple (e.g. 25-35x depending on growth) to the current/projected annualized earnings, or a standard premium (e.g. 15-25% upside).
-   - Suggest a recommendation rating (BUY, ACCUMULATE, HOLD, REDUCE, SELL) that aligns with this target upside.
-3. NSE/BSE/Bloomberg codes, time frame, stock type, companyData (Market Cap, 52W High-Low, EV, outstanding shares, free float, dividend yield, avg volume, beta, face value).
-4. Shareholding details (categories and percentages across recent periods) and promoterPledge.
-5. Price performance returns (3m, 6m, 1yr for company and Sensex benchmark).
-6. Old vs New estimates (Revenue, EBITDA, Margins, PAT, EPS changes for FY26E/FY27E).
-7. Quarterly financials (Sales, EBITDA, margin, EBIT, PBT, PAT for recent quarters).
-8. Detailed financial statements (Consolidated Income Statement, Balance Sheet, Cash Flow, Ratios) across years (e.g. FY23, FY24, FY25, FY26E, FY27E).
-9. Historic Recommendation summary (dates, rating, target).
+   - Set Recommendation to 'BUY' if upside is >15%, 'ACCUMULATE' if 10-15%, 'HOLD' if 0-10%, and 'REDUCE' or 'SELL' if downside exists.
+3. nseCode, bseCode, bloombergCode, timeFrame (default "12 Months"), stockType (e.g. Large Cap, Mid Cap, Small Cap)
+4. sensexValue: The current value of the Sensex benchmark index if mentioned in the document.
+5. fiveYearSummary: Look for a compact historical + estimates 5-year valuation-multiples summary table in the document and extract: period (e.g. FY25A, FY26E, FY27E), sales, salesGrowth, ebitda, ebitdaMargin, patAdjusted, patGrowth, adjEps, epsGrowth, pe, pb, evEbitda, roe, deRatio.
+6. Detailed tables if present in the document: companyData (marketCap, highLow52W, enterpriseValue, ev, outstandingShares, freeFloat, dividendYield, avgVolume6m, avgVolume, beta, faceValue), shareholding categories and values, promoterPledge, pricePerformance, old vs new estimates, quarterlyFinancials consolidated, and detailedFinancials (incomeStatement, balanceSheet, cashFlow, ratios), and recommendationSummary rating history. Keep empty if not present. Do not invent values.${feedback}`;
 
-Ensure that for general fields or financial statement tables, if they are missing from the document, set them to null or keep them empty, but ALWAYS calculate/suggest realistic estimates for currentPrice, targetPrice, and recommendation if they are missing.${feedback}`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -363,7 +468,7 @@ Ensure that for general fields or financial statement tables, if they are missin
   clearJobWait(state);
 
   if (downgraded) {
-    console.warn(`[extract_financials] Rerouted to ${modelName} due to request size — quality may differ on dense documents.`);
+    console.warn(`[extract_financials] Rerouted to ${modelName} due to request size.`);
   }
 
   const structuredModel = model.withStructuredOutput(FinancialsSchema);
@@ -387,22 +492,65 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
   const errors: string[] = [];
   const financials = state.financials;
 
-  if (financials) {
-    const revMap = new Map(financials.revenue.map(r => [r.period, r.value]));
-    financials.ebitda.forEach(e => {
-      const revVal = revMap.get(e.period);
-      if (revVal !== undefined && e.value > revVal) {
-        errors.push(`EBITDA (${e.value}) is greater than Revenue (${revVal}) in period ${e.period}.`);
-      }
-    });
+  // Presence Check & Completeness-Aware Gating
+  if (!financials) {
+    errors.push('No financials object extracted.');
+    return { mathErrors: errors, mathematicallyValid: false };
+  }
 
-    const ebitdaMap = new Map(financials.ebitda.map(e => [e.period, e.value]));
-    financials.pat.forEach(p => {
-      const ebitdaVal = ebitdaMap.get(p.period);
-      if (ebitdaVal !== undefined && p.value > ebitdaVal) {
-        errors.push(`PAT (${p.value}) is greater than EBITDA (${ebitdaVal}) in period ${p.period}.`);
-      }
-    });
+  if (!financials.revenue || financials.revenue.length === 0) {
+    errors.push('Required field "revenue" is empty or missing.');
+  }
+  if (!financials.ebitda || financials.ebitda.length === 0) {
+    errors.push('Required field "ebitda" is empty or missing.');
+  }
+  if (!financials.pat || financials.pat.length === 0) {
+    errors.push('Required field "pat" is empty or missing.');
+  }
+
+  if (financials.revenue && financials.revenue.length > 0) {
+    const revMap = new Map(financials.revenue.map(r => [r.period, r.value]));
+    
+    // EBITDA validation: EBITDA <= Revenue (within 1% tolerance)
+    if (financials.ebitda) {
+      financials.ebitda.forEach(e => {
+        const revVal = revMap.get(e.period);
+        if (revVal !== undefined && e.value > revVal * 1.01) {
+          errors.push(`EBITDA (${e.value}) is greater than Revenue (${revVal}) in period ${e.period}.`);
+        }
+      });
+    }
+
+    // Net Profit validation: PAT <= EBITDA
+    if (financials.pat) {
+      const ebitdaMap = new Map((financials.ebitda || []).map(e => [e.period, e.value]));
+      financials.pat.forEach(p => {
+        const ebitdaVal = ebitdaMap.get(p.period);
+        if (ebitdaVal !== undefined && p.value > ebitdaVal) {
+          errors.push(`PAT (${p.value}) is greater than EBITDA (${ebitdaVal}) in period ${p.period}.`);
+        }
+      });
+    }
+  }
+
+  // Scan text to detect expected period counts (e.g. Q1FY26, Q2FY26, etc)
+  const periodRegex = /\b[Q]\d[F][Y]\d{2}\b|\b[F][Y]\d{2}\b/gi;
+  const rawPeriods = state.rawText.match(periodRegex) || [];
+  const uniqueRawPeriods = Array.from(new Set(rawPeriods.map(p => p.toUpperCase())));
+  
+  // Look for target periods that are heavily mentioned in the document
+  const meaningfulPeriods = uniqueRawPeriods.filter(period => {
+    const matches = state.rawText.match(new RegExp(period, 'g'));
+    return matches && matches.length > 3;
+  });
+
+  if (meaningfulPeriods.length > 0 && financials.revenue) {
+    // If the source has multiple mentioned periods but we only extracted 1, flag it
+    const extractedPeriods = financials.revenue.map(r => r.period.toUpperCase());
+    const missingMajorPeriods = meaningfulPeriods.filter(p => !extractedPeriods.includes(p));
+    if (missingMajorPeriods.length > 1 && extractedPeriods.length <= 1) {
+      errors.push(`Extracted only ${extractedPeriods.length} periods, but document suggests multiple periods are present: ${missingMajorPeriods.slice(0, 3).join(', ')}.`);
+    }
   }
 
   const hasErrors = errors.length > 0;
@@ -506,7 +654,12 @@ export async function runResearchPipeline(
     estimates: result.financials.estimates,
     quarterlyFinancials: result.financials.quarterlyFinancials,
     detailedFinancials: result.financials.detailedFinancials,
-    recommendationSummary: result.financials.recommendationSummary
+    recommendationSummary: result.financials.recommendationSummary,
+    headlineTakeaway: result.companyGeneral.headlineTakeaway,
+    pageOneHighlights: result.swotAndThesis.highlights ? result.swotAndThesis.highlights.slice(0, 5) : [],
+    pageTwoHighlights: result.swotAndThesis.highlights ? result.swotAndThesis.highlights.slice(5) : [],
+    sensexValue: result.financials.sensexValue,
+    fiveYearSummary: result.financials.fiveYearSummary
   };
 }
 
@@ -528,180 +681,180 @@ export async function runOrResumeResearchPipeline(
       where: { id: jobId }
     });
     if (!job) {
-      throw new Error(`Extraction job with ID ${jobId} not found.`);
+      throw new Error(`Cannot resume: Job ${jobId} not found.`);
     }
   } else {
-    if (!companyName || !rawText || !options) {
-      throw new Error('Missing parameters to initialize a new extraction job.');
+    if (!companyName || !rawText) {
+      throw new Error('companyName and rawText are required when starting a new extraction job.');
     }
-    // Upsert job in DB (idempotent — the API route may have already created it)
-    job = await prisma.extractionJob.upsert({
-      where: { id: jobId },
-      update: {
-        companyName,
-        rawText,
-        status: 'running',
-        stepIndex: 0,
-        errorMessage: null,
-        retryAfterSeconds: null
-      },
-      create: {
+    // Initialize stateful tracking record
+    job = await prisma.extractionJob.create({
+      data: {
         id: jobId,
-        companyName: companyName!,
-        fileName: 'uploaded_document.pdf', // fallback — API route upsert always runs first with real name
-        rawText: rawText!,
+        companyName,
         status: 'running',
-        stepIndex: 0
+        step: 0,
+        retryCount: 0
       }
     });
   }
 
-  // Initialize graph state variables
   const state = {
-    companyName: job.companyName,
-    rawText: job.rawText,
-    condensedContext: job.condensedContext || '',
     jobId,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    companyGeneral: job.companyGeneral ? (job.companyGeneral as any) : null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    swotAndThesis: job.swotAndThesis ? (job.swotAndThesis as any) : null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    financials: job.financials ? (job.financials as any) : null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mathErrors: job.mathErrors ? (job.mathErrors as any[]) : [],
-    retryCount: 0,
+    companyName: job.companyName,
+    rawText: rawText || '',
+    modelOptions: options || { provider: 'groq' as const },
+    condensedContext: '',
+    companyGeneral: {} as any,
+    swotAndThesis: {} as any,
+    financials: {} as any,
+    mathErrors: [] as string[],
+    retryCount: job.retryCount,
     mathematicallyValid: true,
-    modelUsedForFinancials: '',
-    modelOptions: options || {
-      provider: 'groq',
-      apiKey: ''
-    }
+    modelUsedForFinancials: ''
   };
 
   try {
-    // Step 0: Preprocessing (Parallel 8B chunk extraction for parsed documents, else Map-Reduce)
-    if (job.stepIndex <= 0) {
-      await prisma.extractionJob.update({
-        where: { id: jobId },
-        data: { status: 'running', stepIndex: 0 }
-      });
-
-      let condensed = '';
-      if (job.documentId && state.modelOptions.provider === 'groq') {
-        try {
-          const parallelOut = await runParallelChunkExtraction({
-            jobId,
-            documentId: job.documentId,
-            companyName: job.companyName,
-            options: state.modelOptions
-          });
-          condensed = parallelOut.mergedContext;
-          if (condensed) {
-            console.log(`[Pipeline] Parallel chunk extraction complete for document ${job.documentId} (${parallelOut.degradedCount} degraded).`);
-          }
-        } catch (err) {
-          console.warn('[Pipeline] Parallel chunk extraction failed — falling back to sequential preprocessor:', err);
-        }
-      }
-
-      if (!condensed) {
-        const preprocessOut = await preprocessChunksNode(state);
-        condensed = preprocessOut.condensedContext || state.rawText;
-      }
-      state.condensedContext = condensed;
+    // --- Step 0: Preprocessing map-reduce ---
+    if (job.step <= 0) {
+      const preprocessOut = await preprocessChunksNode(state);
+      state.condensedContext = preprocessOut.condensedContext;
       
       await prisma.extractionJob.update({
         where: { id: jobId },
-        data: {
-          condensedContext: state.condensedContext,
-          stepIndex: 1,
-          waitMessage: null,
-          waitUntil: null
-        }
+        data: { step: 1 }
       });
     }
 
-    // Step 1: General Details
-    if (job.stepIndex <= 1) {
-      await prisma.extractionJob.update({
-        where: { id: jobId },
-        data: { status: 'running', stepIndex: 1 }
-      });
+    // --- Step 1: Company General details ---
+    if (job.step <= 1) {
       const generalOut = await extractCompanyGeneralNode(state);
       state.companyGeneral = generalOut.companyGeneral;
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          companyGeneral: state.companyGeneral as any,
-          stepIndex: 2,
-          waitMessage: null,
-          waitUntil: null
+          step: 2,
+          extractedData: {
+            companyGeneral: state.companyGeneral
+          }
         }
       });
+    } else {
+      const prevData = job.extractedData as any;
+      state.companyGeneral = prevData?.companyGeneral || {};
     }
 
-    // Step 2: SWOT & Thesis
-    if (job.stepIndex <= 2) {
-      await prisma.extractionJob.update({
-        where: { id: jobId },
-        data: { status: 'running', stepIndex: 2 }
-      });
+    // --- Step 2: SWOT & Investment Thesis ---
+    if (job.step <= 2) {
       const swotOut = await extractSwotNode(state);
       state.swotAndThesis = swotOut.swotAndThesis;
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          swotAndThesis: state.swotAndThesis as any,
-          stepIndex: 3,
-          waitMessage: null,
-          waitUntil: null
+          step: 3,
+          extractedData: {
+            companyGeneral: state.companyGeneral,
+            swotAndThesis: state.swotAndThesis
+          }
         }
       });
+    } else {
+      const prevData = job.extractedData as any;
+      state.swotAndThesis = prevData?.swotAndThesis || {};
     }
 
-    // Step 3: Financials & Audit
-    if (job.stepIndex <= 3) {
-      await prisma.extractionJob.update({
-        where: { id: jobId },
-        data: { status: 'running', stepIndex: 3 }
-      });
-      
-      let financialsOut = await extractFinancialsNode(state);
-      state.financials = financialsOut.financials;
-
-      // Audit financials
-      let auditOut = auditFinancialsNode(state);
-      state.mathErrors = auditOut.mathErrors || [];
-      state.mathematicallyValid = auditOut.mathematicallyValid || false;
-
-      // Handle audit retry loop if needed (up to 1 retry)
-      if (!state.mathematicallyValid) {
-        console.warn('[Sequential Runner] Audit failed. Retrying financials extraction...');
-        state.retryCount = 1;
-        financialsOut = await extractFinancialsNode(state);
-        state.financials = financialsOut.financials;
-        
-        auditOut = auditFinancialsNode(state);
-        state.mathErrors = auditOut.mathErrors || [];
-        state.mathematicallyValid = auditOut.mathematicallyValid || false;
-      }
+    // --- Step 3: Financials ---
+    if (job.step <= 3) {
+      const finOut = await extractFinancialsNode(state);
+      state.financials = finOut.financials;
+      state.modelUsedForFinancials = finOut.modelUsedForFinancials;
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          financials: state.financials as any,
-          mathErrors: state.mathErrors,
-          stepIndex: 4,
-          waitMessage: null,
-          waitUntil: null
+          step: 4,
+          extractedData: {
+            companyGeneral: state.companyGeneral,
+            swotAndThesis: state.swotAndThesis,
+            financials: state.financials,
+            modelUsedForFinancials: state.modelUsedForFinancials
+          }
         }
       });
+    } else {
+      const prevData = job.extractedData as any;
+      state.financials = prevData?.financials || {};
+      state.modelUsedForFinancials = prevData?.modelUsedForFinancials || '';
+    }
+
+    // --- Step 4: Math Audit & Retry ---
+    if (job.step <= 4) {
+      const auditOut = auditFinancialsNode(state);
+      state.mathErrors = auditOut.mathErrors || [];
+      state.mathematicallyValid = auditOut.mathematicallyValid;
+
+      if (!state.mathematicallyValid && state.retryCount < 2) {
+        // Increment retryCount, reset step to 3, and loop back to extract_financials node
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: {
+            step: 3,
+            retryCount: state.retryCount + 1,
+            extractedData: {
+              companyGeneral: state.companyGeneral,
+              swotAndThesis: state.swotAndThesis,
+              mathErrors: state.mathErrors
+            }
+          }
+        });
+        
+        // Re-execute step 3 with calculation audit feedback loop
+        state.retryCount += 1;
+        const finOut = await extractFinancialsNode(state);
+        state.financials = finOut.financials;
+        state.modelUsedForFinancials = finOut.modelUsedForFinancials;
+
+        // Perform final check
+        const finalAudit = auditFinancialsNode(state);
+        state.mathErrors = finalAudit.mathErrors || [];
+        state.mathematicallyValid = finalAudit.mathematicallyValid;
+
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: {
+            step: 5,
+            status: 'completed',
+            extractedData: {
+              companyGeneral: state.companyGeneral,
+              swotAndThesis: state.swotAndThesis,
+              financials: state.financials,
+              mathErrors: state.mathErrors,
+              modelUsedForFinancials: state.modelUsedForFinancials
+            }
+          }
+        });
+      } else {
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: {
+            step: 5,
+            status: 'completed',
+            extractedData: {
+              companyGeneral: state.companyGeneral,
+              swotAndThesis: state.swotAndThesis,
+              financials: state.financials,
+              mathErrors: state.mathErrors,
+              modelUsedForFinancials: state.modelUsedForFinancials
+            }
+          }
+        });
+      }
+    } else {
+      const prevData = job.extractedData as any;
+      state.mathErrors = prevData?.mathErrors || [];
+      state.mathematicallyValid = state.mathErrors.length === 0;
     }
 
     // Return compiled result
@@ -738,6 +891,11 @@ export async function runOrResumeResearchPipeline(
       quarterlyFinancials: state.financials.quarterlyFinancials,
       detailedFinancials: state.financials.detailedFinancials,
       recommendationSummary: state.financials.recommendationSummary,
+      headlineTakeaway: state.companyGeneral.headlineTakeaway,
+      pageOneHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(0, 3) : [],
+      pageTwoHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(3) : [],
+      sensexValue: state.financials.sensexValue,
+      fiveYearSummary: state.financials.fiveYearSummary,
       // Audit trail: which model ran the financials extraction
       modelUsedForFinancials: state.modelUsedForFinancials || null
     };
@@ -749,21 +907,25 @@ export async function runOrResumeResearchPipeline(
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          status: 'throttled',
-          retryAfterSeconds: err.retryAfterSeconds,
-          errorMessage: `Rate limited — auto-resume in ${err.retryAfterSeconds}s`,
-          waitMessage: null,
-          waitUntil: null,
-        },
+          status: 'rate_limited',
+          waitMessage: 'Rate limited by AI provider — resuming automatically',
+          waitUntil: new Date(Date.now() + err.retryAfterSeconds * 1000),
+          updatedAt: new Date()
+        }
       });
-      throw err; // re-throw typed signal so API route can tell client to auto-poll
+    } else {
+      // Permanent failure
+      console.error(`[Pipeline] Failed job ${jobId}:`, err);
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          status: 'failed',
+          waitMessage: err instanceof Error ? err.message : 'Unknown pipeline error',
+          waitUntil: null,
+          updatedAt: new Date()
+        }
+      });
     }
-
-    const errorMsg = err instanceof Error ? err.message : 'Unknown pipeline error';
-    await prisma.extractionJob.update({
-      where: { id: jobId },
-      data: { status: 'failed', errorMessage: errorMsg }
-    });
     throw err;
   }
 }

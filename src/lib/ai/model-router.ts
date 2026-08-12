@@ -61,8 +61,22 @@ async function ensureBudgetSystem(apiKey: string): Promise<void> {
   await ensureLimitsDiscovered(apiKey);
 }
 
-/** Builds a ChatGroq wrapper for the fallback (8B) model. */
-export function getFallbackGroqModel(options: AIServiceOptions): ChatGroq {
+/** Builds a ChatGroq or ChatOpenAI wrapper for the fallback (8B) model. */
+export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  if (openRouterKey) {
+    return new ChatOpenAI({
+      apiKey: openRouterKey,
+      configuration: {
+        baseURL: 'https://openrouter.ai/api/v1',
+      },
+      // modelName: 'meta-llama/llama-3.1-8b-instruct:free',
+      model: 'openrouter/free',
+      temperature: 0.1,
+      maxRetries: 3,
+    });
+  }
+
   const apiKey = options.apiKey || process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error(`API key for provider "groq" is not configured.`);
   return new ChatGroq({
@@ -80,12 +94,16 @@ export function getFallbackGroqModel(options: AIServiceOptions): ChatGroq {
  * real budget if there's just temporary contention (fixes the 429 case).
  * `onWaitStart` fires with the wait duration whenever budget contention forces a delay,
  * so callers can surface a live countdown to the user.
+ * 
+ * Set `forcePreferred` to true (e.g. on second retry attempt) to bypass the fallback routes
+ * and queue using waitForBudget.
  */
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
   preferredModel = 'llama-3.3-70b-versatile',
-  onWaitStart?: (waitMs: number) => void
+  onWaitStart?: (waitMs: number) => void,
+  forcePreferred = false
 ): Promise<ModelChoice> {
   const estimated = estimateTokens(promptText) + COMPLETION_TOKEN_BUFFER;
   const provider = options.provider;
@@ -103,7 +121,7 @@ export async function getModelForRequest(
     : 200000;
 
   // --- Pre-flight: request itself too large for the model, no waiting will help ---
-  if (estimated > primaryLimit) {
+  if (estimated > primaryLimit && !forcePreferred) {
     console.warn(
       `[ModelRouter] Request (~${estimated} tokens) exceeds ${preferredModel}'s ${primaryLimit} TPM ceiling. ` +
       `Rerouting to ${FALLBACK_GROQ_MODEL}.`
@@ -116,7 +134,7 @@ export async function getModelForRequest(
   }
 
   // --- Pre-flight: primary model's daily quota exhausted → use the fallback's separate quota ---
-  if (provider === 'groq' && !tokenBudgetManager.hasDailyBudget(preferredModel, estimated)) {
+  if (provider === 'groq' && !tokenBudgetManager.hasDailyBudget(preferredModel, estimated) && !forcePreferred) {
     console.warn(
       `[ModelRouter] ${preferredModel} TPD budget nearly exhausted ` +
       `(${tokenBudgetManager.dailyUsedToday(preferredModel)} tokens used today). ` +
