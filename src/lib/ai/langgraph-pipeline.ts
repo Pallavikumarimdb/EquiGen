@@ -487,7 +487,6 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
   const checkGrowth = (label: string, list: typeof rev) => {
     for (let i = 1; i < list.length; i++) {
       const prev = parseNum(list[i - 1].value);
-      const curr = parseNum(list[i].value);
       if (prev > 0) {
         // Verify against any growth metrics reported in estimates or summary
       }
