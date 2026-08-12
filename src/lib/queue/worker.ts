@@ -169,14 +169,28 @@ export function triggerBackgroundJob(
     } catch (error: unknown) {
       console.error(`[QueueWorker] Job ${jobId} failed:`, error);
       
-      const isThrottled = error && typeof error === 'object' && ('name' in error) && error.name === 'RateLimitError';
-      const waitSecs = (error && typeof error === 'object' && ('retryAfterSeconds' in error)) ? (error as { retryAfterSeconds: number }).retryAfterSeconds : null;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const isThrottled =
+        (error && typeof error === 'object' && ('name' in error) && error.name === 'RateLimitError') ||
+        errMsg.toLowerCase().includes('rate limit') ||
+        errMsg.toLowerCase().includes('rate_limit') ||
+        (error && typeof error === 'object' && ('status' in error) && error.status === 429);
+
+      let waitSecs = (error && typeof error === 'object' && ('retryAfterSeconds' in error)) ? (error as { retryAfterSeconds: number }).retryAfterSeconds : null;
+      if (isThrottled && !waitSecs) {
+        const match = errMsg.match(/(?:try again in|in|wait)\s+([\d.]+)\s*s/i);
+        if (match) {
+          waitSecs = Math.ceil(parseFloat(match[1]));
+        } else {
+          waitSecs = 30;
+        }
+      }
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
           status: isThrottled ? 'throttled' : 'failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
+          errorMessage: errMsg,
           retryAfterSeconds: waitSecs,
           updatedAt: new Date()
         }
@@ -240,14 +254,28 @@ export function resumeBackgroundJob(
     } catch (error: unknown) {
       console.error(`[QueueWorker] Resuming job ${jobId} failed:`, error);
       
-      const isThrottled = error && typeof error === 'object' && ('name' in error) && error.name === 'RateLimitError';
-      const waitSecs = (error && typeof error === 'object' && ('retryAfterSeconds' in error)) ? (error as { retryAfterSeconds: number }).retryAfterSeconds : null;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const isThrottled =
+        (error && typeof error === 'object' && ('name' in error) && error.name === 'RateLimitError') ||
+        errMsg.toLowerCase().includes('rate limit') ||
+        errMsg.toLowerCase().includes('rate_limit') ||
+        (error && typeof error === 'object' && ('status' in error) && error.status === 429);
+
+      let waitSecs = (error && typeof error === 'object' && ('retryAfterSeconds' in error)) ? (error as { retryAfterSeconds: number }).retryAfterSeconds : null;
+      if (isThrottled && !waitSecs) {
+        const match = errMsg.match(/(?:try again in|in|wait)\s+([\d.]+)\s*s/i);
+        if (match) {
+          waitSecs = Math.ceil(parseFloat(match[1]));
+        } else {
+          waitSecs = 30;
+        }
+      }
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
           status: isThrottled ? 'throttled' : 'failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
+          errorMessage: errMsg,
           retryAfterSeconds: waitSecs,
           updatedAt: new Date()
         }

@@ -153,6 +153,16 @@ export function Dashboard() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const saveHistoryToLocalStorage = (items: HistoryItem[]) => {
+    try {
+      // Exclude large PDF base64 contents to prevent localStorage quota exceeded error
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const filtered = items.map(({ reportPdfBase64, ...rest }) => rest);
+      localStorage.setItem('equigen_history', JSON.stringify(filtered));
+    } catch (e) {
+      console.warn('Failed to save history to localStorage:', e);
+    }
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Active Report Details for sign-off
@@ -363,7 +373,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             modelUsedForFinancials: item.modelUsedForFinancials || null
           }));
           setHistory(mapped);
-          localStorage.setItem('equigen_history', JSON.stringify(mapped));
+          saveHistoryToLocalStorage(mapped);
           return;
         }
       } catch (e) {
@@ -437,11 +447,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
     const filtered = history.filter(item => item.id !== newItem.id);
     const updated = [newItem, ...filtered];
     setHistory(updated);
-    try {
-      localStorage.setItem('equigen_history', JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save history to localStorage:', e);
-    }
+    saveHistoryToLocalStorage(updated);
     return uniqueId;
   };
 
@@ -816,11 +822,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
     // Delete from state and local storage
     const updated = history.filter(item => item.id !== id);
     setHistory(updated);
-    try {
-      localStorage.setItem('equigen_history', JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save history to localStorage:', e);
-    }
+    saveHistoryToLocalStorage(updated);
 
     showToast('Report removed from history.', 'info');
     if (reportData?.company?.ticker === id) {
@@ -2006,7 +2008,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                       </button>
                     )}
                     <button
-                      onClick={() => triggerDownload(reportData.company.ticker || '')}
+                      onClick={() => triggerDownload(activeReportId || reportData.company.ticker || '')}
                       disabled={isDownloading}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
                     >

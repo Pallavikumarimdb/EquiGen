@@ -45,11 +45,11 @@ export class LangChainAIService {
    * Maps raw schema outputs to the full EquityResearchData structure.
    */
   private mapToEquityResearchData(aiResult: AIExtractionResult): EquityResearchData {
-    const currentPrice = aiResult.currentPrice || 0;
-    const targetPrice = aiResult.targetPrice || 0;
+    const currentPrice = aiResult.currentPrice ?? null;
+    const targetPrice = aiResult.targetPrice ?? null;
     
-    let upsidePotential = 0;
-    if (currentPrice > 0 && targetPrice > 0) {
+    let upsidePotential: number | null = null;
+    if (currentPrice !== null && targetPrice !== null && currentPrice > 0) {
       upsidePotential = parseFloat((((targetPrice - currentPrice) / currentPrice) * 100).toFixed(2));
     }
 
@@ -59,10 +59,13 @@ export class LangChainAIService {
       ...(aiResult.pat || []).map(p => ({ label: 'PAT', value: p.value, period: p.period, unit: p.unit }))
     ];
 
+    const p1h = aiResult.pageOneHighlights || [];
+    const p2h = aiResult.pageTwoHighlights || [];
+
     return {
       company: {
         name: aiResult.companyName || 'Unknown Company',
-        ticker: (aiResult.companyName || 'UNKN').substring(0, 4).toUpperCase(),
+        ticker: aiResult.ticker || (aiResult.companyName || 'UNKN').substring(0, 4).toUpperCase(),
         sector: 'General Corporate',
         industry: 'Unclassified Industry',
         reportDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -72,7 +75,7 @@ export class LangChainAIService {
         currentPrice,
         targetPrice,
         upsidePotential,
-        rationale: aiResult.highlights.slice(0, 3)
+        rationale: p1h.slice(0, 3)
       },
       executiveSummary: aiResult.investmentThesis || 'No investment thesis provided.',
       keyFinancials: {
@@ -81,17 +84,38 @@ export class LangChainAIService {
         cashFlow: []
       },
       valuationAnalysis: aiResult.outlook || 'No valuation outlook provided.',
-      investmentRisks: aiResult.risks,
+      investmentRisks: aiResult.risks || [],
       swotAnalysis: {
-        strengths: aiResult.highlights.slice(0, 4),
-        weaknesses: aiResult.risks.slice(0, 4),
+        strengths: p1h.slice(0, 4),
+        weaknesses: (aiResult.risks || []).slice(0, 4),
         opportunities: aiResult.futureGrowth ? [aiResult.futureGrowth] : [],
         threats: []
       },
-      narrativeSummary: aiResult.narrativeSummary,
+      narrativeSummary: p2h.join('\n\n') || aiResult.narrativeSummary,
       industryOverview: aiResult.industryOverview,
       businessOverview: aiResult.businessOverview,
-      futureGrowth: aiResult.futureGrowth
+      futureGrowth: aiResult.futureGrowth,
+      
+      // Map Geojit fields
+      nseCode: aiResult.nseCode,
+      bseCode: aiResult.bseCode,
+      bloombergCode: aiResult.bloombergCode,
+      timeFrame: aiResult.timeFrame || '12 Months',
+      stockType: aiResult.stockType || 'Large Cap',
+      companyData: aiResult.companyData ? {
+        ...aiResult.companyData,
+        enterpriseValue: aiResult.companyData.enterpriseValue ?? aiResult.companyData.ev,
+        avgVolume6m: aiResult.companyData.avgVolume6m ?? aiResult.companyData.avgVolume
+      } : null,
+      shareholding: aiResult.shareholding,
+      promoterPledge: aiResult.promoterPledge,
+      pricePerformance: aiResult.pricePerformance,
+      estimates: aiResult.estimates,
+      quarterlyFinancials: aiResult.quarterlyFinancials,
+      detailedFinancials: aiResult.detailedFinancials,
+      recommendationSummary: aiResult.recommendationSummary,
+      sensexValue: aiResult.sensexValue,
+      fiveYearSummary: aiResult.fiveYearSummary
     };
   }
 
