@@ -2,11 +2,11 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { ChatGroq } from '@langchain/groq';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 import { AIServiceOptions } from './langchain-service';
 import { AIExtractionResult } from './schema';
 import { getModelForRequest, getFallbackGroqModel, recordActualUsage } from './model-router';
 import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
-import { runParallelChunkExtraction } from './parallel-extract';
 
 // --- Helper: Simple Character Chunker with overlap ---
 
@@ -263,7 +263,7 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
 
 // --- Node 1: Company General details ---
 
-async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
+async function extractCompanyGeneralNode(state: typeof ResearchState.State): Promise<{ companyGeneral: z.infer<typeof CompanyGeneralSchema> }> {
   let contextText = '';
   const job = await prisma.extractionJob.findUnique({
     where: { id: state.jobId }
@@ -324,12 +324,12 @@ Read the provided document text and extract the following:
   clearJobWait(state);
 
   recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
-  return { companyGeneral: res };
+  return { companyGeneral: res as z.infer<typeof CompanyGeneralSchema> };
 }
 
 // --- Node 2: SWOT & Investment Thesis ---
 
-async function extractSwotNode(state: typeof ResearchState.State) {
+async function extractSwotNode(state: typeof ResearchState.State): Promise<{ swotAndThesis: z.infer<typeof SwotAndThesisSchema> }> {
   let contextText = '';
   const job = await prisma.extractionJob.findUnique({
     where: { id: state.jobId }
@@ -385,12 +385,12 @@ async function extractSwotNode(state: typeof ResearchState.State) {
   clearJobWait(state);
 
   recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
-  return { swotAndThesis: res };
+  return { swotAndThesis: res as z.infer<typeof SwotAndThesisSchema> };
 }
 
 // --- Node 3: Financials ---
 
-async function extractFinancialsNode(state: typeof ResearchState.State) {
+async function extractFinancialsNode(state: typeof ResearchState.State): Promise<{ financials: z.infer<typeof FinancialsSchema>; modelUsedForFinancials: string }> {
   let contextText = '';
   const job = await prisma.extractionJob.findUnique({
     where: { id: state.jobId }
@@ -466,7 +466,7 @@ async function extractFinancialsNode(state: typeof ResearchState.State) {
   clearJobWait(state);
 
   recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
-  return { financials: res, modelUsedForFinancials: modelName };
+  return { financials: res as z.infer<typeof FinancialsSchema>, modelUsedForFinancials: modelName };
 }
 
 // --- Node 4: Math Audit Router ---
@@ -483,15 +483,12 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
 
   // Cross-statement matching validations
   const rev = financials.revenue || [];
-  const ebit = financials.ebitda || [];
-  const pat = financials.pat || [];
 
   const checkGrowth = (label: string, list: typeof rev) => {
     for (let i = 1; i < list.length; i++) {
       const prev = parseNum(list[i - 1].value);
       const curr = parseNum(list[i].value);
       if (prev > 0) {
-        const expectedChangePercent = ((curr - prev) / prev) * 100;
         // Verify against any growth metrics reported in estimates or summary
       }
     }
@@ -698,9 +695,9 @@ export async function runOrResumeResearchPipeline(
     rawText: rawText || '',
     modelOptions: options || { provider: 'groq' as const },
     condensedContext: '',
-    companyGeneral: {} as any,
-    swotAndThesis: {} as any,
-    financials: {} as any,
+    companyGeneral: {} as z.infer<typeof CompanyGeneralSchema>,
+    swotAndThesis: {} as z.infer<typeof SwotAndThesisSchema>,
+    financials: {} as z.infer<typeof FinancialsSchema>,
     mathErrors: [] as string[],
     retryCount: 0,
     mathematicallyValid: true,
@@ -728,11 +725,18 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 2,
-          companyGeneral: state.companyGeneral as any
+          companyGeneral: state.companyGeneral as Prisma.InputJsonValue
         }
       });
     } else {
-      state.companyGeneral = job.companyGeneral || {};
+      state.companyGeneral = ((job.companyGeneral as unknown) as z.infer<typeof CompanyGeneralSchema>) || {
+        companyName: '',
+        ticker: '',
+        narrativeSummary: '',
+        industryOverview: '',
+        businessOverview: '',
+        headlineTakeaway: ''
+      };
     }
 
     // --- Step 2: SWOT & Investment Thesis ---
@@ -744,11 +748,16 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 3,
-          swotAndThesis: state.swotAndThesis as any
+          swotAndThesis: state.swotAndThesis as Prisma.InputJsonValue
         }
       });
     } else {
-      state.swotAndThesis = job.swotAndThesis || {};
+      state.swotAndThesis = ((job.swotAndThesis as unknown) as z.infer<typeof SwotAndThesisSchema>) || {
+        highlights: [],
+        investmentThesis: '',
+        risks: [],
+        futureGrowth: ''
+      };
     }
 
     // --- Step 3: Financials ---
@@ -761,11 +770,16 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 4,
-          financials: state.financials as any
+          financials: state.financials as Prisma.InputJsonValue
         }
       });
     } else {
-      state.financials = job.financials || {};
+      state.financials = ((job.financials as unknown) as z.infer<typeof FinancialsSchema>) || {
+        revenue: [],
+        ebitda: [],
+        pat: [],
+        recommendation: 'HOLD'
+      };
     }
 
     // --- Step 4: Math Audit & Retry ---
@@ -800,7 +814,7 @@ export async function runOrResumeResearchPipeline(
           data: {
             stepIndex: 5,
             status: 'completed',
-            financials: state.financials as any,
+            financials: state.financials as Prisma.InputJsonValue,
             mathErrors: state.mathErrors
           }
         });
