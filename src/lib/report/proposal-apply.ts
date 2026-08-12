@@ -108,9 +108,22 @@ export async function applyFieldUpdates(
     where: { id: activeReportId },
     data: {
       reportData: reportData as Prisma.InputJsonValue,
+      pdfBase64: null, // Clear cached PDF so it regenerates with the new values
       contentHash: computeSHA256(reportData)
     }
   });
+
+  // Also clear any cached physical PDF file from the disk if present
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const pdfPath = path.join(process.cwd(), 'public', 'temp', 'reports', `${activeReportId.toUpperCase()}.pdf`);
+    if (fs.existsSync(pdfPath)) {
+      await fs.promises.unlink(pdfPath);
+    }
+  } catch (err) {
+    console.warn(`[proposal-apply] Failed to clear disk PDF for report ${activeReportId}:`, err);
+  }
 
   return { reportId: activeReportId, forkedReportId };
 }

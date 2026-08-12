@@ -24,8 +24,8 @@ export class ReportService {
     };
   }
 
-  private calculateUpside(current: number, target: number): number {
-    if (!current || !target) return 0;
+  private calculateUpside(current: number | null, target: number | null): number | null {
+    if (current === null || target === null || !current) return null;
     return parseFloat((((target - current) / current) * 100).toFixed(2));
   }
 }

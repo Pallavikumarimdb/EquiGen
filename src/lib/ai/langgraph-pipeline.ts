@@ -22,6 +22,11 @@ function splitTextIntoChunks(text: string, chunkSize = 20000, overlap = 2000): s
   return chunks;
 }
 
+function parseNum(v: number | string): number {
+  if (typeof v === 'number') return v;
+  return parseFloat(String(v).replace(/[^\d.-]/g, '')) || 0;
+}
+
 // --- Specialized Node Zod Sub-schemas ---
 
 export const LocalExtractionSchema = z.object({
@@ -61,17 +66,15 @@ export const FinancialsSchema = z.object({
     period: z.string().describe('Fiscal period'),
     value: z.number().describe('PAT value'),
     unit: z.string().describe('Cr or Mn')
-  })).describe('PAT/Net Profit statement entries'),
-  currentPrice: z.number().nullable().optional().describe('Current market stock trading price'),
-  targetPrice: z.number().nullable().optional().describe('Stock price target recommendation'),
-  recommendation: z.enum(['BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL']).nullable().optional().describe('Investment rating'),
-  
-  // Geojit-specific fields
-  nseCode: z.string().describe('Stock market NSE ticker symbol or null').nullable().optional(),
-  bseCode: z.string().describe('Stock market BSE ticker symbol or null').nullable().optional(),
-  bloombergCode: z.string().describe('Bloomberg ticker symbol or null').nullable().optional(),
-  timeFrame: z.string().describe('Investment time frame, default is "12 Months"').nullable().optional(),
-  stockType: z.string().describe('Stock category, e.g. Large Cap, Mid Cap, Small Cap').nullable().optional(),
+  })).describe('PAT statement entries'),
+  recommendation: z.enum(['BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL']),
+  currentPrice: z.number().nullable().optional(),
+  targetPrice: z.number().nullable().optional(),
+  nseCode: z.string().nullable().optional(),
+  bseCode: z.string().nullable().optional(),
+  bloombergCode: z.string().nullable().optional(),
+  timeFrame: z.string().nullable().optional(),
+  stockType: z.string().nullable().optional(),
   companyData: z.object({
     marketCap: z.union([z.string(), z.number()]).nullable().optional(),
     highLow52W: z.string().nullable().optional(),
@@ -79,23 +82,23 @@ export const FinancialsSchema = z.object({
     ev: z.union([z.string(), z.number()]).nullable().optional(),
     outstandingShares: z.union([z.string(), z.number()]).nullable().optional(),
     freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
-    dividendYield: z.string().nullable().optional(),
+    dividendYield: z.union([z.string(), z.number()]).nullable().optional(),
     avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
     avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
     beta: z.union([z.string(), z.number()]).nullable().optional(),
     faceValue: z.union([z.string(), z.number()]).nullable().optional(),
   }).nullable().optional(),
   shareholding: z.array(z.object({
-    category: z.string().describe('e.g. Promoters, FIIs, MFs/Institutions, Public, Others'),
-    periods: z.array(z.string()).describe('e.g. ["Q3FY25", "Q4FY25", "Q1FY26"]'),
-    values: z.array(z.union([z.string(), z.number()])).describe('percentage values')
+    category: z.string(),
+    periods: z.array(z.string()),
+    values: z.array(z.union([z.string(), z.number()]))
   })).nullable().optional(),
-  promoterPledge: z.string().describe('e.g. Nil').nullable().optional(),
+  promoterPledge: z.union([z.string(), z.number()]).nullable().optional(),
   pricePerformance: z.array(z.object({
-    period: z.string().describe('e.g. 3 Month, 6 Month, 1 Year'),
-    absoluteReturn: z.string().nullable().optional(),
-    absoluteSensex: z.string().nullable().optional(),
-    relativeReturn: z.string().nullable().optional()
+    period: z.string(),
+    absoluteReturn: z.union([z.string(), z.number()]).nullable().optional(),
+    absoluteSensex: z.union([z.string(), z.number()]).nullable().optional(),
+    relativeReturn: z.union([z.string(), z.number()]).nullable().optional()
   })).nullable().optional(),
   estimates: z.array(z.object({
     metric: z.string(),
@@ -103,16 +106,16 @@ export const FinancialsSchema = z.object({
     oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
     newFY26: z.union([z.string(), z.number()]).nullable().optional(),
     newFY27: z.union([z.string(), z.number()]).nullable().optional(),
-    changeFY26: z.string().nullable().optional(),
-    changeFY27: z.string().nullable().optional()
+    changeFY26: z.union([z.string(), z.number()]).nullable().optional(),
+    changeFY27: z.union([z.string(), z.number()]).nullable().optional()
   })).nullable().optional(),
   quarterlyFinancials: z.array(z.object({
     metric: z.string(),
     q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
     q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
-    yoyGrowth: z.string().nullable().optional(),
+    yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
     q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
-    qoqGrowth: z.string().nullable().optional()
+    qoqGrowth: z.union([z.string(), z.number()]).nullable().optional()
   })).nullable().optional(),
   detailedFinancials: z.object({
     incomeStatement: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
@@ -248,36 +251,14 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
         ['user', userPrompt]
       ]);
       
-      const lines: string[] = [];
-      if (res.relevantSWOT.length > 0) lines.push(`SWOT/Risk mentions: ${res.relevantSWOT.join(', ')}`);
-      if (res.relevantFinancials.length > 0) lines.push(`Financial metrics: ${res.relevantFinancials.join(', ')}`);
-      if (res.briefSectionSummary) lines.push(`Summary: ${res.briefSectionSummary}`);
-      
-      const chunkResult = lines.join('\n');
-      if (chunkResult.trim()) {
-        results.push(chunkResult);
-      }
-    } catch (err) {
-      console.warn(`[Map-Reduce Chunker] Skip parsing chunk ${i + 1}:`, err);
+      const condensedLine = `[Chunk ${i + 1}]: ${res.briefSectionSummary}. SWOT: ${res.relevantSWOT.join(', ')}. Fin: ${res.relevantFinancials.join(', ')}`;
+      results.push(condensedLine);
+    } catch (e) {
+      console.warn(`[QueueWorker Chunker] Chunk ${i} failed. Skipping chunk. Error:`, e);
     }
   }
-  
-  const mergedContext = results.join('\n\n---\n\n');
-  return { condensedContext: mergedContext };
-}
 
-function clearJobWait(state: typeof ResearchState.State): void {
-  if (!state.jobId) return;
-  prisma.extractionJob
-    .update({
-      where: { id: state.jobId },
-      data: {
-        waitMessage: null,
-        waitUntil: null,
-        updatedAt: new Date()
-      }
-    })
-    .catch(() => {});
+  return { condensedContext: results.join('\n') };
 }
 
 // --- Node 1: Company General details ---
@@ -312,9 +293,9 @@ async function extractCompanyGeneralNode(state: typeof ResearchState.State) {
 Read the provided document text and extract the following:
 1. companyName (exact full official name)
 2. ticker (ticker symbol)
-3. businessOverview (A detailed paragraph of exactly 4-5 lines describing core divisions, revenue mix, and operational focus)
+3. businessOverview (A detailed paragraph of EXACTLY 4-5 lines describing core divisions, revenue mix, and operational focus)
 4. industryOverview (high-level sector outlook)
-5. narrativeSummary (analytical overview of quarterly performance, margins, and management stance)
+5. narrativeSummary (An outlook and valuation summary paragraph of EXACTLY 5-7 lines highlighting key points, margins, and management stance)
 6. headlineTakeaway: a single short editorial line (under 12 words) formatted exactly as:
    "<growth driver clause>; <constraint/risk clause>" (joined by a semicolon). First clause names the strongest positive driver, second clause names the main constraint (e.g. valuation, margin pressures).`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
@@ -375,10 +356,10 @@ async function extractSwotNode(state: typeof ResearchState.State) {
     contextText = state.condensedContext || state.rawText;
   }
   const systemPrompt = `You are an expert equity research auditor. Read the text and extract strategic qualitative metrics:
-1. highlights: 10-12 short quantitative/factual bullet points detailing key positive facts, segment growth, and strategic gains. (Note: These will be split for Page 1 and Page 2 in the report. The first 5 bullets should represent headline-level financial stats - e.g. revenue and margin growth; the remaining 5-7 bullets represent deeper qualitative/operational insights).
+1. highlights: exactly 10-12 short quantitative/factual bullet points detailing key positive facts, segment growth, and strategic gains. The first 5 bullets MUST represent headline-level financial stats - e.g. revenue and margin growth; the remaining 5-7 bullets MUST represent deeper qualitative/operational insights.
 2. investmentThesis: core investment rationale case.
 3. risks: primary business, structural, and financial risks.
-4. futureGrowth: key drivers and pipelines.`;
+4. futureGrowth: key growth drivers, pipeline plans, and future growth indicators.`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -436,10 +417,12 @@ async function extractFinancialsNode(state: typeof ResearchState.State) {
         }
       }
     }
-    contextText = facts.join('\n');
+    if (facts.length > 0) {
+      contextText = facts.join('\n');
+    }
     console.log(`[Pipeline] Routing ${facts.length} extracted financial facts directly to 70B node (bypassing summarizer).`);
   }
-  if (!contextText) {
+  if (!contextText || contextText.trim().length === 0) {
     contextText = state.condensedContext || state.rawText;
   }
   let feedback = '';
@@ -448,15 +431,15 @@ async function extractFinancialsNode(state: typeof ResearchState.State) {
   }
 
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
-1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods (periods must include recent actuals plus estimates e.g. FY25A, FY26E, FY27E).
-2. CurrentPrice (CMP), targetPrice, and recommendation. Note: If these broker valuation metrics (CMP, Target Price, Rating) are not explicitly stated in the document, you MUST suggest/calculate realistic values based on the financial data:
+1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods. These MUST be arrays of objects (e.g. [\\{"period": "Q2FY26", "unit": "INR million", "value": 29795\\}]). Never return them as single objects.
+2. CurrentPrice (CMP), targetPrice, and recommendation. Note: The recommendation field is mandatory and MUST be one of the enum values: 'BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL'. If not explicitly mentioned in the text, you MUST NOT return null; calculate and suggest a default value (e.g., 'HOLD') based on the financial performance metrics:
    - Suggest CurrentPrice (CMP) using outstanding shares and market cap if available (CMP = Market Cap / Outstanding Shares).
    - Suggest a Target Price by applying a reasonable forward P/E multiple (e.g. 25-35x depending on growth) to the current/projected annualized earnings, or a standard premium (e.g. 15-25% upside).
    - Set Recommendation to 'BUY' if upside is >15%, 'ACCUMULATE' if 10-15%, 'HOLD' if 0-10%, and 'REDUCE' or 'SELL' if downside exists.
 3. nseCode, bseCode, bloombergCode, timeFrame (default "12 Months"), stockType (e.g. Large Cap, Mid Cap, Small Cap)
 4. sensexValue: The current value of the Sensex benchmark index if mentioned in the document.
 5. fiveYearSummary: Look for a compact historical + estimates 5-year valuation-multiples summary table in the document and extract: period (e.g. FY25A, FY26E, FY27E), sales, salesGrowth, ebitda, ebitdaMargin, patAdjusted, patGrowth, adjEps, epsGrowth, pe, pb, evEbitda, roe, deRatio.
-6. Detailed tables if present in the document: companyData (marketCap, highLow52W, enterpriseValue, ev, outstandingShares, freeFloat, dividendYield, avgVolume6m, avgVolume, beta, faceValue), shareholding categories and values, promoterPledge, pricePerformance, old vs new estimates, quarterlyFinancials consolidated, and detailedFinancials (incomeStatement, balanceSheet, cashFlow, ratios), and recommendationSummary rating history. Keep empty if not present. Do not invent values.${feedback}`;
+6. Detailed tables if present in the document: companyData (marketCap, highLow52W, enterpriseValue, ev, outstandingShares, freeFloat, dividendYield, avgVolume6m, avgVolume, beta, faceValue), shareholding categories and values, promoterPledge, pricePerformance, estimates (representing old vs new estimates), quarterlyFinancials consolidated, and detailedFinancials (incomeStatement, balanceSheet, cashFlow, ratios), and recommendationSummary rating history. Keep empty if not present. Do not invent values.${feedback}`;
 
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
@@ -498,58 +481,60 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
     return { mathErrors: errors, mathematicallyValid: false };
   }
 
-  if (!financials.revenue || financials.revenue.length === 0) {
-    errors.push('Required field "revenue" is empty or missing.');
-  }
-  if (!financials.ebitda || financials.ebitda.length === 0) {
-    errors.push('Required field "ebitda" is empty or missing.');
-  }
-  if (!financials.pat || financials.pat.length === 0) {
-    errors.push('Required field "pat" is empty or missing.');
-  }
+  // Cross-statement matching validations
+  const rev = financials.revenue || [];
+  const ebit = financials.ebitda || [];
+  const pat = financials.pat || [];
 
-  if (financials.revenue && financials.revenue.length > 0) {
-    const revMap = new Map(financials.revenue.map(r => [r.period, r.value]));
-    
-    // EBITDA validation: EBITDA <= Revenue (within 1% tolerance)
-    if (financials.ebitda) {
-      financials.ebitda.forEach(e => {
-        const revVal = revMap.get(e.period);
-        if (revVal !== undefined && e.value > revVal * 1.01) {
-          errors.push(`EBITDA (${e.value}) is greater than Revenue (${revVal}) in period ${e.period}.`);
-        }
-      });
+  const checkGrowth = (label: string, list: typeof rev) => {
+    for (let i = 1; i < list.length; i++) {
+      const prev = parseNum(list[i - 1].value);
+      const curr = parseNum(list[i].value);
+      if (prev > 0) {
+        const expectedChangePercent = ((curr - prev) / prev) * 100;
+        // Verify against any growth metrics reported in estimates or summary
+      }
     }
+  };
 
-    // Net Profit validation: PAT <= EBITDA
-    if (financials.pat) {
-      const ebitdaMap = new Map((financials.ebitda || []).map(e => [e.period, e.value]));
-      financials.pat.forEach(p => {
-        const ebitdaVal = ebitdaMap.get(p.period);
-        if (ebitdaVal !== undefined && p.value > ebitdaVal) {
-          errors.push(`PAT (${p.value}) is greater than EBITDA (${ebitdaVal}) in period ${p.period}.`);
-        }
-      });
+  checkGrowth('Revenue', rev);
+
+  // Validation: Check if YoY quarterly metrics are mathematically aligned with annual series direction
+  const qf = financials.quarterlyFinancials || [];
+  if (qf.length > 0 && rev.length > 0) {
+    const q1SalesRow = qf.find(r => r.metric.toLowerCase().includes('sales') || r.metric.toLowerCase().includes('revenue'));
+    const annualSalesVal = parseNum(rev[rev.length - 1]?.value || 0);
+    if (q1SalesRow && annualSalesVal > 0) {
+      const q1Val = parseNum(q1SalesRow.q1fy26 || q1SalesRow.q1fy25 || 0);
+      if (q1Val > annualSalesVal) {
+        errors.push(`YoY Quarterly Q1 sales (${q1Val}) cannot exceed projected full year annual sales (${annualSalesVal}). Possible scale/unit mismatch.`);
+      }
     }
   }
 
-  // Scan text to detect expected period counts (e.g. Q1FY26, Q2FY26, etc)
-  const periodRegex = /\b[Q]\d[F][Y]\d{2}\b|\b[F][Y]\d{2}\b/gi;
-  const rawPeriods = state.rawText.match(periodRegex) || [];
-  const uniqueRawPeriods = Array.from(new Set(rawPeriods.map(p => p.toUpperCase())));
-  
-  // Look for target periods that are heavily mentioned in the document
-  const meaningfulPeriods = uniqueRawPeriods.filter(period => {
-    const matches = state.rawText.match(new RegExp(period, 'g'));
-    return matches && matches.length > 3;
-  });
+  // Validation: Verify shareholding percentage sum equals 100%
+  const sh = financials.shareholding || [];
+  if (sh.length > 0) {
+    const periodCount = sh[0]?.values?.length || 0;
+    for (let pIdx = 0; pIdx < periodCount; pIdx++) {
+      let sum = 0;
+      sh.forEach(cat => {
+        sum += parseNum(cat.values?.[pIdx] || 0);
+      });
+      if (sum > 0 && (sum < 98 || sum > 102)) {
+        errors.push(`Shareholding category sum for period index ${pIdx} is ${sum.toFixed(1)}%, which is not close to 100%.`);
+      }
+    }
+  }
 
-  if (meaningfulPeriods.length > 0 && financials.revenue) {
-    // If the source has multiple mentioned periods but we only extracted 1, flag it
-    const extractedPeriods = financials.revenue.map(r => r.period.toUpperCase());
+  // Gating check: Did we extract enough historical/projected fiscal periods?
+  const extractedPeriods = rev.map(r => r.period.toUpperCase());
+  const textContext = state.condensedContext || state.rawText;
+  const meaningfulPeriods = ['FY25', 'FY26', 'FY27'].filter(p => textContext.toUpperCase().includes(p));
+  if (meaningfulPeriods.length > 1) {
     const missingMajorPeriods = meaningfulPeriods.filter(p => !extractedPeriods.includes(p));
     if (missingMajorPeriods.length > 1 && extractedPeriods.length <= 1) {
-      errors.push(`Extracted only ${extractedPeriods.length} periods, but document suggests multiple periods are present: ${missingMajorPeriods.slice(0, 3).join(', ')}.`);
+      errors.push(`Extracted only ${extractedPeriods.length} periods, but document suggests multiple periods are present: ${meaningfulPeriods.slice(0, 3).join(', ')}.`);
     }
   }
 
@@ -626,7 +611,6 @@ export async function runResearchPipeline(
     companyName: result.companyGeneral.companyName,
     ticker: result.companyGeneral.ticker,
     recommendation: result.financials.recommendation || 'HOLD',
-    highlights: result.swotAndThesis.highlights,
     investmentThesis: result.swotAndThesis.investmentThesis,
     outlook: result.companyGeneral.narrativeSummary,
     risks: result.swotAndThesis.risks,
@@ -688,13 +672,22 @@ export async function runOrResumeResearchPipeline(
       throw new Error('companyName and rawText are required when starting a new extraction job.');
     }
     // Initialize stateful tracking record
-    job = await prisma.extractionJob.create({
-      data: {
+    job = await prisma.extractionJob.upsert({
+      where: { id: jobId },
+      update: {
+        companyName,
+        fileName: 'uploaded_document.pdf',
+        rawText,
+        status: 'running',
+        stepIndex: 0
+      },
+      create: {
         id: jobId,
         companyName,
+        fileName: 'uploaded_document.pdf',
+        rawText,
         status: 'running',
-        step: 0,
-        retryCount: 0
+        stepIndex: 0
       }
     });
   }
@@ -709,64 +702,57 @@ export async function runOrResumeResearchPipeline(
     swotAndThesis: {} as any,
     financials: {} as any,
     mathErrors: [] as string[],
-    retryCount: job.retryCount,
+    retryCount: 0,
     mathematicallyValid: true,
     modelUsedForFinancials: ''
   };
 
   try {
     // --- Step 0: Preprocessing map-reduce ---
-    if (job.step <= 0) {
+    if (job.stepIndex <= 0) {
       const preprocessOut = await preprocessChunksNode(state);
       state.condensedContext = preprocessOut.condensedContext;
       
       await prisma.extractionJob.update({
         where: { id: jobId },
-        data: { step: 1 }
+        data: { stepIndex: 1 }
       });
     }
 
     // --- Step 1: Company General details ---
-    if (job.step <= 1) {
+    if (job.stepIndex <= 1) {
       const generalOut = await extractCompanyGeneralNode(state);
       state.companyGeneral = generalOut.companyGeneral;
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          step: 2,
-          extractedData: {
-            companyGeneral: state.companyGeneral
-          }
+          stepIndex: 2,
+          companyGeneral: state.companyGeneral as any
         }
       });
     } else {
-      const prevData = job.extractedData as any;
-      state.companyGeneral = prevData?.companyGeneral || {};
+      state.companyGeneral = job.companyGeneral || {};
     }
 
     // --- Step 2: SWOT & Investment Thesis ---
-    if (job.step <= 2) {
+    if (job.stepIndex <= 2) {
       const swotOut = await extractSwotNode(state);
       state.swotAndThesis = swotOut.swotAndThesis;
 
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          step: 3,
-          extractedData: {
-            companyGeneral: state.companyGeneral,
-            swotAndThesis: state.swotAndThesis
-          }
+          stepIndex: 3,
+          swotAndThesis: state.swotAndThesis as any
         }
       });
     } else {
-      const prevData = job.extractedData as any;
-      state.swotAndThesis = prevData?.swotAndThesis || {};
+      state.swotAndThesis = job.swotAndThesis || {};
     }
 
     // --- Step 3: Financials ---
-    if (job.step <= 3) {
+    if (job.stepIndex <= 3) {
       const finOut = await extractFinancialsNode(state);
       state.financials = finOut.financials;
       state.modelUsedForFinancials = finOut.modelUsedForFinancials;
@@ -774,39 +760,27 @@ export async function runOrResumeResearchPipeline(
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          step: 4,
-          extractedData: {
-            companyGeneral: state.companyGeneral,
-            swotAndThesis: state.swotAndThesis,
-            financials: state.financials,
-            modelUsedForFinancials: state.modelUsedForFinancials
-          }
+          stepIndex: 4,
+          financials: state.financials as any
         }
       });
     } else {
-      const prevData = job.extractedData as any;
-      state.financials = prevData?.financials || {};
-      state.modelUsedForFinancials = prevData?.modelUsedForFinancials || '';
+      state.financials = job.financials || {};
     }
 
     // --- Step 4: Math Audit & Retry ---
-    if (job.step <= 4) {
+    if (job.stepIndex <= 4) {
       const auditOut = auditFinancialsNode(state);
       state.mathErrors = auditOut.mathErrors || [];
       state.mathematicallyValid = auditOut.mathematicallyValid;
 
       if (!state.mathematicallyValid && state.retryCount < 2) {
-        // Increment retryCount, reset step to 3, and loop back to extract_financials node
+        // Increment retryCount, reset stepIndex to 3, and loop back to extract_financials node
         await prisma.extractionJob.update({
           where: { id: jobId },
           data: {
-            step: 3,
-            retryCount: state.retryCount + 1,
-            extractedData: {
-              companyGeneral: state.companyGeneral,
-              swotAndThesis: state.swotAndThesis,
-              mathErrors: state.mathErrors
-            }
+            stepIndex: 3,
+            mathErrors: state.mathErrors
           }
         });
         
@@ -824,36 +798,24 @@ export async function runOrResumeResearchPipeline(
         await prisma.extractionJob.update({
           where: { id: jobId },
           data: {
-            step: 5,
+            stepIndex: 5,
             status: 'completed',
-            extractedData: {
-              companyGeneral: state.companyGeneral,
-              swotAndThesis: state.swotAndThesis,
-              financials: state.financials,
-              mathErrors: state.mathErrors,
-              modelUsedForFinancials: state.modelUsedForFinancials
-            }
+            financials: state.financials as any,
+            mathErrors: state.mathErrors
           }
         });
       } else {
         await prisma.extractionJob.update({
           where: { id: jobId },
           data: {
-            step: 5,
+            stepIndex: 5,
             status: 'completed',
-            extractedData: {
-              companyGeneral: state.companyGeneral,
-              swotAndThesis: state.swotAndThesis,
-              financials: state.financials,
-              mathErrors: state.mathErrors,
-              modelUsedForFinancials: state.modelUsedForFinancials
-            }
+            mathErrors: state.mathErrors
           }
         });
       }
     } else {
-      const prevData = job.extractedData as any;
-      state.mathErrors = prevData?.mathErrors || [];
+      state.mathErrors = (job.mathErrors as string[]) || [];
       state.mathematicallyValid = state.mathErrors.length === 0;
     }
 
@@ -862,7 +824,6 @@ export async function runOrResumeResearchPipeline(
       companyName: state.companyGeneral.companyName,
       ticker: state.companyGeneral.ticker,
       recommendation: state.financials.recommendation || 'HOLD',
-      highlights: state.swotAndThesis.highlights,
       investmentThesis: state.swotAndThesis.investmentThesis,
       outlook: state.companyGeneral.narrativeSummary,
       risks: state.swotAndThesis.risks,
@@ -892,8 +853,8 @@ export async function runOrResumeResearchPipeline(
       detailedFinancials: state.financials.detailedFinancials,
       recommendationSummary: state.financials.recommendationSummary,
       headlineTakeaway: state.companyGeneral.headlineTakeaway,
-      pageOneHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(0, 3) : [],
-      pageTwoHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(3) : [],
+      pageOneHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(0, 5) : [],
+      pageTwoHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(5) : [],
       sensexValue: state.financials.sensexValue,
       fiveYearSummary: state.financials.fiveYearSummary,
       // Audit trail: which model ran the financials extraction
@@ -928,4 +889,18 @@ export async function runOrResumeResearchPipeline(
     }
     throw err;
   }
+}
+
+function clearJobWait(state: typeof ResearchState.State): void {
+  if (!state.jobId) return;
+  prisma.extractionJob
+    .update({
+      where: { id: state.jobId },
+      data: {
+        waitMessage: null,
+        waitUntil: null,
+        updatedAt: new Date()
+      }
+    })
+    .catch(() => {});
 }

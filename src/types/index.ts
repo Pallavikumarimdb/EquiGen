@@ -21,9 +21,9 @@ export interface FinancialStatements {
 
 export interface AnalystRecommendation {
   rating: 'BUY' | 'ACCUMULATE' | 'HOLD' | 'REDUCE' | 'SELL';
-  currentPrice: number;
-  targetPrice: number;
-  upsidePotential: number;
+  currentPrice: number | null;
+  targetPrice: number | null;
+  upsidePotential: number | null;
   rationale: string[];
 }
 
@@ -43,7 +43,7 @@ export interface CompanyData {
   ev?: string | number | null;
   outstandingShares?: string | number | null;
   freeFloat?: string | number | null;
-  dividendYield?: string | null;
+  dividendYield?: string | number | null;
   avgVolume6m?: string | number | null;
   avgVolume?: string | number | null;
   beta?: string | number | null;
@@ -58,9 +58,9 @@ export interface ShareholdingData {
 
 export interface PricePerformanceData {
   period: string;
-  absoluteReturn?: string | null;
-  absoluteSensex?: string | null;
-  relativeReturn?: string | null;
+  absoluteReturn?: string | number | null;
+  absoluteSensex?: string | number | null;
+  relativeReturn?: string | number | null;
 }
 
 export interface EstimatesData {
@@ -69,8 +69,8 @@ export interface EstimatesData {
   oldFY27?: string | number | null;
   newFY26?: string | number | null;
   newFY27?: string | number | null;
-  changeFY26?: string | null;
-  changeFY27?: string | null;
+  changeFY26?: string | number | null;
+  changeFY27?: string | number | null;
 }
 
 export interface FiveYearSummaryData {
@@ -94,9 +94,9 @@ export interface QuarterlyFinancialData {
   metric: string;
   q1fy26?: string | number | null;
   q1fy25?: string | number | null;
-  yoyGrowth?: string | null;
+  yoyGrowth?: string | number | null;
   q4fy25?: string | number | null;
-  qoqGrowth?: string | null;
+  qoqGrowth?: string | number | null;
 }
 
 export interface DetailedFinancialsData {
@@ -139,7 +139,7 @@ export interface EquityResearchData {
   stockType?: string | null;
   companyData?: CompanyData | null;
   shareholding?: ShareholdingData[] | null;
-  promoterPledge?: string | null;
+  promoterPledge?: string | number | null;
   pricePerformance?: PricePerformanceData[] | null;
   estimates?: EstimatesData[] | null;
   quarterlyFinancials?: QuarterlyFinancialData[] | null;

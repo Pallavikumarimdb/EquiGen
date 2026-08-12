@@ -84,10 +84,10 @@ export class LangChainAIService {
         cashFlow: []
       },
       valuationAnalysis: aiResult.outlook || 'No valuation outlook provided.',
-      investmentRisks: aiResult.risks,
+      investmentRisks: aiResult.risks || [],
       swotAnalysis: {
         strengths: p1h.slice(0, 4),
-        weaknesses: aiResult.risks.slice(0, 4),
+        weaknesses: (aiResult.risks || []).slice(0, 4),
         opportunities: aiResult.futureGrowth ? [aiResult.futureGrowth] : [],
         threats: []
       },

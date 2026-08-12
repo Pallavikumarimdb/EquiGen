@@ -14,7 +14,8 @@ import {
 /**
  * Reusable formatting utilities.
  */
-export function formatCurrency(value: number | string, unit?: string): string {
+export function formatCurrency(value: number | string | null | undefined, unit?: string): string {
+  if (value == null) return '-';
   const numeric = typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value;
   if (isNaN(numeric)) return String(value);
 
@@ -27,11 +28,11 @@ export function formatCurrency(value: number | string, unit?: string): string {
   return unit ? `₹${formattedNum} ${unit}` : `₹${formattedNum}`;
 }
 
-export function formatPercent(value: number | string): string {
-  const numeric = typeof value === 'string' ? parseFloat(value) : value;
+export function formatPercent(value: number | string | null | undefined): string {
+  if (value == null) return '-';
+  const numeric = typeof value === 'string' ? parseFloat(value.replace(/%/g, '')) : value;
   if (isNaN(numeric)) return String(value);
-  const prefix = numeric > 0 ? '+' : '';
-  return `${prefix}${numeric.toFixed(2)}%`;
+  return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(1)}%`;
 }
 
 /**

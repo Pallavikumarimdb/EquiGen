@@ -59,6 +59,7 @@ function niceRange(values: number[]): { min: number; max: number; ticks: number[
 
 /**
  * Combo Chart Renderer: Primary Bars (Left Axis) + Secondary Line (Right Axis for growth/margin)
+ * Updated with larger, clearer labels for print readability.
  */
 function svgComboChart(
   labels: string[],
@@ -69,13 +70,13 @@ function svgComboChart(
   lineLabelSuffix = '%'
 ): string {
   const W = 1000, H = 500;
-  const lpad = 110, rpad = 110, tpad = 40, bpad = 60;
+  const lpad = 90, rpad = 90, tpad = 60, bpad = 70;
   const pw = W - lpad - rpad;
   const ph = H - tpad - bpad;
 
   if (labels.length === 0) {
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
-      <text x="500" y="250" text-anchor="middle" font-size="24" fill="#94a3b8">No data available</text>
+      <text x="500" y="250" text-anchor="middle" font-size="28" fill="#94a3b8">No data available</text>
     </svg>`;
   }
 
@@ -85,25 +86,19 @@ function svgComboChart(
 
   const rightRange = niceRange(lineValues);
   const rightSpan = rightRange.max - rightRange.min || 1;
-  const zeroYRight = tpad + ((rightRange.max - 0) / rightSpan) * ph;
 
   const slot = pw / Math.max(labels.length, 1);
-  const bw = Math.min(slot * 0.45, 68);
+  const bw = Math.min(slot * 0.35, 52);
 
   const gridLines = leftRange.ticks.map(t => {
     const gy = tpad + ((leftRange.max - t) / leftSpan) * ph;
-    const isZero = Math.abs(t) < leftSpan * 0.01;
-    return `
-      <line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}"
-            stroke="${isZero ? '#94a3b8' : '#e2e8f0'}" stroke-width="${isZero ? 2 : 1}"/>
-      <text x="${lpad - 15}" y="${(gy + 6).toFixed(1)}" text-anchor="end"
-            font-size="18" font-weight="bold" fill="#64748b">${fmtK(t)}</text>`;
+    return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
+            <text x="${lpad - 15}" y="${(gy + 6).toFixed(1)}" text-anchor="end" font-size="18" font-weight="700" fill="#475569">${fmtK(t)}</text>`;
   }).join('');
 
   const rightTicksHtml = rightRange.ticks.map(t => {
     const gy = tpad + ((rightRange.max - t) / rightSpan) * ph;
-    return `<text x="${W - rpad + 15}" y="${(gy + 6).toFixed(1)}" text-anchor="start"
-                  font-size="18" font-weight="bold" fill="#64748b">${t.toFixed(1)}${lineLabelSuffix}</text>`;
+    return `<text x="${W - rpad + 15}" y="${(gy + 6).toFixed(1)}" text-anchor="start" font-size="18" font-weight="700" fill="#475569">${t.toFixed(0)}${lineLabelSuffix}</text>`;
   }).join('');
 
   const bars = labels.map((label, i) => {
@@ -112,16 +107,16 @@ function svgComboChart(
     const barH = Math.abs(v / leftSpan) * ph;
     const isPos = v >= 0;
     const by = isPos ? zeroYLeft - barH : zeroYLeft;
-    const labelY = isPos ? by - 10 : by + barH + 24;
+    const labelY = by - 12;
 
     return `
       <rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}"
             width="${bw.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}"
-            rx="5" fill="${barColor}"/>
+            fill="${barColor}"/>
       <text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle"
-            font-size="18" font-weight="bold" fill="#1e293b">${fmtK(v)}</text>
-      <text x="${cx.toFixed(1)}" y="${(H - bpad + 32).toFixed(1)}" text-anchor="middle"
-            font-size="18" font-weight="bold" fill="#64748b">${label}</text>`;
+            font-size="18" font-weight="800" fill="#1e293b">${fmtK(v)}</text>
+      <text x="${cx.toFixed(1)}" y="${(H - bpad + 34).toFixed(1)}" text-anchor="middle"
+            font-size="18" font-weight="700" fill="#475569">${label}</text>`;
   }).join('');
 
   const linePts = labels.map((_, i) => {
@@ -131,27 +126,46 @@ function svgComboChart(
     return { x: cx, y: ly, val: lv };
   });
 
-  const linePath = linePts.length > 1
-    ? `<path d="M ${linePts.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}" 
-             fill="none" stroke="${lineColor}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`
-    : '';
+  let linePath = '';
+  let areaPath = '';
+  
+  if (linePts.length > 1) {
+    let d = `M ${linePts[0].x.toFixed(1)} ${linePts[0].y.toFixed(1)}`;
+    let areaD = `M ${linePts[0].x.toFixed(1)} ${linePts[0].y.toFixed(1)}`;
+    
+    for (let i = 0; i < linePts.length - 1; i++) {
+      const curr = linePts[i];
+      const next = linePts[i + 1];
+      const cpX1 = curr.x + slot * 0.35;
+      const cpY1 = curr.y;
+      const cpX2 = next.x - slot * 0.35;
+      const cpY2 = next.y;
+      
+      d += ` C ${cpX1.toFixed(1)} ${cpY1.toFixed(1)}, ${cpX2.toFixed(1)} ${cpY2.toFixed(1)}, ${next.x.toFixed(1)} ${next.y.toFixed(1)}`;
+      areaD += ` C ${cpX1.toFixed(1)} ${cpY1.toFixed(1)}, ${cpX2.toFixed(1)} ${cpY2.toFixed(1)}, ${next.x.toFixed(1)} ${next.y.toFixed(1)}`;
+    }
+    
+    linePath = `<path d="${d}" fill="none" stroke="${lineColor}" stroke-width="4" stroke-linecap="round"/>`;
+    
+    areaD += ` L ${linePts[linePts.length - 1].x.toFixed(1)} ${(H - bpad).toFixed(1)} L ${linePts[0].x.toFixed(1)} ${(H - bpad).toFixed(1)} Z`;
+    areaPath = `<path d="${areaD}" fill="${lineColor}" fill-opacity="0.08"/>`;
+  }
 
   const lineDots = linePts.map(p => `
-    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="7" fill="#fff" stroke="${lineColor}" stroke-width="4"/>
-    <text x="${p.x.toFixed(1)}" y="${(p.y - 15).toFixed(1)}" text-anchor="middle"
-          font-size="18" font-weight="bold" fill="${lineColor}">${p.val.toFixed(1)}${lineLabelSuffix}</text>
+    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="7" fill="#fff" stroke="${lineColor}" stroke-width="3.5"/>
+    <text x="${p.x.toFixed(1)}" y="${(p.y - 16).toFixed(1)}" text-anchor="middle"
+          font-size="18" font-weight="800" fill="${lineColor}">${p.val.toFixed(1)}${lineLabelSuffix}</text>
   `).join('');
 
-  const leftAxis = `<line x1="${lpad}" y1="${tpad}" x2="${lpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="3"/>`;
-  const rightAxis = `<line x1="${W - rpad}" y1="${tpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="3"/>`;
+  const bottomAxis = `<line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="2"/>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
   <g font-family="Arial, sans-serif">
     ${gridLines}
     ${rightTicksHtml}
-    ${leftAxis}
-    ${rightAxis}
+    ${bottomAxis}
     ${bars}
+    ${areaPath}
     ${linePath}
     ${lineDots}
   </g>
@@ -165,13 +179,13 @@ function svgBarChart(
   negColor = '#ef4444'
 ): string {
   const W = 1000, H = 500;
-  const lpad = 110, rpad = 20, tpad = 40, bpad = 60;
+  const lpad = 90, rpad = 40, tpad = 60, bpad = 70;
   const pw = W - lpad - rpad;
   const ph = H - tpad - bpad;
 
   if (labels.length === 0) {
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
-      <text x="500" y="250" text-anchor="middle" font-size="24" fill="#94a3b8">No data available</text>
+      <text x="500" y="250" text-anchor="middle" font-size="28" fill="#94a3b8">No data available</text>
     </svg>`;
   }
 
@@ -180,16 +194,12 @@ function svgBarChart(
   const zeroY = tpad + ((max - 0) / range) * ph;
 
   const slot = pw / Math.max(labels.length, 1);
-  const bw = Math.min(slot * 0.55, 84);
+  const bw = Math.min(slot * 0.4, 64);
 
   const gridLines = ticks.map(t => {
     const gy = tpad + ((max - t) / range) * ph;
-    const isZero = Math.abs(t) < range * 0.01;
-    return `
-      <line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}"
-            stroke="${isZero ? '#94a3b8' : '#e2e8f0'}" stroke-width="${isZero ? 2 : 1}"/>
-      <text x="${lpad - 12}" y="${(gy + 6).toFixed(1)}" text-anchor="end"
-            font-size="18" font-weight="bold" fill="#94a3b8">${fmtK(t)}</text>`;
+    return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
+            <text x="${lpad - 12}" y="${(gy + 6).toFixed(1)}" text-anchor="end" font-size="18" font-weight="700" fill="#64748b">${fmtK(t)}</text>`;
   }).join('');
 
   const bars = labels.map((label, i) => {
@@ -201,22 +211,22 @@ function svgBarChart(
     const color = Array.isArray(barColor)
       ? (barColor[i % barColor.length] ?? '#0B3C5D')
       : (v < 0 ? negColor : barColor);
-    const labelY = isPos ? by - 10 : by + barH + 24;
+    const labelY = by - 12;
 
     return `
       <rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}"
             width="${bw.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}"
-            rx="7" fill="${color}"/>
+            fill="${color}"/>
       <text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle"
-            font-size="18" font-weight="bold" fill="#1e293b">${fmtK(v)}</text>
-      <text x="${cx.toFixed(1)}" y="${(H - bpad + 32).toFixed(1)}" text-anchor="middle"
-            font-size="18" font-weight="bold" fill="#64748b">${label}</text>`;
+            font-size="18" font-weight="800" fill="#1e293b">${fmtK(v)}</text>
+      <text x="${cx.toFixed(1)}" y="${(H - bpad + 34).toFixed(1)}" text-anchor="middle"
+            font-size="18" font-weight="700" fill="#64748b">${label}</text>`;
   }).join('');
 
-  const axisLine = `<line x1="${lpad}" y1="${tpad}" x2="${lpad}" y2="${H - bpad}" stroke="#94a3b8" stroke-width="3"/>`;
+  const bottomAxis = `<line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="2"/>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
-  <g font-family="Arial, sans-serif">${gridLines}${axisLine}${bars}</g>
+  <g font-family="Arial, sans-serif">${gridLines}${bottomAxis}${bars}</g>
 </svg>`;
 }
 
@@ -284,15 +294,16 @@ function mapToPredefinedRows(
   extractedRows: Record<string, string | number | null>[] | null | undefined,
   template: string[]
 ): Record<string, string | number | null>[] {
-  if (!extractedRows || extractedRows.length === 0) return [];
-
-  const periodKeys = Object.keys(extractedRows[0]).filter(k => k !== 'metric' && k !== 'Metric');
+  const hasRows = extractedRows && extractedRows.length > 0;
+  const periodKeys = hasRows
+    ? Object.keys(extractedRows[0]).filter(k => k !== 'metric' && k !== 'Metric')
+    : ['FY24', 'FY25']; // Default placeholder period columns if empty
 
   return template.map(metric => {
-    const matchedRow = extractedRows.find(r => {
+    const matchedRow = hasRows ? extractedRows.find(r => {
       const m = r.metric ?? r.Metric;
       return m && String(m).toLowerCase().trim() === metric.toLowerCase().trim();
-    });
+    }) : undefined;
 
     const newRow: Record<string, string | number | null> = { metric };
     periodKeys.forEach(p => {
@@ -305,7 +316,7 @@ function mapToPredefinedRows(
 // ── HTML Builder ──────────────────────────────────────────────────────────────
 
 const RATING_COLOR: Record<string, string> = {
-  BUY: '#10b981', ACCUMULATE: '#3b82f6', HOLD: '#f59e0b', REDUCE: '#ef4444', SELL: '#b91c1c',
+  BUY: '#008358', ACCUMULATE: '#3b82f6', HOLD: '#f59e0b', REDUCE: '#ef4444', SELL: '#b91c1c',
 };
 
 function escape(s: string | undefined | null): string {
@@ -317,7 +328,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const isDraft = status === 'draft';
   const rec = data.recommendation;
   const ratingColor = RATING_COLOR[rec.rating] ?? '#334155';
-
+  
   const inc = data.keyFinancials?.incomeStatement ?? [];
   const periods = [...new Set(inc.map(m => m.period))].sort();
   const getValues = (label: string) =>
@@ -331,7 +342,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const pat = getValues('PAT');
   const ebitdaMargins = revenue.map((r, i) => r > 0 ? parseFloat(((ebitda[i] / r) * 100).toFixed(1)) : 0);
   const patMargins = revenue.map((r, i) => r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0);
-
+  
   let quarterLabel = 'Q1FY26';
   if (data.quarterlyFinancials && data.quarterlyFinancials.length > 0) {
     const qKeys = Object.keys(data.quarterlyFinancials[0]).filter(k => k.startsWith('q') && !k.includes('growth') && !k.includes('Growth'));
@@ -340,9 +351,10 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     }
   }
 
-  const revChart = svgComboChart(periods, revenue, ebitdaMargins, '#0B3C5D', '#10b981', '%');
-  const ebitdaChart = svgComboChart(periods, ebitda, ebitdaMargins, '#328cc1', '#10b981', '%');
-  const patChart = svgComboChart(periods, pat, patMargins, '#3b82f6', '#10b981', '%');
+  // Geojit Style: Primary Bars are Teal/Green (#008358), Trend Line is Orange (#d97706)
+  const revChart = svgComboChart(periods, revenue, ebitdaMargins, '#008358', '#d97706', '%');
+  const ebitdaChart = svgComboChart(periods, ebitda, ebitdaMargins, '#008358', '#d97706', '%');
+  const patChart = svgComboChart(periods, pat, patMargins, '#008358', '#d97706', '%');
 
   let sectorChart = `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:9.5pt;color:#64748b;font-weight:600;">Not applicable for this sector</div>`;
   const isDeliverySector = ['delivery', 'logistics', 'e-commerce', 'retail', 'quick commerce'].some(sec =>
@@ -351,7 +363,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   if (isDeliverySector) {
     const govValues = getValues('Gross Order Value');
     if (govValues.length > 0 && govValues.some(v => v > 0)) {
-      sectorChart = svgBarChart(periods, govValues, '#D9B310');
+      sectorChart = svgBarChart(periods, govValues, '#008358');
     }
   }
 
@@ -404,7 +416,6 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
 
   const renderDetailTable = (rows: Record<string, string | number | null>[] | null | undefined, template: string[]) => {
     const normalizedRows = mapToPredefinedRows(rows, template);
-    if (normalizedRows.length === 0) return '<tr><td colspan="5">No detailed financials available.</td></tr>';
     const keys = Object.keys(normalizedRows[0]).filter(k => k !== 'metric');
     const headerHtml = `<tr><th>Metric</th>` + keys.map(k => `<th>${escape(k.toUpperCase())}</th>`).join('') + `</tr>`;
     const rowsHtml = normalizedRows.map(r => `
@@ -508,13 +519,13 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     margin-top: 0.5mm;
   }
 
-  .page1-body { display: grid; grid-template-columns: 0.95fr 1.55fr; gap: 5mm; }
+  .page1-body { display: grid; grid-template-columns: 0.95fr 1.55fr; gap: 5mm; page-break-inside: avoid; }
   
   /* Page 2 Body now splits left column table and wide right column text, but we render
      the Performance Charts at full width below the grid columns to maximize their horizontal size */
-  .page2-grid-body { display: grid; grid-template-columns: 0.95fr 1.55fr; gap: 5mm; }
-  .left-rail { display: flex; flex-direction: column; gap: 2.5mm; }
-  .right-rail { display: flex; flex-direction: column; gap: 2.5mm; }
+  .page2-grid-body { display: grid; grid-template-columns: 0.95fr 1.55fr; gap: 5mm; page-break-inside: avoid; }
+  .left-rail { display: flex; flex-direction: column; gap: 2.5mm; page-break-inside: avoid; }
+  .right-rail { display: flex; flex-direction: column; gap: 2.5mm; page-break-inside: avoid; }
 
   .company-title-block { margin-bottom: 1mm; }
   .company-title { font-size: 18pt; font-weight: 900; color: #0c3c60; line-height: 1.1; }
@@ -525,29 +536,28 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     border-collapse: collapse;
     margin: 2mm 0 4mm;
     border: 1px solid #cbd5e1;
-    background: #f8fafc;
     font-size: 8pt;
   }
   .identifiers-bar th {
-    background: #0c3c60;
+    background: #003366; /* Geojit dark blue header color */
     color: #fff;
-    font-weight: 700;
+    font-weight: 800;
     text-transform: uppercase;
-    font-size: 7pt;
-    padding: 4px 8px;
+    font-size: 7.5pt;
+    padding: 7px 8px;
     text-align: center;
-    border-right: 1px solid #cbd5e1;
+    border: 1px solid #cbd5e1;
+    letter-spacing: 0.3px;
   }
-  .identifiers-bar th:last-child { border-right: none; }
   .identifiers-bar td {
-    padding: 4px 8px;
+    padding: 8px 8px;
     text-align: center;
     font-weight: 700;
-    color: #1e293b;
-    border-right: 1px solid #cbd5e1;
+    color: #334155;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
   }
-  .identifiers-bar td:last-child { border-right: none; }
-  .identifiers-bar .val-accent { color: #00704a; font-weight: 800; }
+  .identifiers-bar .val-accent { color: #008358; font-weight: 800; }
 
   .fin-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 0; }
   .fin-table th { background: #0c3c60; color: #fff; padding: 3px 6px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 7pt; text-transform: uppercase; }
@@ -635,15 +645,15 @@ ${watermark}
     <tbody>
       <tr>
         <td>
-          <span style="font-size:8.5pt">
-            Target <span style="color:#64748b">●</span> |
-            Rating <span style="color:#64748b">●</span> |
-            Earnings <span style="color:#10b981">▲</span>
+          <span style="font-size: 8pt; font-weight: 700;">
+            Target <span style="color: #64748b; font-size: 9pt;">●</span> |
+            Rating <span style="color: #64748b; font-size: 9pt;">●</span> |
+            Earnings <span style="color: #008358; font-size: 10pt;">▲</span>
           </span>
         </td>
         <td class="val-accent">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString('en-IN')}` : '-'}</td>
         <td class="val-accent">${rec.targetPrice != null && rec.targetPrice > 0 ? `Rs. ${rec.targetPrice.toLocaleString('en-IN')}` : '-'}</td>
-        <td class="val-accent" style="color:${rec.upsidePotential != null && rec.upsidePotential >= 0 ? '#10b981' : '#ef4444'}">
+        <td class="val-accent" style="color:${rec.upsidePotential != null && rec.upsidePotential >= 0 ? '#008358' : '#ef4444'}">
           ${rec.currentPrice != null && rec.currentPrice > 0 && rec.targetPrice != null && rec.targetPrice > 0 && rec.upsidePotential != null ? `${rec.upsidePotential >= 0 ? '+' : ''}${rec.upsidePotential.toFixed(1)}%` : '-'}
         </td>
         <td class="val-accent" style="color:${ratingColor}">${escape(rec.rating || 'HOLD')}</td>
@@ -675,7 +685,7 @@ ${watermark}
         <thead><tr>${shHeaders}</tr></thead>
         <tbody>${shRows}</tbody>
       </table>` : '<p style="font-size:7pt; color:#64748b;">No shareholding data available.</p>'}
-      <div style="font-size:6.5pt; font-weight:600; margin-top: 0.5mm;">Promoter Pledge: <span style="font-weight:400; color:#334155;">${escape(data.promoterPledge || 'Nil')}</span></div>
+      <div style="font-size:6.5pt; font-weight:600; margin-top: 0.5mm;">Promoter Pledge: <span style="font-weight:400; color:#334155;">${escape(data.promoterPledge != null ? String(data.promoterPledge) : 'Nil')}</span></div>
 
       <div class="section-header">Price Performance (%)</div>
       <table class="fin-table thin-border">
@@ -715,11 +725,11 @@ ${watermark}
 
       <div class="section-header">Key Highlights</div>
       <ul class="bullet-list">
-        ${data.pageOneHighlights && data.pageOneHighlights.length > 0
-      ? data.pageOneHighlights.map(r => `<li>${escape(r)}</li>`).join('')
-      : (data.recommendation.rationale && data.recommendation.rationale.length > 0
-        ? data.recommendation.rationale.map(r => `<li>${escape(r)}</li>`).join('')
-        : '<li>Analytical highlight details are currently unavailable.</li>')}
+        ${data.pageOneHighlights && data.pageOneHighlights.length > 0 
+          ? data.pageOneHighlights.map(r => `<li>${escape(r)}</li>`).join('')
+          : (data.recommendation.rationale && data.recommendation.rationale.length > 0
+            ? data.recommendation.rationale.map(r => `<li>${escape(r)}</li>`).join('')
+            : '<li>Analytical highlight details are currently unavailable.</li>')}
       </ul>
 
       <div class="section-header">Outlook &amp; Valuation</div>
@@ -812,8 +822,8 @@ ${watermark}
       <div class="section-header">Key Highlights &amp; Insights</div>
       <ul class="bullet-list" style="margin-bottom: 2mm;">
         ${data.pageTwoHighlights && data.pageTwoHighlights.length > 0
-      ? data.pageTwoHighlights.map(h => `<li>${escape(h)}</li>`).join('')
-      : `<li>${escape(data.narrativeSummary || data.executiveSummary || 'No additional highlights available.')}</li>`}
+          ? data.pageTwoHighlights.map(h => `<li>${escape(h)}</li>`).join('')
+          : `<li>${escape(data.narrativeSummary || data.executiveSummary || 'No additional highlights available.')}</li>`}
       </ul>
     </div>
   </div>
@@ -855,23 +865,23 @@ ${watermark}
 
   <div class="section-header" style="margin-top:3mm;">Balance Sheet (₹ Cr)</div>
   ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Cash Flow Statement (₹ Cr)</div>
-  ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Financial Ratios</div>
-  ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
 </div>
 
 <!-- ═══════════════════════════════════ PAGE 4 ═══════════════════════════════════ -->
 <div class="page">
   <div class="top-logo">
-    <span>Recommendation &amp; Disclosures</span>
-    <span style="background: #00704a; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Disclaimer</span>
+    <span>Consolidated Financials</span>
+    <span style="background: #00704a; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
-  <div class="section-header" style="margin-top:1mm;">Recommendation History (Last 3 Years)</div>
+  <div class="section-header" style="margin-top:1mm;">Cash Flow Statement (₹ Cr)</div>
+  ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
+
+  <div class="section-header" style="margin-top:3mm;">Financial Ratios</div>
+  ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
+
+  <div class="section-header" style="margin-top:3mm;">Recommendation History (Last 3 Years)</div>
   <table class="fin-table thin-border" style="width: 50%;">
     <thead>
       <tr>

@@ -17,7 +17,7 @@ export const AICompanyDataSchema = z.object({
   ev: z.union([z.string(), z.number()]).nullable().optional(),
   outstandingShares: z.union([z.string(), z.number()]).nullable().optional(),
   freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
-  dividendYield: z.string().nullable().optional(),
+  dividendYield: z.union([z.string(), z.number()]).nullable().optional(),
   avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
   avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
   beta: z.union([z.string(), z.number()]).nullable().optional(),
@@ -26,15 +26,15 @@ export const AICompanyDataSchema = z.object({
 
 export const AIShareholdingSchema = z.object({
   category: z.string(),
-  periods: z.array(z.string()).optional(),
-  values: z.array(z.union([z.string(), z.number()])).optional()
+  periods: z.array(z.string()),
+  values: z.array(z.union([z.string(), z.number()]))
 });
 
 export const AIPricePerformanceSchema = z.object({
   period: z.string(), // "3 Month", "6 Month", "1 Year"
-  absoluteReturn: z.string().nullable().optional(),
-  absoluteSensex: z.string().nullable().optional(),
-  relativeReturn: z.string().nullable().optional()
+  absoluteReturn: z.union([z.string(), z.number()]).nullable().optional(),
+  absoluteSensex: z.union([z.string(), z.number()]).nullable().optional(),
+  relativeReturn: z.union([z.string(), z.number()]).nullable().optional()
 });
 
 export const AIEstimatesSchema = z.object({
@@ -43,8 +43,8 @@ export const AIEstimatesSchema = z.object({
   oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
   newFY26: z.union([z.string(), z.number()]).nullable().optional(),
   newFY27: z.union([z.string(), z.number()]).nullable().optional(),
-  changeFY26: z.string().nullable().optional(),
-  changeFY27: z.string().nullable().optional()
+  changeFY26: z.union([z.string(), z.number()]).nullable().optional(),
+  changeFY27: z.union([z.string(), z.number()]).nullable().optional()
 });
 
 export const AIFiveYearSummarySchema = z.object({
@@ -68,9 +68,9 @@ export const AIQuarterlyFinancialSchema = z.object({
   metric: z.string(),
   q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
   q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
-  yoyGrowth: z.string().nullable().optional(),
+  yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
   q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
-  qoqGrowth: z.string().nullable().optional()
+  qoqGrowth: z.union([z.string(), z.number()]).nullable().optional()
 });
 
 export const AIDetailedFinancialsSchema = z.object({
@@ -115,7 +115,7 @@ export const AIExtractionSchema = z.object({
   stockType: z.string().nullable().optional(),
   companyData: AICompanyDataSchema.nullable().optional(),
   shareholding: z.array(AIShareholdingSchema).nullable().optional(),
-  promoterPledge: z.string().nullable().optional(),
+  promoterPledge: z.union([z.string(), z.number()]).nullable().optional(),
   pricePerformance: z.array(AIPricePerformanceSchema).nullable().optional(),
   estimates: z.array(AIEstimatesSchema).nullable().optional(),
   quarterlyFinancials: z.array(AIQuarterlyFinancialSchema).nullable().optional(),
