@@ -1004,8 +1004,16 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
       });
 
       if (!uploadRes.ok) {
-        const errData = await uploadRes.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to read document structure.');
+        const errText = await uploadRes.text();
+        let message = 'Failed to read document structure.';
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed && parsed.message) message = parsed.message;
+        } catch {
+          const snippet = errText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (snippet) message = `Upload failed (HTTP ${uploadRes.status}). ${snippet.slice(0, 300)}`;
+        }
+        throw new Error(message);
       }
 
       const uploadData = await uploadRes.json();

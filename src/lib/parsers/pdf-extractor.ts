@@ -30,6 +30,11 @@ export class PDFExtractor implements DocumentExtractor {
       // later consumer (fallback pages, metadata).
       const pristineBytes = new Uint8Array(cleanArrayBuffer.slice(0));
 
+      // Serverless runtimes (Vercel) have no reliable Tesseract worker in the traced bundle and
+      // no headroom for per-page canvas rendering — the upload budget must stay bounded. Scanned
+      // pages are handled downstream at extraction time via the ocr_recheck targeting verdict.
+      const isServerless = process.env.VERCEL === '1' || !!process.env.AWS_EXECUTION_ENV;
+
       // Extract page-by-page text content natively using unpdf
       const { pagesText, totalPages } = await this.extractNativePagesText(uint8Array);
 
@@ -47,39 +52,19 @@ export class PDFExtractor implements DocumentExtractor {
 
         console.log(`[PDF Extractor] Low native text length (${nativeText.trim().length}) on page ${pageNumber}. Triggering fallback...`);
 
+        if (isServerless) {
+          console.log(`[PDF Extractor] Serverless runtime — skipping OCR/vision fallback on page ${pageNumber} (handled downstream via ocr_recheck).`);
+          finalPagesText.push(nativeText);
+          continue;
+        }
+
         try {
-          // unpdf DETACHES the input ArrayBuffer on first use (pdf.js worker transfer), so every
-          // consumer after the first would get a detached buffer. Fresh copy per fallback page —
-          // only scanned/low-text pages take this branch, so the copy cost stays negligible.
-          const freshBytes = new Uint8Array(pristineBytes);
-
-          // Prefer the page's own embedded image: lossless (no re-render), and it is the only
-          // reliable rasterization on Node 24 (the pdf.js canvas render path produces black
-          // output — see spike findings). Real scans are single full-page JPEGs.
-          const pageImageDataUrl = await this.extractPageImageAsDataUrl(freshBytes, pageNumber);
-
-          if (pageImageDataUrl) {
-            console.log(`[PDF Extractor] Page ${pageNumber} is scanned (embedded image). Running Tesseract OCR...`);
-            const ocrText = await this.runOcrFallback(pageImageDataUrl);
-            finalPagesText.push(ocrText);
-          } else {
-            // No embedded image (e.g. vector-only page) — best-effort render path. Known issue:
-            // broken on Node 24 (black renders); kept for older runtimes and chart pages.
-            const imgDataUrl = await this.renderPageToImage(freshBytes, pageNumber);
-
-            const hasChartsOrGraphics = await this.checkGraphics(freshBytes, pageNumber);
-
-            const groqApiKey = process.env.GROQ_API_KEY;
-            if (hasChartsOrGraphics && groqApiKey) {
-              console.log(`[PDF Extractor] Page ${pageNumber} has graphics/charts. Triggering Groq Llama 3.2 Vision...`);
-              const visionText = await this.runVisionFallback(imgDataUrl, groqApiKey);
-              finalPagesText.push(visionText);
-            } else {
-              console.log(`[PDF Extractor] Running Tesseract OCR on page ${pageNumber}...`);
-              const ocrText = await this.runOcrFallback(imgDataUrl);
-              finalPagesText.push(ocrText);
-            }
-          }
+          // Per-page hard cap: must never blow the upload budget, even for huge scanned filings.
+          const pageResult = await Promise.race([
+            this.extractPageWithFallback(pristineBytes, pageNumber),
+            new Promise<string>((resolve) => setTimeout(() => resolve(nativeText), 45000)),
+          ]);
+          finalPagesText.push(pageResult);
         } catch (fallbackError) {
           console.error(`[PDF Extractor] Fallback failed for page ${pageNumber}:`, fallbackError);
           // Fallback to whatever native text we had (even if short/empty)
@@ -112,6 +97,43 @@ export class PDFExtractor implements DocumentExtractor {
   }
 
   // --- Overridable/Mockable helper methods for testing ---
+
+  /**
+   * Per-page OCR/vision fallback for scanned or low-text pages. Only runs outside
+   * serverless runtimes (see `extract`); the upload route races this against a
+   * 45s cap so a stuck Tesseract download can never stall the pipeline.
+   */
+  public async extractPageWithFallback(pristineBytes: Uint8Array, pageNumber: number): Promise<string> {
+    // unpdf DETACHES the input ArrayBuffer on first use (pdf.js worker transfer), so every
+    // consumer after the first would get a detached buffer. Fresh copy per fallback page —
+    // only scanned/low-text pages take this branch, so the copy cost stays negligible.
+    const freshBytes = new Uint8Array(pristineBytes);
+
+    // Prefer the page's own embedded image: lossless (no re-render), and it is the only
+    // reliable rasterization on Node 24 (the pdf.js canvas render path produces black
+    // output — see spike findings). Real scans are single full-page JPEGs.
+    const pageImageDataUrl = await this.extractPageImageAsDataUrl(freshBytes, pageNumber);
+
+    if (pageImageDataUrl) {
+      console.log(`[PDF Extractor] Page ${pageNumber} is scanned (embedded image). Running Tesseract OCR...`);
+      return this.runOcrFallback(pageImageDataUrl);
+    }
+
+    // No embedded image (e.g. vector-only page) — best-effort render path. Known issue:
+    // broken on Node 24 (black renders); kept for older runtimes and chart pages.
+    const imgDataUrl = await this.renderPageToImage(freshBytes, pageNumber);
+
+    const hasChartsOrGraphics = await this.checkGraphics(freshBytes, pageNumber);
+
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (hasChartsOrGraphics && groqApiKey) {
+      console.log(`[PDF Extractor] Page ${pageNumber} has graphics/charts. Triggering Groq Llama 3.2 Vision...`);
+      return this.runVisionFallback(imgDataUrl, groqApiKey);
+    }
+
+    console.log(`[PDF Extractor] Running Tesseract OCR on page ${pageNumber}...`);
+    return this.runOcrFallback(imgDataUrl);
+  }
 
   /**
    * Fast, free, per-page native-text pass — the foundation of the document pipeline.
