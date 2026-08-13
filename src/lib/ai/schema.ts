@@ -81,9 +81,9 @@ export const AIDetailedFinancialsSchema = z.object({
 });
 
 export const AIRecommendationSummarySchema = z.object({
-  date: z.string(),
-  rating: z.string(),
-  target: z.union([z.string(), z.number()])
+  date: z.string().describe("The date or period of the recommendation, e.g. '12-May-24', 'Q1FY25' or 'September 2023'"),
+  rating: z.string().describe("The recommendation rating, e.g. 'BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL'"),
+  target: z.union([z.string(), z.number()]).describe("The target price on that date")
 });
 
 export const AIExtractionSchema = z.object({
@@ -120,7 +120,7 @@ export const AIExtractionSchema = z.object({
   estimates: z.array(AIEstimatesSchema).nullable().optional(),
   quarterlyFinancials: z.array(AIQuarterlyFinancialSchema).nullable().optional(),
   detailedFinancials: AIDetailedFinancialsSchema.nullable().optional(),
-  recommendationSummary: z.array(AIRecommendationSummarySchema).nullable().optional(),
+  recommendationSummary: z.array(AIRecommendationSummarySchema).nullable().optional().describe("Recommendation history/summary over the last 3 years (often found under 'Recommendation Summary (last 3 years)' or 'Recommendation History'), consisting of past dates, ratings/recommendations, and target prices."),
   sensexValue: z.union([z.string(), z.number()]).nullable().optional(),
   fiveYearSummary: z.array(AIFiveYearSummarySchema).nullable().optional(),
   
