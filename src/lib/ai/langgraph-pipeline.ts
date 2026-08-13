@@ -436,7 +436,7 @@ async function extractFinancialsNode(state: typeof ResearchState.State): Promise
   }
 
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
-1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods. These MUST be arrays of objects (e.g. [\\{"period": "Q2FY26", "unit": "INR million", "value": 29795\\}]). Never return them as single objects.
+1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods. These MUST be arrays of objects (e.g. [{"period": "Q2FY26", "unit": "INR million", "value": 29795}]). Never return them as single objects.
 2. CurrentPrice (CMP), targetPrice, and recommendation. Note: The recommendation field is mandatory and MUST be one of the enum values: 'BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL'. If not explicitly mentioned in the text, you MUST NOT return null; calculate and suggest a default value (e.g., 'HOLD') based on the financial performance metrics:
    - Suggest CurrentPrice (CMP) using outstanding shares and market cap if available (CMP = Market Cap / Outstanding Shares).
    - Suggest a Target Price by applying a reasonable forward P/E multiple (e.g. 25-35x depending on growth) to the current/projected annualized earnings, or a standard premium (e.g. 15-25% upside).
@@ -444,7 +444,12 @@ async function extractFinancialsNode(state: typeof ResearchState.State): Promise
 3. nseCode, bseCode, bloombergCode, timeFrame (default "12 Months"), stockType (e.g. Large Cap, Mid Cap, Small Cap)
 4. sensexValue: The current value of the Sensex benchmark index if mentioned in the document.
 5. fiveYearSummary: Look for a compact historical + estimates 5-year valuation-multiples summary table in the document and extract: period (e.g. FY25A, FY26E, FY27E), sales, salesGrowth, ebitda, ebitdaMargin, patAdjusted, patGrowth, adjEps, epsGrowth, pe, pb, evEbitda, roe, deRatio.
-6. Detailed tables if present in the document: companyData (marketCap, highLow52W, enterpriseValue, ev, outstandingShares, freeFloat, dividendYield, avgVolume6m, avgVolume, beta, faceValue), shareholding categories and values, promoterPledge, pricePerformance, estimates (representing old vs new estimates), quarterlyFinancials consolidated, and detailedFinancials (incomeStatement, balanceSheet, cashFlow, ratios), and recommendationSummary rating history. Keep empty if not present. Do not invent values.${feedback}`;
+6. Detailed tables if present in the document. Try to normalize and align the "metric" field keys using these standard row titles:
+   - For detailedFinancials.incomeStatement: Map metrics to: Sales, EBITDA, Depreciation, EBIT, Interest, Other Income, PBT, Tax, Reported PAT, Adjusted PAT, No. of shares (cr), Adjusted EPS, DPS.
+   - For detailedFinancials.balanceSheet: Map metrics to: Current Assets, Cash & Equivalents, Receivables, Inventories, Fixed Assets, Intangible Assets, Total Assets, Current Liabilities, Payables, Short-term Debt, Long-term Debt, Total Liabilities, Share Capital, Reserves & Surplus, Total Equity.
+   - For detailedFinancials.cashFlow: Map metrics to: Net inc. + Depn., Non-cash adj., Changes in W.C, C.F. Operation, Capital exp., C.F - Investment, C.F - Finance, Closing Cash.
+   - For detailedFinancials.ratios: Map metrics to: EBITDA margin (%), ROCE (%), Receivables (days), Current Ratio (x), Debt/Equity (x), P/E (x), EV/EBITDA (x).
+   - Keep empty if not present. Do not invent values.${feedback}`;
 
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;

@@ -141,9 +141,10 @@ class TokenBudgetManager {
 export const tokenBudgetManager = new TokenBudgetManager();
 
 /**
- * Rough token estimator — uses ~4 chars/token heuristic across Llama/GPT-family tokenizers.
- * Accurate enough for budgeting; not exact tokenization.
+ * Rough token estimator — uses ~2.8 chars/token heuristic across Llama/GPT-family tokenizers.
+ * Financial text with tables, numbers, and JSON syntax contains significantly more tokens
+ * per character than standard prose (which uses ~4 chars/token).
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 2.8);
 }
