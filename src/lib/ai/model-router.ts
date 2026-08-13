@@ -38,7 +38,7 @@ export const FALLBACK_GROQ_MODEL = MODEL_IDS.BULK_8B;
 export { VISION_MODEL as GROQ_VISION_MODEL } from './budget/model-limit-registry';
 
 // Completion token buffer: don't consume the entire window on a single request
-const COMPLETION_TOKEN_BUFFER = 1500;
+const COMPLETION_TOKEN_BUFFER = 2500;
 
 let budgetStoreAttached = false;
 
@@ -70,10 +70,10 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
       configuration: {
         baseURL: 'https://openrouter.ai/api/v1',
       },
-      // modelName: 'meta-llama/llama-3.1-8b-instruct:free',
-      model: 'openrouter/free',
+      modelName: 'openrouter/free',
       temperature: 0.1,
       maxRetries: 3,
+      timeout: 20000, // 20s timeout to prevent hanging
     });
   }
 
@@ -83,6 +83,7 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
     apiKey,
     model: FALLBACK_GROQ_MODEL,
     temperature: 0.1,
+    maxTokens: 4096,
     maxRetries: 3,
   });
 }
@@ -171,6 +172,7 @@ export async function getModelForRequest(
       apiKey,
       model: preferredModel,
       temperature: 0.1,
+      maxTokens: 4096,
       maxRetries: 3,
     }),
     modelName: preferredModel,

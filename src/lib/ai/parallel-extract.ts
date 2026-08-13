@@ -204,10 +204,14 @@ export async function runParallelChunkExtraction(params: {
             (waitSeconds) => setJobWait(jobId, waitSeconds * 1000),
             () => clearJobWait(jobId)
           );
-          const text = typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
-          const parsed = JSON.parse(text) as Partial<ParallelChunkOutput>;
+          const rawText = typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
+          let cleanedText = rawText.trim();
+          if (cleanedText.startsWith('```')) {
+            cleanedText = cleanedText.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/, '').trim();
+          }
+          const parsed = JSON.parse(cleanedText) as Partial<ParallelChunkOutput>;
           res = ParallelChunkSchema.safeParse(parsed).success ? (parsed as ParallelChunkOutput) : null;
-          if (!res) error = new Error(`Output did not match extraction schema: ${text.slice(0, 300)}`);
+          if (!res) error = new Error(`Output did not match extraction schema: ${cleanedText.slice(0, 300)}`);
         } catch (err) {
           error = err;
           await new Promise((r) => setTimeout(r, 800));
