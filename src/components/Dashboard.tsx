@@ -1285,10 +1285,14 @@ export function Dashboard() {
             // Fetch report details created by the worker
             const historyRes = await fetch("/api/history");
             const historyData = await historyRes.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const createdReport = historyData.find(
-              (h: any) => h.id === statusData.reportId,
-            );
+            const createdReport = (
+              historyData as Array<{
+                id: string;
+                reportData: unknown;
+                pdfBase64: string | null;
+                status?: string | null;
+              }>
+            ).find((h) => h.id === statusData.reportId);
 
             if (!createdReport) {
               throw new Error(
@@ -1583,10 +1587,14 @@ export function Dashboard() {
             // Fetch report details created by the worker
             const historyRes = await fetch("/api/history");
             const historyData = await historyRes.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const createdReport = historyData.find(
-              (h: any) => h.id === statusData.reportId,
-            );
+            const createdReport = (
+              historyData as Array<{
+                id: string;
+                reportData: unknown;
+                pdfBase64: string | null;
+                status?: string | null;
+              }>
+            ).find((h) => h.id === statusData.reportId);
 
             if (!createdReport) {
               throw new Error(
