@@ -9,8 +9,12 @@
  * it never blocks or fails an AI call.
  */
 
-import { MODEL_IDS, modelLimitRegistry, VISION_MODEL } from './model-limit-registry';
-import { ModelLimitRecord } from './types';
+import {
+  MODEL_IDS,
+  modelLimitRegistry,
+  VISION_MODEL,
+} from "./model-limit-registry";
+import { ModelLimitRecord } from "./types";
 
 export interface DiscoveredLimits {
   model: string;
@@ -24,10 +28,14 @@ export interface DiscoveredLimits {
 }
 
 /** Header names Groq sends per model (both x-ratelimit-* and x-requests-ratelimit-* spellings). */
-const HEADER_CANDIDATES: Record<'tpm' | 'rpm' | 'tpd', string[]> = {
-  tpm: ['x-ratelimit-limit-tokens', 'x-requests-ratelimit-limit-tokens'],
-  rpm: ['x-ratelimit-limit-requests', 'x-requests-ratelimit-limit-requests'],
-  tpd: ['x-ratelimit-limit-tokens-day', 'x-requests-ratelimit-limit-tokens-day', 'x-ratelimit-limit-tokens-per-day'],
+const HEADER_CANDIDATES: Record<"tpm" | "rpm" | "tpd", string[]> = {
+  tpm: ["x-ratelimit-limit-tokens", "x-requests-ratelimit-limit-tokens"],
+  rpm: ["x-ratelimit-limit-requests", "x-requests-ratelimit-limit-requests"],
+  tpd: [
+    "x-ratelimit-limit-tokens-day",
+    "x-requests-ratelimit-limit-tokens-day",
+    "x-ratelimit-limit-tokens-per-day",
+  ],
 };
 
 function pickInt(headers: Headers, keys: string[]): number | null {
@@ -44,10 +52,12 @@ function pickInt(headers: Headers, keys: string[]): number | null {
 /** Extract limit numbers from a raw response's headers. */
 export function parseLimitHeaders(headers: Headers): DiscoveredLimits {
   const flatten: Record<string, string> = {};
-  headers.forEach((value, key) => { flatten[key.toLowerCase()] = value; });
+  headers.forEach((value, key) => {
+    flatten[key.toLowerCase()] = value;
+  });
   const asHeaders = new Headers(flatten);
   return {
-    model: '',
+    model: "",
     tpm: pickInt(asHeaders, HEADER_CANDIDATES.tpm),
     rpm: pickInt(asHeaders, HEADER_CANDIDATES.rpm),
     tpd: pickInt(asHeaders, HEADER_CANDIDATES.tpd),
@@ -77,18 +87,21 @@ async function probeModel(apiKey: string, model: string): Promise<void> {
     try {
       // Plain fetch (no SDK): the entire point is reading the x-ratelimit-* response headers,
       // which Groq also includes on 429 responses — so even a rejected probe is informative.
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+      const response = await fetch(
+        "https://api.groq.com/openai/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1,
+          }),
         },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-        }),
-      });
+      );
 
       const limits = parseLimitHeaders(response.headers);
       limits.model = model;
@@ -97,14 +110,19 @@ async function probeModel(apiKey: string, model: string): Promise<void> {
         model,
         tpm: limits.tpm ?? modelLimitRegistry.getTpm(model),
         tpd: limits.tpd ?? modelLimitRegistry.getTpd(model),
-        source: 'discovered',
+        source: "discovered",
         lastDiscoveredAt: new Date(),
       };
-      console.log(`[LimitDiscovery] ${model}: discovered TPM=${record.tpm} TPD=${record.tpd} (rpm=${limits.rpm ?? 'n/a'}, http ${response.status})`);
+      console.log(
+        `[LimitDiscovery] ${model}: discovered TPM=${record.tpm} TPD=${record.tpd} (rpm=${limits.rpm ?? "n/a"}, http ${response.status})`,
+      );
       await modelLimitRegistry.setDiscovered(record);
       lastProbeAt.set(model, now);
     } catch (err) {
-      console.warn(`[LimitDiscovery] Probe failed for ${model} (keeping configured default):`, err instanceof Error ? err.message : err);
+      console.warn(
+        `[LimitDiscovery] Probe failed for ${model} (keeping configured default):`,
+        err instanceof Error ? err.message : err,
+      );
       lastProbeAt.set(model, now); // don't hammer on failures
     }
   })();

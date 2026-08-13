@@ -10,8 +10,8 @@
  * fast path for the hot wait loop; store persistence is best-effort and never blocks a call.
  */
 
-import { modelLimitRegistry } from './budget/model-limit-registry';
-import { TokenBudgetStore } from './budget/types';
+import { modelLimitRegistry } from "./budget/model-limit-registry";
+import { TokenBudgetStore } from "./budget/types";
 
 interface UsageEntry {
   tokens: number;
@@ -37,7 +37,12 @@ class TokenBudgetManager {
 
   setLimit(model: string, tpm: number) {
     // Limits now live in the registry — this setter exists for tests/overrides.
-    void modelLimitRegistry.setDiscovered({ model, tpm, tpd: modelLimitRegistry.getTpd(model), source: 'env' });
+    void modelLimitRegistry.setDiscovered({
+      model,
+      tpm,
+      tpd: modelLimitRegistry.getTpd(model),
+      source: "env",
+    });
   }
 
   private todayKey(): string {
@@ -64,14 +69,14 @@ class TokenBudgetManager {
     const prev = this.dailyUsage.get(model);
     this.dailyUsage.set(model, {
       date: key,
-      tokens: (prev && prev.date === key ? prev.tokens : 0) + tokens
+      tokens: (prev && prev.date === key ? prev.tokens : 0) + tokens,
     });
   }
 
   private prune(model: string) {
     const now = Date.now();
     const entries = this.usage.get(model) || [];
-    const fresh = entries.filter(e => now - e.timestamp < this.windowMs);
+    const fresh = entries.filter((e) => now - e.timestamp < this.windowMs);
     this.usage.set(model, fresh);
   }
 
@@ -96,7 +101,9 @@ class TokenBudgetManager {
     if (this.store) {
       this.store
         .recordUsage(model, tokens)
-        .catch((err) => console.warn(`[TokenBudget] Store sync failed for ${model}:`, err));
+        .catch((err) =>
+          console.warn(`[TokenBudget] Store sync failed for ${model}:`, err),
+        );
     }
   }
 
@@ -110,13 +117,13 @@ class TokenBudgetManager {
   async waitForBudget(
     model: string,
     estimatedTokens: number,
-    onWaitStart?: (waitMs: number) => void
+    onWaitStart?: (waitMs: number) => void,
   ): Promise<number> {
     const limit = modelLimitRegistry.getTpm(model);
 
     if (estimatedTokens > limit) {
       throw new Error(
-        `REQUEST_EXCEEDS_MODEL_CEILING: estimated ${estimatedTokens} tokens exceeds ${model}'s ${limit} TPM ceiling outright. Shrink the request or use a higher-TPM model.`
+        `REQUEST_EXCEEDS_MODEL_CEILING: estimated ${estimatedTokens} tokens exceeds ${model}'s ${limit} TPM ceiling outright. Shrink the request or use a higher-TPM model.`,
       );
     }
 
@@ -127,11 +134,14 @@ class TokenBudgetManager {
       const entries = this.usage.get(model) || [];
       if (entries.length === 0) break; // budget free next tick
       const oldest = entries[0];
-      const msUntilExpires = this.windowMs - (Date.now() - oldest.timestamp) + 250; // +250ms safety margin
+      const msUntilExpires =
+        this.windowMs - (Date.now() - oldest.timestamp) + 250; // +250ms safety margin
       const waitMs = Math.max(250, msUntilExpires);
-      console.log(`[TokenBudget] Waiting ${waitMs}ms for ${estimatedTokens} tokens on ${model} (available: ${this.availableBudget(model)})`);
+      console.log(
+        `[TokenBudget] Waiting ${waitMs}ms for ${estimatedTokens} tokens on ${model} (available: ${this.availableBudget(model)})`,
+      );
       onWaitStart?.(waitMs);
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
 
     return Date.now() - start;

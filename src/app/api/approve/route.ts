@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { pdfGenerationService } from '@/lib/pdf';
-import { EquityResearchData } from '@/types';
-import { requireApiSecret } from '@/lib/utils/auth';
-import { transitionReportStatus } from '@/lib/report/state-machine';
-import { computeSHA256 } from '@/lib/utils/hash';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { pdfGenerationService } from "@/lib/pdf";
+import { EquityResearchData } from "@/types";
+import { requireApiSecret } from "@/lib/utils/auth";
+import { transitionReportStatus } from "@/lib/report/state-machine";
+import { computeSHA256 } from "@/lib/utils/hash";
 
 /**
  * POST /api/approve
@@ -16,22 +16,31 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
-      return NextResponse.json({ message: 'Database not configured' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Database not configured" },
+        { status: 400 },
+      );
     }
     const body = await req.json();
     const { reportId, reviewerName, sebiRegNo } = body;
 
     if (!reportId || !reviewerName || !sebiRegNo) {
-      return NextResponse.json({ message: 'Missing required sign-off parameters.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing required sign-off parameters." },
+        { status: 400 },
+      );
     }
 
     // Find the report
     const dbReport = await prisma.reportHistory.findUnique({
-      where: { id: reportId }
+      where: { id: reportId },
     });
 
     if (!dbReport) {
-      return NextResponse.json({ message: 'Report not found.' }, { status: 404 });
+      return NextResponse.json(
+        { message: "Report not found." },
+        { status: 404 },
+      );
     }
 
     const reportData = dbReport.reportData as unknown as EquityResearchData;
@@ -39,49 +48,56 @@ export async function POST(req: NextRequest) {
     const approvedAt = new Date();
 
     // Get request IP
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '127.0.0.1';
+    const ipAddress =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("x-real-ip") ||
+      "127.0.0.1";
 
     // Transition state from current status (should be under_review/draft etc.) to approved
-    await transitionReportStatus(reportId, 'approved', {
+    await transitionReportStatus(reportId, "approved", {
       actorId: reviewerName,
-      actorType: 'human',
-      ipAddress,
-      metadata: {
-        reviewerName,
-        sebiRegNo,
-        contentHash,
-        approvedAt
-      }
-    });
-
-    // Recompile the PDF in published state with attestation metadata
-    const reportBuffer = await pdfGenerationService.generateReportPDF(reportData, 'published', {
-      reviewerName,
-      sebiRegNo,
-      approvedAt
-    });
-
-    // Transition state from approved to published (auto publish transition)
-    await transitionReportStatus(reportId, 'published', {
-      actorId: 'system',
-      actorType: 'system',
+      actorType: "human",
       ipAddress,
       metadata: {
         reviewerName,
         sebiRegNo,
         contentHash,
         approvedAt,
-        pdfBase64: reportBuffer.toString('base64').substring(0, 100) + '...' // trim log size
-      }
+      },
+    });
+
+    // Recompile the PDF in published state with attestation metadata
+    const reportBuffer = await pdfGenerationService.generateReportPDF(
+      reportData,
+      "published",
+      {
+        reviewerName,
+        sebiRegNo,
+        approvedAt,
+      },
+    );
+
+    // Transition state from approved to published (auto publish transition)
+    await transitionReportStatus(reportId, "published", {
+      actorId: "system",
+      actorType: "system",
+      ipAddress,
+      metadata: {
+        reviewerName,
+        sebiRegNo,
+        contentHash,
+        approvedAt,
+        pdfBase64: reportBuffer.toString("base64").substring(0, 100) + "...", // trim log size
+      },
     });
 
     // Update ReportHistory to save the generated PDF buffer
     const finalReport = await prisma.reportHistory.update({
       where: { id: reportId },
       data: {
-        pdfBase64: reportBuffer.toString('base64'),
-        contentHash
-      }
+        pdfBase64: reportBuffer.toString("base64"),
+        contentHash,
+      },
     });
 
     // Log the publication / sign_off action to AuditLog
@@ -89,16 +105,16 @@ export async function POST(req: NextRequest) {
       data: {
         reportId,
         userId: reviewerName,
-        actorType: 'human',
-        action: 'sign_off',
+        actorType: "human",
+        action: "sign_off",
         metadata: {
           reviewerName,
           sebiRegNo,
           contentHash,
           ip: ipAddress,
-          approvedAt
-        }
-      }
+          approvedAt,
+        },
+      },
     });
 
     return NextResponse.json({
@@ -109,14 +125,14 @@ export async function POST(req: NextRequest) {
       reviewerName: finalReport.reviewerName,
       sebiRegNo: finalReport.sebiRegNo,
       approvedAt: finalReport.approvedAt,
-      contentHash: finalReport.contentHash
+      contentHash: finalReport.contentHash,
     });
-
   } catch (error: unknown) {
-    console.error('API Error: /api/approve failed:', error);
-    const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("API Error: /api/approve failed:", error);
+    const errMsg =
+      error instanceof Error ? error.message : "Internal Server Error";
     return NextResponse.json({ message: errMsg }, { status: 500 });
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";

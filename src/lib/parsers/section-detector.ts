@@ -40,7 +40,8 @@ export interface SectionConfidence {
   narrative: number;
 }
 
-export type TargetingVerdict = 'ok' | 'ocr_recheck' | 'full_document' | 'blocked';
+export type TargetingVerdict =
+  "ok" | "ocr_recheck" | "full_document" | "blocked";
 
 export interface TargetingResult {
   map: SectionMap;
@@ -55,13 +56,30 @@ export interface TargetingResult {
 // --- Core financial statement markers (ICAI/SEBI naming variants) ---
 
 const CORE_MARKERS = [
-  { key: 'balance_sheet', label: 'Balance Sheet', re: /\b(?:statement of\s+)?balance\s*sheet\b/i },
-  { key: 'profit_loss', label: 'Statement of Profit and Loss', re: /\b(?:statement of\s+)?profit\s*(?:and|&)\s*loss\b/i },
-  { key: 'cash_flow', label: 'Cash Flow Statement', re: /\b(?:statement of\s+)?cash\s*flows?\b/i },
-  { key: 'notes', label: 'Notes to Financial Statements', re: /\bnotes?\s+to\s+(?:accounts|(?:the\s+)?financial\s*statements)\b/i },
+  {
+    key: "balance_sheet",
+    label: "Balance Sheet",
+    re: /\b(?:statement of\s+)?balance\s*sheet\b/i,
+  },
+  {
+    key: "profit_loss",
+    label: "Statement of Profit and Loss",
+    re: /\b(?:statement of\s+)?profit\s*(?:and|&)\s*loss\b/i,
+  },
+  {
+    key: "cash_flow",
+    label: "Cash Flow Statement",
+    re: /\b(?:statement of\s+)?cash\s*flows?\b/i,
+  },
+  {
+    key: "notes",
+    label: "Notes to Financial Statements",
+    re: /\bnotes?\s+to\s+(?:accounts|(?:the\s+)?financial\s*statements)\b/i,
+  },
 ] as const;
 
-const FINANCIAL_WRAPPER_RE = /\b(?:standalone|consolidated)\s+financial\s*statements\b/i;
+const FINANCIAL_WRAPPER_RE =
+  /\b(?:standalone|consolidated)\s+financial\s*statements\b/i;
 
 const NARRATIVE_HEADER_RES = [
   /\bmanagement\s+discussion\s*(?:and|&)\s*analysis\b/i,
@@ -72,16 +90,31 @@ const NARRATIVE_HEADER_RES = [
 ];
 
 const SWOT_SIGNAL_WORDS = [
-  'opportunity', 'opportunities', 'risk', 'risks', 'outlook', 'competition',
-  'competitive', 'market position', 'growth', 'strategy', 'threats', 'weaknesses',
-  'strengths', 'expansion', 'segment',
+  "opportunity",
+  "opportunities",
+  "risk",
+  "risks",
+  "outlook",
+  "competition",
+  "competitive",
+  "market position",
+  "growth",
+  "strategy",
+  "threats",
+  "weaknesses",
+  "strengths",
+  "expansion",
+  "segment",
 ];
 
 const MIN_TEXT_THRESHOLD = 100;
 
 /** Heuristic table-density: fraction of lines carrying ≥2 numeric-ish tokens (1,234 / 12.5% / ₹). */
 export function estimateTableDensity(text: string): number {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 3);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 3);
   if (lines.length === 0) return 0;
   const numericish = /(?:[₹$€]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?%?/;
   let tableLines = 0;
@@ -89,7 +122,8 @@ export function estimateTableDensity(text: string): number {
     const tokens = line.split(/\s{2,}|\t/);
     let numericCount = 0;
     for (const token of tokens) {
-      if (numericish.test(token) && token.replace(/[^0-9]/g, '').length >= 1) numericCount++;
+      if (numericish.test(token) && token.replace(/[^0-9]/g, "").length >= 1)
+        numericCount++;
     }
     if (numericCount >= 2) tableLines++;
   }
@@ -112,7 +146,7 @@ export function detectSections(pages: PageInput[]): TargetingResult {
   let totalWords = 0;
 
   for (const page of pages) {
-    const text = page.text || '';
+    const text = page.text || "";
     totalWords += countWords(text);
     const isScanned = page.isScanned ?? text.trim().length < MIN_TEXT_THRESHOLD;
     if (isScanned) scannedPages.push(page.pageNo);
@@ -130,7 +164,11 @@ export function detectSections(pages: PageInput[]): TargetingResult {
     const hasTables = tableDensity >= 0.15;
     const statementLike = financialHit || hasTables;
 
-    if (financialHit || FINANCIAL_WRAPPER_RE.test(text) || (hasTables && tableDensity >= 0.3)) {
+    if (
+      financialHit ||
+      FINANCIAL_WRAPPER_RE.test(text) ||
+      (hasTables && tableDensity >= 0.3)
+    ) {
       map.financials.push(page.pageNo);
       continue; // statement pages are not narrative pages
     }
@@ -142,7 +180,9 @@ export function detectSections(pages: PageInput[]): TargetingResult {
 
     // SWOT candidate: narrative-ish pages with keyword signals
     const lower = text.toLowerCase();
-    const signalCount = SWOT_SIGNAL_WORDS.filter((w) => lower.includes(w)).length;
+    const signalCount = SWOT_SIGNAL_WORDS.filter((w) =>
+      lower.includes(w),
+    ).length;
     if (statementLike || signalCount >= 2) {
       map.swotCandidates.push(page.pageNo);
     }
@@ -156,24 +196,33 @@ export function detectSections(pages: PageInput[]): TargetingResult {
 
   const financialsConfidence = foundMarkers.size / CORE_MARKERS.length;
   const narrativeConfidence =
-    map.narrative.length >= 2 ? 1 : map.narrative.length === 1 ? 0.6 : map.swotCandidates.length > 0 ? 0.3 : 0;
+    map.narrative.length >= 2
+      ? 1
+      : map.narrative.length === 1
+        ? 0.6
+        : map.swotCandidates.length > 0
+          ? 0.3
+          : 0;
 
   let verdict: TargetingVerdict;
   if (foundMarkers.size >= 2) {
-    verdict = 'ok';
+    verdict = "ok";
   } else if (scannedPages.length > 0) {
     // Text may exist in images — OCR the scanned pages, then re-detect
-    verdict = 'ocr_recheck';
+    verdict = "ocr_recheck";
   } else if (totalWords < 1) {
     // No text anywhere and nothing to OCR — a blank/empty PDF; fail loudly
-    verdict = 'blocked';
+    verdict = "blocked";
   } else {
-    verdict = 'full_document';
+    verdict = "full_document";
   }
 
   return {
     map,
-    confidence: { financials: financialsConfidence, narrative: narrativeConfidence },
+    confidence: {
+      financials: financialsConfidence,
+      narrative: narrativeConfidence,
+    },
     verdict,
     missingCoreMarkers,
     scannedPages,

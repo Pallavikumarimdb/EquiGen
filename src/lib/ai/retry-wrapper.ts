@@ -14,7 +14,7 @@ export class RateLimitError extends Error {
 
   constructor(message: string, retryAfterSeconds: number) {
     super(message);
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
@@ -24,14 +24,16 @@ export class RateLimitError extends Error {
  * Falls back to 15s if the message can't be parsed.
  */
 export function parseRetryAfterSeconds(errorMessage: string): number {
-  const match = errorMessage.match(/try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+  const match = errorMessage.match(
+    /try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i,
+  );
   if (!match) return 15;
 
   const hours = match[1] ? parseInt(match[1], 10) : 0;
   const minutes = match[2] ? parseInt(match[2], 10) : 0;
   const seconds = match[3] ? parseFloat(match[3]) : 0;
 
-  const total = (hours * 3600) + (minutes * 60) + seconds;
+  const total = hours * 3600 + minutes * 60 + seconds;
   return total > 0 ? Math.ceil(total) + 1 : 15; // +1s safety margin
 }
 
@@ -51,7 +53,7 @@ export async function withRateLimitRetry<T>(
   maxAttempts = 2,
   onWaitStart?: (waitSeconds: number) => Promise<void> | void,
   onWaitEnd?: () => Promise<void> | void,
-  fallback?: () => Promise<T>
+  fallback?: () => Promise<T>,
 ): Promise<T> {
   let lastError: unknown;
 
@@ -61,23 +63,35 @@ export async function withRateLimitRetry<T>(
     } catch (err: unknown) {
       lastError = err;
 
-      const status = (err as { status?: number })?.status
-        || (err as { response?: { status?: number } })?.response?.status;
+      const status =
+        (err as { status?: number })?.status ||
+        (err as { response?: { status?: number } })?.response?.status;
       const message = err instanceof Error ? err.message : String(err);
 
-      if (status === 429 || message.includes('rate_limit_exceeded') || message.includes('Rate limit')) {
+      if (
+        status === 429 ||
+        message.includes("rate_limit_exceeded") ||
+        message.includes("Rate limit")
+      ) {
         const waitSeconds = parseRetryAfterSeconds(message);
-        console.warn(`[RetryWrapper] Rate limited (attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per Groq's response.`);
+        console.warn(
+          `[RetryWrapper] Rate limited (attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per Groq's response.`,
+        );
 
         // Long cooldown (daily-quota reset) → hand off to the fallback model when available.
         // Shorter waits are handled on the same model to preserve preferred-model quality.
         if (fallback && waitSeconds > 30) {
           try {
-            console.warn(`[RetryWrapper] Cooldown is ${waitSeconds}s — switching to fallback model.`);
+            console.warn(
+              `[RetryWrapper] Cooldown is ${waitSeconds}s — switching to fallback model.`,
+            );
             return await fallback();
           } catch (fbErr: unknown) {
             lastError = fbErr;
-            console.warn('[RetryWrapper] Fallback model also failed; resorting to wait-and-retry on primary.', fbErr);
+            console.warn(
+              "[RetryWrapper] Fallback model also failed; resorting to wait-and-retry on primary.",
+              fbErr,
+            );
           }
         }
 
@@ -85,7 +99,7 @@ export async function withRateLimitRetry<T>(
         if (waitSeconds > 300) {
           throw new RateLimitError(
             lastError instanceof Error ? lastError.message : message,
-            waitSeconds
+            waitSeconds,
           );
         }
 
@@ -94,15 +108,17 @@ export async function withRateLimitRetry<T>(
             try {
               await onWaitStart(waitSeconds);
             } catch (e) {
-              console.error('Failed calling onWaitStart in retry wrapper:', e);
+              console.error("Failed calling onWaitStart in retry wrapper:", e);
             }
           }
-          await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+          await new Promise((resolve) =>
+            setTimeout(resolve, waitSeconds * 1000),
+          );
           if (onWaitEnd) {
             try {
               await onWaitEnd();
             } catch (e) {
-              console.error('Failed calling onWaitEnd in retry wrapper:', e);
+              console.error("Failed calling onWaitEnd in retry wrapper:", e);
             }
           }
           continue; // retry
@@ -111,7 +127,7 @@ export async function withRateLimitRetry<T>(
         // Exhausted attempts — signal as throttled, not failed
         throw new RateLimitError(
           lastError instanceof Error ? lastError.message : message,
-          waitSeconds
+          waitSeconds,
         );
       }
 

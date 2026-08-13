@@ -16,13 +16,13 @@
  * pages) and meant to be recalibrated from reviewer-correction telemetry after ~30 real docs.
  */
 
-import { createWorker } from 'tesseract.js';
-import Groq from 'groq-sdk';
-import { z } from 'zod';
-import { tokenBudgetManager, estimateTokens } from '@/lib/ai/rate-limiter';
-import { VISION_MODEL } from '@/lib/ai/budget/model-limit-registry';
-import { withRateLimitRetry } from '@/lib/ai/retry-wrapper';
-import { resolveTesseractWorkerPath } from './tesseract-paths';
+import { createWorker } from "tesseract.js";
+import Groq from "groq-sdk";
+import { z } from "zod";
+import { tokenBudgetManager, estimateTokens } from "@/lib/ai/rate-limiter";
+import { VISION_MODEL } from "@/lib/ai/budget/model-limit-registry";
+import { withRateLimitRetry } from "@/lib/ai/retry-wrapper";
+import { resolveTesseractWorkerPath } from "./tesseract-paths";
 
 export interface RawTable {
   /** header cells, may be empty for irregular tables */
@@ -30,7 +30,7 @@ export interface RawTable {
   rows: string[][];
 }
 
-export type TableDetectionSource = 'layout' | 'vision' | 'ocr';
+export type TableDetectionSource = "layout" | "vision" | "ocr";
 
 export interface TableExtractionResult {
   tables: RawTable[];
@@ -50,7 +50,8 @@ export const QUALITY_GATES: Record<TableDetectionSource, number> = {
   ocr: 0.5,
 };
 
-const NUMERIC_CELL_RE = /^[\s(]*[₹$€]?\s*-?\d[\d,.]*\s*(?:cr|mn|mn\s?usd|lakh|thousand|%|x)?[\s)]*$/i;
+const NUMERIC_CELL_RE =
+  /^[\s(]*[₹$€]?\s*-?\d[\d,.]*\s*(?:cr|mn|mn\s?usd|lakh|thousand|%|x)?[\s)]*$/i;
 
 /**
  * Parse a number in Indian/P&L formats: "1,234.56", "(12.5)", "₹ 45 Cr", "12 Mn USD", "5 Lakh".
@@ -64,7 +65,9 @@ export function parseIndianNumber(cell: string): number | null {
   const lower = trimmed.toLowerCase();
   if (!/[0-9]/.test(lower)) return null;
 
-  const negative = /^\(.*\)$/.test(trimmed) || (trimmed.includes('-') && !/^\d[\d,]*$/.test(trimmed));
+  const negative =
+    /^\(.*\)$/.test(trimmed) ||
+    (trimmed.includes("-") && !/^\d[\d,]*$/.test(trimmed));
 
   // Strip currency symbols, group separators, spaces, and unit suffixes in one pass.
   const units: Array<[RegExp, number]> = [
@@ -81,11 +84,14 @@ export function parseIndianNumber(cell: string): number | null {
     }
   }
 
-  let digits = trimmed.replace(/[₹$€,\s]/g, '');
+  let digits = trimmed.replace(/[₹$€,\s]/g, "");
   if (negative && /^\(.*\)$/.test(digits)) {
-    digits = digits.replace(/^\((.*)\)$/, '$1');
+    digits = digits.replace(/^\((.*)\)$/, "$1");
   }
-  digits = digits.replace(/-/g, '').replace(/[a-z%xX]+/gi, '').trim();
+  digits = digits
+    .replace(/-/g, "")
+    .replace(/[a-z%xX]+/gi, "")
+    .trim();
 
   if (!/^\d*\.?\d+$/.test(digits)) return null;
 
@@ -130,13 +136,14 @@ export function validateTableQuality(tables: RawTable[]): number {
 export function parseLayoutTables(pageText: string): RawTable[] {
   const lines = pageText
     .split(/\r?\n/)
-    .map((l) => l.replace(/\u00a0/g, ' ').trim())
+    .map((l) => l.replace(/\u00a0/g, " ").trim())
     .filter((l) => l.length > 3);
 
   const tables: RawTable[] = [];
   let current: string[][] | null = null;
 
-  const numericish = (token: string) => /^\d[\d,.]*$/.test(token) || /^[₹$€]?\s*-?\d/.test(token);
+  const numericish = (token: string) =>
+    /^\d[\d,.]*$/.test(token) || /^[₹$€]?\s*-?\d/.test(token);
 
   const flush = () => {
     if (current && current.length >= 2) {
@@ -148,14 +155,18 @@ export function parseLayoutTables(pageText: string): RawTable[] {
 
   const splitLine = (line: string): string[] | null => {
     // Pass 1 — multi-space/tab separated columns
-    const wide = line.split(/\s{2,}|\t/).map((c) => c.trim()).filter((c) => c.length > 0);
+    const wide = line
+      .split(/\s{2,}|\t/)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
     if (wide.length >= 2 && wide.filter(numericish).length >= 2) return wide;
 
     // Pass 2 — single-space collapsed columns: ≥3 tokens, ending with ≥2 numeric tokens
     const narrow = line.split(/\s+/);
     if (narrow.length >= 3 && narrow.length <= 8) {
       const trailing = narrow.slice(-2);
-      if (trailing.every(numericish) && narrow.filter(numericish).length >= 2) return narrow;
+      if (trailing.every(numericish) && narrow.filter(numericish).length >= 2)
+        return narrow;
     }
     return null;
   };
@@ -195,31 +206,31 @@ export interface VisionTableResponse {
 export async function extractTablesWithVision(
   imageDataUrl: string,
   apiKey: string,
-  model = VISION_MODEL
+  model = VISION_MODEL,
 ): Promise<RawTable[]> {
   const groq = new Groq({ apiKey });
   const PROMPT =
-    'Transcribe every table on this page into valid JSON ONLY, no markdown, no prose. ' +
+    "Transcribe every table on this page into valid JSON ONLY, no markdown, no prose. " +
     'Format: {"columns": ["<header cell>", ...], "rows": [["<cell>", "<cell>", ...], ...]}. ' +
     'Preserve every number exactly as printed (commas, decimals, units). Empty cells are "". ' +
-    'If there are multiple tables, return the largest one.';
+    "If there are multiple tables, return the largest one.";
 
   const run = async () => {
     const response = await groq.chat.completions.create({
       model,
       messages: [
         {
-          role: 'user',
+          role: "user",
           content: [
-            { type: 'text', text: PROMPT },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
+            { type: "text", text: PROMPT },
+            { type: "image_url", image_url: { url: imageDataUrl } },
           ],
         },
       ],
       temperature: 0,
     });
 
-    const content = response.choices?.[0]?.message?.content || '';
+    const content = response.choices?.[0]?.message?.content || "";
     const json = extractJsonBlock(content);
     const parsed = VisionTableSchema.parse(json);
     const rows = parsed.rows.filter((r) => r.length > 0);
@@ -234,16 +245,17 @@ export async function extractTablesWithVision(
   } catch (err) {
     tokenBudgetManager.recordUsage(model, 1000);
     throw new Error(
-      `Vision table extraction failed: ${err instanceof Error ? err.message : String(err)}`
+      `Vision table extraction failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
 
 /** Pull the first {...} JSON object out of an LLM reply (defends against stray prose). */
 export function extractJsonBlock(content: string): unknown {
-  const start = content.indexOf('{');
-  const end = content.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) throw new Error('No JSON object in vision response');
+  const start = content.indexOf("{");
+  const end = content.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start)
+    throw new Error("No JSON object in vision response");
   return JSON.parse(content.slice(start, end + 1));
 }
 
@@ -251,17 +263,23 @@ export function extractJsonBlock(content: string): unknown {
 // Step 3 — OCR (local, no rate limits)
 // ---------------------------------------------------------------------------
 
-export async function extractTablesWithOcr(imageDataUrl: string): Promise<RawTable[]> {
+export async function extractTablesWithOcr(
+  imageDataUrl: string,
+): Promise<RawTable[]> {
   try {
-    const worker = await createWorker('eng', undefined, { workerPath: resolveTesseractWorkerPath() });
+    const worker = await createWorker("eng", undefined, {
+      workerPath: resolveTesseractWorkerPath(),
+    });
     try {
-      const { data: { text } } = await worker.recognize(imageDataUrl);
+      const {
+        data: { text },
+      } = await worker.recognize(imageDataUrl);
       return parseLayoutTables(text);
     } finally {
       await worker.terminate().catch(() => {});
     }
   } catch (err) {
-    console.error('[TableExtractor] Tesseract OCR failed:', err);
+    console.error("[TableExtractor] Tesseract OCR failed:", err);
     return [];
   }
 }
@@ -282,28 +300,46 @@ export interface TableLadderOptions {
  * Vision is skipped when: no image, no API key, or vision explicitly disabled.
  * OCR is the exhaustion fallback — always local and free.
  */
-export async function runTableLadder(opts: TableLadderOptions): Promise<TableExtractionResult> {
+export async function runTableLadder(
+  opts: TableLadderOptions,
+): Promise<TableExtractionResult> {
   // Step 1 — layout
   const layoutTables = parseLayoutTables(opts.nativeText);
   const layoutQuality = validateTableQuality(layoutTables);
   if (layoutQuality >= QUALITY_GATES.layout && layoutTables.length > 0) {
-    return { tables: layoutTables, detectedBy: 'layout', quality: layoutQuality };
+    return {
+      tables: layoutTables,
+      detectedBy: "layout",
+      quality: layoutQuality,
+    };
   }
 
   // Step 2 — vision
   if (opts.allowVision !== false && opts.imageDataUrl && opts.apiKey) {
     try {
-      const visionTables = await extractTablesWithVision(opts.imageDataUrl, opts.apiKey);
+      const visionTables = await extractTablesWithVision(
+        opts.imageDataUrl,
+        opts.apiKey,
+      );
       const visionQuality = validateTableQuality(visionTables);
       if (visionQuality >= QUALITY_GATES.vision && visionTables.length > 0) {
-        return { tables: visionTables, detectedBy: 'vision', quality: visionQuality };
+        return {
+          tables: visionTables,
+          detectedBy: "vision",
+          quality: visionQuality,
+        };
       }
       // Vision succeeded but scored below gate → keep as degraded evidence, try OCR next
       if (visionTables.length > 0) {
-        console.warn(`[TableLadder] Vision quality ${visionQuality.toFixed(2)} below gate ${QUALITY_GATES.vision} — falling through to OCR.`);
+        console.warn(
+          `[TableLadder] Vision quality ${visionQuality.toFixed(2)} below gate ${QUALITY_GATES.vision} — falling through to OCR.`,
+        );
       }
     } catch (err) {
-      console.warn('[TableLadder] Vision failed, falling through to OCR:', err instanceof Error ? err.message : err);
+      console.warn(
+        "[TableLadder] Vision failed, falling through to OCR:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
@@ -313,21 +349,24 @@ export async function runTableLadder(opts: TableLadderOptions): Promise<TableExt
       const ocrTables = await extractTablesWithOcr(opts.imageDataUrl);
       const ocrQuality = validateTableQuality(ocrTables);
       if (ocrQuality >= QUALITY_GATES.ocr && ocrTables.length > 0) {
-        return { tables: ocrTables, detectedBy: 'ocr', quality: ocrQuality };
+        return { tables: ocrTables, detectedBy: "ocr", quality: ocrQuality };
       }
       if (ocrTables.length > 0) {
-        return { tables: ocrTables, detectedBy: 'ocr', quality: ocrQuality };
+        return { tables: ocrTables, detectedBy: "ocr", quality: ocrQuality };
       }
     } catch (err) {
-      console.warn('[TableLadder] OCR failed:', err instanceof Error ? err.message : err);
+      console.warn(
+        "[TableLadder] OCR failed:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
   // Nothing passed — return whatever layout found so the caller can mark it degraded
   return {
     tables: layoutTables,
-    detectedBy: 'layout',
+    detectedBy: "layout",
     quality: layoutQuality,
-    error: 'All table extraction steps failed to meet quality gates',
+    error: "All table extraction steps failed to meet quality gates",
   };
 }

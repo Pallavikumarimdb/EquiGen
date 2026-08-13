@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { requireApiSecret } from '@/lib/utils/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/agent/session?reportId=...
@@ -11,39 +11,45 @@ export async function GET(req: NextRequest) {
   if (authError) return authError;
   try {
     const { searchParams } = new URL(req.url);
-    const reportId = searchParams.get('reportId');
+    const reportId = searchParams.get("reportId");
 
     if (!reportId) {
-      return NextResponse.json({ message: 'Missing reportId parameter.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing reportId parameter." },
+        { status: 400 },
+      );
     }
 
     let session = await prisma.researchSession.findFirst({
       where: { reportId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       include: {
         messages: {
-          orderBy: { createdAt: 'asc' }
-        }
-      }
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
 
     if (!session) {
       session = await prisma.researchSession.create({
         data: {
           reportId,
-          orgId: 'default-org'
+          orgId: "default-org",
         },
         include: {
-          messages: true
-        }
+          messages: true,
+        },
       });
     }
 
     return NextResponse.json(session);
   } catch (error) {
-    console.error('Failed to resolve agent session:', error);
-    return NextResponse.json({ message: 'Failed to resolve agent session.' }, { status: 500 });
+    console.error("Failed to resolve agent session:", error);
+    return NextResponse.json(
+      { message: "Failed to resolve agent session." },
+      { status: 500 },
+    );
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";

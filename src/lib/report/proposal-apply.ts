@@ -1,7 +1,7 @@
-import { Prisma } from '@prisma/client';
-import { prisma } from '../db';
-import { computeSHA256 } from '../utils/hash';
-import { ReportStatus } from './state-machine';
+import { Prisma } from "@prisma/client";
+import { prisma } from "../db";
+import { computeSHA256 } from "../utils/hash";
+import { ReportStatus } from "./state-machine";
 
 export interface FieldUpdate {
   /** Dot-notated path inside reportData, e.g. "recommendation.targetPrice" or "competitors" */
@@ -21,7 +21,7 @@ export interface ApplyResult {
 interface ApplyOptions {
   sessionId?: string | null;
   actorId?: string;
-  actorType?: 'system' | 'human' | 'agent';
+  actorType?: "system" | "human" | "agent";
 }
 
 /**
@@ -40,10 +40,12 @@ interface ApplyOptions {
 export async function applyFieldUpdates(
   reportId: string,
   updates: FieldUpdate[],
-  options: ApplyOptions = {}
+  options: ApplyOptions = {},
 ): Promise<ApplyResult> {
-  const dbReport = await prisma.reportHistory.findUnique({ where: { id: reportId } });
-  if (!dbReport) throw new Error('Report not found for field update.');
+  const dbReport = await prisma.reportHistory.findUnique({
+    where: { id: reportId },
+  });
+  if (!dbReport) throw new Error("Report not found for field update.");
   if (updates.length === 0) return { reportId };
 
   const currentStatus = dbReport.status as ReportStatus;
@@ -51,8 +53,12 @@ export async function applyFieldUpdates(
   let forkedReportId: string | undefined;
 
   // RULE 5.1 GATING: Fork if approved or published
-  if (currentStatus === 'approved' || currentStatus === 'published') {
-    const newId = 'rep_fork_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+  if (currentStatus === "approved" || currentStatus === "published") {
+    const newId =
+      "rep_fork_" +
+      Math.random().toString(36).substring(2, 9) +
+      "_" +
+      Date.now();
 
     await prisma.reportHistory.create({
       data: {
@@ -61,19 +67,19 @@ export async function applyFieldUpdates(
         fileName: dbReport.fileName,
         reportData: dbReport.reportData as Prisma.InputJsonValue,
         pdfBase64: dbReport.pdfBase64,
-        status: 'changes_requested',
+        status: "changes_requested",
         reviewerName: dbReport.reviewerName,
         sebiRegNo: dbReport.sebiRegNo,
         versionNo: dbReport.versionNo + 1,
         contentHash: dbReport.contentHash,
-        modelUsedForFinancials: dbReport.modelUsedForFinancials
-      }
+        modelUsedForFinancials: dbReport.modelUsedForFinancials,
+      },
     });
 
     if (options.sessionId) {
       await prisma.researchSession.update({
         where: { id: options.sessionId },
-        data: { reportId: newId }
+        data: { reportId: newId },
       });
     }
 
@@ -83,23 +89,28 @@ export async function applyFieldUpdates(
     await prisma.auditLog.create({
       data: {
         reportId,
-        userId: options.actorId || 'system',
-        actorType: options.actorType || 'system',
-        action: 'recompute',
+        userId: options.actorId || "system",
+        actorType: options.actorType || "system",
+        action: "recompute",
         fromState: currentStatus,
-        toState: 'changes_requested',
+        toState: "changes_requested",
         metadata: {
           message: `Forked approved report ${reportId} to new draft baseline ${newId} for edits.`,
-          forkedReportId: newId
-        }
-      }
+          forkedReportId: newId,
+        },
+      },
     });
   }
 
-  const activeReport = await prisma.reportHistory.findUnique({ where: { id: activeReportId } });
-  if (!activeReport) throw new Error('Active report not found.');
+  const activeReport = await prisma.reportHistory.findUnique({
+    where: { id: activeReportId },
+  });
+  if (!activeReport) throw new Error("Active report not found.");
 
-  const reportData = structuredClone(activeReport.reportData) as Record<string, unknown>;
+  const reportData = structuredClone(activeReport.reportData) as Record<
+    string,
+    unknown
+  >;
   for (const update of updates) {
     setNestedValue(reportData, update.field, update.newValue);
   }
@@ -109,33 +120,46 @@ export async function applyFieldUpdates(
     data: {
       reportData: reportData as Prisma.InputJsonValue,
       pdfBase64: null, // Clear cached PDF so it regenerates with the new values
-      contentHash: computeSHA256(reportData)
-    }
+      contentHash: computeSHA256(reportData),
+    },
   });
 
   // Also clear any cached physical PDF file from the disk if present
   try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const pdfPath = path.join(process.cwd(), 'public', 'temp', 'reports', `${activeReportId.toUpperCase()}.pdf`);
+    const fs = await import("fs");
+    const path = await import("path");
+    const pdfPath = path.join(
+      process.cwd(),
+      "public",
+      "temp",
+      "reports",
+      `${activeReportId.toUpperCase()}.pdf`,
+    );
     if (fs.existsSync(pdfPath)) {
       await fs.promises.unlink(pdfPath);
     }
   } catch (err) {
-    console.warn(`[proposal-apply] Failed to clear disk PDF for report ${activeReportId}:`, err);
+    console.warn(
+      `[proposal-apply] Failed to clear disk PDF for report ${activeReportId}:`,
+      err,
+    );
   }
 
   return { reportId: activeReportId, forkedReportId };
 }
 
 /** Writes a value into a nested object using a dot-notated path (creates missing keys). */
-export function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.');
+export function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const parts = path.split(".");
   let cursor: Record<string, unknown> = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
     const next = cursor[key];
-    if (next === null || typeof next !== 'object' || Array.isArray(next)) {
+    if (next === null || typeof next !== "object" || Array.isArray(next)) {
       const created: Record<string, unknown> = {};
       cursor[key] = created;
       cursor = created;

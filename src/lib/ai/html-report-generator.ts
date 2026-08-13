@@ -1,4 +1,4 @@
-import { EquityResearchData, DetailedFinancialsData } from '@/types';
+import { EquityResearchData, DetailedFinancialsData } from "@/types";
 
 /**
  * AI-assisted HTML equity research report generator.
@@ -13,7 +13,7 @@ import { EquityResearchData, DetailedFinancialsData } from '@/types';
  */
 
 export interface HtmlReportOptions {
-  status?: 'draft' | 'published';
+  status?: "draft" | "published";
   reviewerName?: string;
   sebiRegNo?: string;
   approvedAt?: Date;
@@ -22,23 +22,28 @@ export interface HtmlReportOptions {
 // ── Number helpers ────────────────────────────────────────────────────────────
 
 function parseNum(v: number | string): number {
-  if (typeof v === 'number') return v;
-  return parseFloat(String(v).replace(/[^\d.-]/g, '')) || 0;
+  if (typeof v === "number") return v;
+  return parseFloat(String(v).replace(/[^\d.-]/g, "")) || 0;
 }
 
 // ── Custom formatting for large numbers ──────────────────────────────────────────
 
 function fmtK(n: number): string {
   const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
+  const sign = n < 0 ? "-" : "";
   if (abs >= 1_00_000) return `${sign}${(abs / 1_00_000).toFixed(1)}L`;
-  if (abs >= 1_000) return `${sign}${(abs / 1_00_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+  if (abs >= 1_000)
+    return `${sign}${(abs / 1_00_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   return `${sign}${abs.toFixed(0)}`;
 }
 
 // ── SVG Chart Renderers ───────────────────────────────────────────────────────
 
-function niceRange(values: number[]): { min: number; max: number; ticks: number[] } {
+function niceRange(values: number[]): {
+  min: number;
+  max: number;
+  ticks: number[];
+} {
   const dataMin = Math.min(...values, 0);
   const dataMax = Math.max(...values, 0);
   const span = dataMax - dataMin || 1;
@@ -46,14 +51,18 @@ function niceRange(values: number[]): { min: number; max: number; ticks: number[
   const rawMin = dataMin - (dataMin < 0 ? pad : 0);
   const rawMax = dataMax + pad;
 
-  const magnitude = Math.pow(10, Math.floor(Math.log10(Math.abs(rawMax - rawMin) || 1)));
+  const magnitude = Math.pow(
+    10,
+    Math.floor(Math.log10(Math.abs(rawMax - rawMin) || 1)),
+  );
   const step = magnitude <= 0.1 ? 1 : magnitude;
   const min = Math.floor(rawMin / step) * step;
   const max = Math.ceil(rawMax / step) * step;
   const tickCount = 5;
   const tickStep = (max - min) / tickCount;
   const ticks: number[] = [];
-  for (let i = 0; i <= tickCount; i++) ticks.push(parseFloat((min + tickStep * i).toFixed(2)));
+  for (let i = 0; i <= tickCount; i++)
+    ticks.push(parseFloat((min + tickStep * i).toFixed(2)));
   return { min, max, ticks };
 }
 
@@ -67,10 +76,14 @@ function svgComboChart(
   lineValues: number[],
   barColor: string,
   lineColor: string,
-  lineLabelSuffix = '%'
+  lineLabelSuffix = "%",
 ): string {
-  const W = 1000, H = 500;
-  const lpad = 90, rpad = 90, tpad = 60, bpad = 70;
+  const W = 1000,
+    H = 500;
+  const lpad = 90,
+    rpad = 90,
+    tpad = 60,
+    bpad = 70;
   const pw = W - lpad - rpad;
   const ph = H - tpad - bpad;
 
@@ -90,26 +103,31 @@ function svgComboChart(
   const slot = pw / Math.max(labels.length, 1);
   const bw = Math.min(slot * 0.35, 52);
 
-  const gridLines = leftRange.ticks.map(t => {
-    const gy = tpad + ((leftRange.max - t) / leftSpan) * ph;
-    return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
+  const gridLines = leftRange.ticks
+    .map((t) => {
+      const gy = tpad + ((leftRange.max - t) / leftSpan) * ph;
+      return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
             <text x="${lpad - 15}" y="${(gy + 6).toFixed(1)}" text-anchor="end" font-size="18" font-weight="700" fill="#475569">${fmtK(t)}</text>`;
-  }).join('');
+    })
+    .join("");
 
-  const rightTicksHtml = rightRange.ticks.map(t => {
-    const gy = tpad + ((rightRange.max - t) / rightSpan) * ph;
-    return `<text x="${W - rpad + 15}" y="${(gy + 6).toFixed(1)}" text-anchor="start" font-size="18" font-weight="700" fill="#475569">${t.toFixed(0)}${lineLabelSuffix}</text>`;
-  }).join('');
+  const rightTicksHtml = rightRange.ticks
+    .map((t) => {
+      const gy = tpad + ((rightRange.max - t) / rightSpan) * ph;
+      return `<text x="${W - rpad + 15}" y="${(gy + 6).toFixed(1)}" text-anchor="start" font-size="18" font-weight="700" fill="#475569">${t.toFixed(0)}${lineLabelSuffix}</text>`;
+    })
+    .join("");
 
-  const bars = labels.map((label, i) => {
-    const v = barValues[i] ?? 0;
-    const cx = lpad + slot * i + slot / 2;
-    const barH = Math.abs(v / leftSpan) * ph;
-    const isPos = v >= 0;
-    const by = isPos ? zeroYLeft - barH : zeroYLeft;
-    const labelY = by - 12;
+  const bars = labels
+    .map((label, i) => {
+      const v = barValues[i] ?? 0;
+      const cx = lpad + slot * i + slot / 2;
+      const barH = Math.abs(v / leftSpan) * ph;
+      const isPos = v >= 0;
+      const by = isPos ? zeroYLeft - barH : zeroYLeft;
+      const labelY = by - 12;
 
-    return `
+      return `
       <rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}"
             width="${bw.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}"
             fill="${barColor}"/>
@@ -117,7 +135,8 @@ function svgComboChart(
             font-size="18" font-weight="800" fill="rgba(32, 139, 111, 0.6)">${fmtK(v)}</text>
       <text x="${cx.toFixed(1)}" y="${(H - bpad + 34).toFixed(1)}" text-anchor="middle"
             font-size="18" font-weight="700" fill="#475569">${label}</text>`;
-  }).join('');
+    })
+    .join("");
 
   const linePts = labels.map((_, i) => {
     const lv = lineValues[i] ?? 0;
@@ -126,8 +145,8 @@ function svgComboChart(
     return { x: cx, y: ly, val: lv };
   });
 
-  let linePath = '';
-  let areaPath = '';
+  let linePath = "";
+  let areaPath = "";
 
   if (linePts.length > 1) {
     let d = `M ${linePts[0].x.toFixed(1)} ${linePts[0].y.toFixed(1)}`;
@@ -151,11 +170,15 @@ function svgComboChart(
     areaPath = `<path d="${areaD}" fill="${lineColor}" fill-opacity="0.08"/>`;
   }
 
-  const lineDots = linePts.map(p => `
+  const lineDots = linePts
+    .map(
+      (p) => `
     <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="7" fill="#fff" stroke="${lineColor}" stroke-width="3.5"/>
     <text x="${p.x.toFixed(1)}" y="${(p.y - 16).toFixed(1)}" text-anchor="middle"
           font-size="18" font-weight="800" fill="${lineColor}">${p.val.toFixed(1)}${lineLabelSuffix}</text>
-  `).join('');
+  `,
+    )
+    .join("");
 
   const bottomAxis = `<line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="2"/>`;
 
@@ -176,10 +199,14 @@ function svgBarChart(
   labels: string[],
   values: number[],
   barColor: string | string[],
-  negColor = '#ef4444'
+  negColor = "#ef4444",
 ): string {
-  const W = 1000, H = 500;
-  const lpad = 90, rpad = 40, tpad = 60, bpad = 70;
+  const W = 1000,
+    H = 500;
+  const lpad = 90,
+    rpad = 40,
+    tpad = 60,
+    bpad = 70;
   const pw = W - lpad - rpad;
   const ph = H - tpad - bpad;
 
@@ -196,24 +223,29 @@ function svgBarChart(
   const slot = pw / Math.max(labels.length, 1);
   const bw = Math.min(slot * 0.4, 64);
 
-  const gridLines = ticks.map(t => {
-    const gy = tpad + ((max - t) / range) * ph;
-    return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
+  const gridLines = ticks
+    .map((t) => {
+      const gy = tpad + ((max - t) / range) * ph;
+      return `<line x1="${lpad}" y1="${gy.toFixed(1)}" x2="${W - rpad}" y2="${gy.toFixed(1)}" stroke="#e2e8f0" stroke-width="1.5"/>
             <text x="${lpad - 12}" y="${(gy + 6).toFixed(1)}" text-anchor="end" font-size="18" font-weight="700" fill="#64748b">${fmtK(t)}</text>`;
-  }).join('');
+    })
+    .join("");
 
-  const bars = labels.map((label, i) => {
-    const v = values[i] ?? 0;
-    const cx = lpad + slot * i + slot / 2;
-    const barH = Math.abs(v / range) * ph;
-    const isPos = v >= 0;
-    const by = isPos ? zeroY - barH : zeroY;
-    const color = Array.isArray(barColor)
-      ? (barColor[i % barColor.length] ?? '#0B3C5D')
-      : (v < 0 ? negColor : barColor);
-    const labelY = by - 12;
+  const bars = labels
+    .map((label, i) => {
+      const v = values[i] ?? 0;
+      const cx = lpad + slot * i + slot / 2;
+      const barH = Math.abs(v / range) * ph;
+      const isPos = v >= 0;
+      const by = isPos ? zeroY - barH : zeroY;
+      const color = Array.isArray(barColor)
+        ? (barColor[i % barColor.length] ?? "#0B3C5D")
+        : v < 0
+          ? negColor
+          : barColor;
+      const labelY = by - 12;
 
-    return `
+      return `
       <rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}"
             width="${bw.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}"
             fill="${color}"/>
@@ -221,7 +253,8 @@ function svgBarChart(
             font-size="18" font-weight="800" fill="#1e293b">${fmtK(v)}</text>
       <text x="${cx.toFixed(1)}" y="${(H - bpad + 34).toFixed(1)}" text-anchor="middle"
             font-size="18" font-weight="700" fill="#64748b">${label}</text>`;
-  }).join('');
+    })
+    .join("");
 
   const bottomAxis = `<line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="2"/>`;
 
@@ -230,9 +263,15 @@ function svgBarChart(
 </svg>`;
 }
 
-function svgRecommendationChart(recSum: { date: string; rating: string; target?: number | string | null }[]): string {
-  const W = 500, H = 220;
-  const lpad = 50, rpad = 30, tpad = 35, bpad = 45;
+function svgRecommendationChart(
+  recSum: { date: string; rating: string; target?: number | string | null }[],
+): string {
+  const W = 500,
+    H = 220;
+  const lpad = 50,
+    rpad = 30,
+    tpad = 35,
+    bpad = 45;
   const pw = W - lpad - rpad;
   const ph = H - tpad - bpad;
 
@@ -244,10 +283,10 @@ function svgRecommendationChart(recSum: { date: string; rating: string; target?:
 
   // Reverse so chronological order is left-to-right
   const items = [...recSum].reverse();
-  const targets = items.map(item => {
+  const targets = items.map((item) => {
     const val = item.target;
     if (val == null) return 0;
-    if (typeof val === 'number') return val;
+    if (typeof val === "number") return val;
     return parseFloat(val) || 0;
   });
   const maxTarget = Math.max(...targets, 100);
@@ -256,34 +295,45 @@ function svgRecommendationChart(recSum: { date: string; rating: string; target?:
 
   const points = items.map((item, i) => {
     const cx = lpad + (pw / Math.max(items.length - 1, 1)) * i;
-    const targetVal = item.target != null ? (typeof item.target === 'number' ? item.target : parseFloat(item.target) || 0) : 0;
+    const targetVal =
+      item.target != null
+        ? typeof item.target === "number"
+          ? item.target
+          : parseFloat(item.target) || 0
+        : 0;
     const cy = tpad + ((maxTarget - targetVal) / range) * ph;
     return { x: cx, y: cy, ...item };
   });
 
-  let linePath = '';
+  let linePath = "";
   if (points.length > 1) {
-    linePath = `<path d="M ${points.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}" fill="none" stroke="#07877B" stroke-width="2.5" stroke-linecap="round"/>`;
+    linePath = `<path d="M ${points.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ")}" fill="none" stroke="#07877B" stroke-width="2.5" stroke-linecap="round"/>`;
   }
 
-  const dots = points.map(p => {
-    const isBuy = p.rating?.toUpperCase() === 'BUY';
-    const dotColor = isBuy ? '#008358' : '#f59e0b';
-    return `
+  const dots = points
+    .map((p) => {
+      const isBuy = p.rating?.toUpperCase() === "BUY";
+      const dotColor = isBuy ? "#008358" : "#f59e0b";
+      return `
       <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${dotColor}" stroke="#fff" stroke-width="1.5"/>
       <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b">₹${p.target}</text>
     `;
-  }).join('');
+    })
+    .join("");
 
   const axis = `
     <line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
     <line x1="${lpad}" y1="${tpad}" x2="${lpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
   `;
 
-  const labels = points.map(p => `
+  const labels = points
+    .map(
+      (p) => `
     <text x="${p.x.toFixed(1)}" y="${H - bpad + 14}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#475569">${p.date}</text>
-    <text x="${p.x.toFixed(1)}" y="${H - bpad + 24}" text-anchor="middle" font-size="7" font-weight="800" fill="${p.rating?.toUpperCase() === 'BUY' ? '#008358' : '#f59e0b'}">${p.rating}</text>
-  `).join('');
+    <text x="${p.x.toFixed(1)}" y="${H - bpad + 24}" text-anchor="middle" font-size="7" font-weight="800" fill="${p.rating?.toUpperCase() === "BUY" ? "#008358" : "#f59e0b"}">${p.rating}</text>
+  `,
+    )
+    .join("");
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
     <g font-family="Arial, sans-serif">
@@ -298,153 +348,280 @@ function svgRecommendationChart(recSum: { date: string; rating: string; target?:
 // ── Fixed Row templates for Financial statements ──────────────────────────────
 
 const INCOME_STATEMENT_ROW_TEMPLATE = [
-  'Sales',
-  'Growth (%)',
-  'EBITDA',
-  'Growth (%)',
-  'Depreciation',
-  'EBIT',
-  'Interest',
-  'Other Income',
-  'PBT',
-  'Growth (%)',
-  'Tax',
-  'Tax Rate (%)',
-  'Reported PAT',
-  'PAT att. to common shareholders',
-  'Adjusted PAT',
-  'Growth (%)',
-  'No. of shares (cr)',
-  'Adjusted EPS',
-  'Growth (%)',
-  'DPS'
+  "Sales",
+  "Growth (%)",
+  "EBITDA",
+  "Growth (%)",
+  "Depreciation",
+  "EBIT",
+  "Interest",
+  "Other Income",
+  "PBT",
+  "Growth (%)",
+  "Tax",
+  "Tax Rate (%)",
+  "Reported PAT",
+  "PAT att. to common shareholders",
+  "Adjusted PAT",
+  "Growth (%)",
+  "No. of shares (cr)",
+  "Adjusted EPS",
+  "Growth (%)",
+  "DPS",
 ];
 
 const BALANCE_SHEET_ROW_TEMPLATE = [
-  'Current Assets',
-  'Cash & Equivalents',
-  'Receivables',
-  'Inventories',
-  'Other Current Assets',
-  'Fixed Assets',
-  'Intangible Assets',
-  'Total Assets',
-  'Current Liabilities',
-  'Payables',
-  'Short-term Debt',
-  'Long-term Debt',
-  'Total Liabilities',
-  'Share Capital',
-  'Reserves & Surplus',
-  'Total Equity'
+  "Current Assets",
+  "Cash & Equivalents",
+  "Receivables",
+  "Inventories",
+  "Other Current Assets",
+  "Fixed Assets",
+  "Intangible Assets",
+  "Total Assets",
+  "Current Liabilities",
+  "Payables",
+  "Short-term Debt",
+  "Long-term Debt",
+  "Total Liabilities",
+  "Share Capital",
+  "Reserves & Surplus",
+  "Total Equity",
 ];
 
 const CASH_FLOW_ROW_TEMPLATE = [
-  'Net inc. + Depn.',
-  'Non-cash adj.',
-  'Other adjustments',
-  'Changes in W.C',
-  'C.F. Operation',
-  'Capital exp.',
-  'Change in inv.',
-  'Other invest.CF',
-  'C.F - Investment',
-  'Issue of equity',
-  'Issue/repay debt',
-  'Dividends paid',
-  'Other finance.CF',
-  'C.F - Finance',
-  'Chg. in cash',
-  'Closing Cash'
+  "Net inc. + Depn.",
+  "Non-cash adj.",
+  "Other adjustments",
+  "Changes in W.C",
+  "C.F. Operation",
+  "Capital exp.",
+  "Change in inv.",
+  "Other invest.CF",
+  "C.F - Investment",
+  "Issue of equity",
+  "Issue/repay debt",
+  "Dividends paid",
+  "Other finance.CF",
+  "C.F - Finance",
+  "Chg. in cash",
+  "Closing Cash",
 ];
 
 const RATIOS_ROW_TEMPLATE = [
-  'Profitab. & Return',
-  'EBITDA margin (%)',
-  'EBIT margin (%)',
-  'Net profit mgn.(%)',
-  'ROE (%)',
-  'ROCE (%)',
-  'W.C & Liquidity',
-  'Receivables (days)',
-  'Inventory (days)',
-  'Payables (days)',
-  'Net W.C (days)',
-  'Asset Turnover (x)',
-  'Current Ratio (x)',
-  'Quick Ratio (x)',
-  'Debt/Equity (x)',
-  'Valuation',
-  'P/E (x)',
-  'P/B (x)',
-  'EV/Sales (x)',
-  'EV/EBITDA (x)'
+  "Profitab. & Return",
+  "EBITDA margin (%)",
+  "EBIT margin (%)",
+  "Net profit mgn.(%)",
+  "ROE (%)",
+  "ROCE (%)",
+  "W.C & Liquidity",
+  "Receivables (days)",
+  "Inventory (days)",
+  "Payables (days)",
+  "Net W.C (days)",
+  "Asset Turnover (x)",
+  "Current Ratio (x)",
+  "Quick Ratio (x)",
+  "Debt/Equity (x)",
+  "Valuation",
+  "P/E (x)",
+  "P/B (x)",
+  "EV/Sales (x)",
+  "EV/EBITDA (x)",
 ];
 
 const SYNONYM_MAP: Record<string, string[]> = {
-  'Sales': ['revenue', 'revenue from operations', 'net sales', 'turnover', 'total revenue', 'revenue from operation', 'sales/revenue'],
-  'EBITDA': ['ebitda', 'operating profit', 'pbdt', 'operating ebitda', 'earnings before interest tax depreciation'],
-  'Depreciation': ['depreciation', 'depreciation & amortisation', 'depreciation & amortization', 'depn', 'depn. & amort.', 'amortisation'],
-  'EBIT': ['ebit', 'operating ebit', 'operating income'],
-  'Interest': ['interest', 'finance cost', 'finance costs', 'interest expense', 'financial charges'],
-  'Other Income': ['other income', 'non-operating income', 'other non-operating income'],
-  'PBT': ['pbt', 'profit before tax', 'net profit before tax'],
-  'Tax': ['tax', 'provision for tax', 'current tax', 'deferred tax', 'tax expense'],
-  'Reported PAT': ['reported pat', 'pat', 'profit after tax', 'net profit after tax', 'net profit', 'np', 'profit for the period', 'reported profit after tax'],
-  'Adjusted PAT': ['adjusted pat', 'adj. pat', 'adj pat', 'adjusted profit after tax'],
-  'No. of shares (cr)': ['no. of shares', 'no. of shares (cr)', 'shares outstanding', 'outstanding shares', 'equity shares'],
-  'Adjusted EPS': ['adjusted eps', 'adj. eps', 'adj eps', 'eps', 'diluted eps', 'basic eps'],
-  
+  Sales: [
+    "revenue",
+    "revenue from operations",
+    "net sales",
+    "turnover",
+    "total revenue",
+    "revenue from operation",
+    "sales/revenue",
+  ],
+  EBITDA: [
+    "ebitda",
+    "operating profit",
+    "pbdt",
+    "operating ebitda",
+    "earnings before interest tax depreciation",
+  ],
+  Depreciation: [
+    "depreciation",
+    "depreciation & amortisation",
+    "depreciation & amortization",
+    "depn",
+    "depn. & amort.",
+    "amortisation",
+  ],
+  EBIT: ["ebit", "operating ebit", "operating income"],
+  Interest: [
+    "interest",
+    "finance cost",
+    "finance costs",
+    "interest expense",
+    "financial charges",
+  ],
+  "Other Income": [
+    "other income",
+    "non-operating income",
+    "other non-operating income",
+  ],
+  PBT: ["pbt", "profit before tax", "net profit before tax"],
+  Tax: [
+    "tax",
+    "provision for tax",
+    "current tax",
+    "deferred tax",
+    "tax expense",
+  ],
+  "Reported PAT": [
+    "reported pat",
+    "pat",
+    "profit after tax",
+    "net profit after tax",
+    "net profit",
+    "np",
+    "profit for the period",
+    "reported profit after tax",
+  ],
+  "Adjusted PAT": [
+    "adjusted pat",
+    "adj. pat",
+    "adj pat",
+    "adjusted profit after tax",
+  ],
+  "No. of shares (cr)": [
+    "no. of shares",
+    "no. of shares (cr)",
+    "shares outstanding",
+    "outstanding shares",
+    "equity shares",
+  ],
+  "Adjusted EPS": [
+    "adjusted eps",
+    "adj. eps",
+    "adj eps",
+    "eps",
+    "diluted eps",
+    "basic eps",
+  ],
+
   // Balance Sheet
-  'Current Assets': ['current assets', 'total current assets'],
-  'Cash & Equivalents': ['cash and cash equivalents', 'cash & cash equivalents', 'cash and bank balances', 'cash & bank balances', 'cash', 'bank balances'],
-  'Receivables': ['trade receivables', 'receivables', 'debtors', 'sundry debtors'],
-  'Inventories': ['inventories', 'stocks', 'inventory'],
-  'Other Current Assets': ['other current assets', 'other current asset', 'short-term loans and advances', 'loans and advances'],
-  'Fixed Assets': ['fixed assets', 'property, plant and equipment', 'property, plant & equipment', 'fixed asset', 'ppe', 'tangible assets'],
-  'Intangible Assets': ['intangible assets', 'intangibles', 'goodwill'],
-  'Total Assets': ['total assets', 'assets'],
-  'Current Liabilities': ['current liabilities', 'total current liabilities'],
-  'Payables': ['trade payables', 'payables', 'creditors', 'sundry creditors'],
-  'Short-term Debt': ['short-term borrowings', 'short term borrowings', 'short-term debt', 'short term debt'],
-  'Long-term Debt': ['long-term borrowings', 'long term borrowings', 'long-term debt', 'long term debt'],
-  'Total Liabilities': ['total liabilities', 'liabilities'],
-  'Share Capital': ['share capital', 'equity share capital', 'capital'],
-  'Reserves & Surplus': ['other equity', 'reserves and surplus', 'reserves & surplus', 'retained earnings'],
-  'Total Equity': ['total equity', 'equity', "shareholders' funds", "shareholders' equity"]
+  "Current Assets": ["current assets", "total current assets"],
+  "Cash & Equivalents": [
+    "cash and cash equivalents",
+    "cash & cash equivalents",
+    "cash and bank balances",
+    "cash & bank balances",
+    "cash",
+    "bank balances",
+  ],
+  Receivables: [
+    "trade receivables",
+    "receivables",
+    "debtors",
+    "sundry debtors",
+  ],
+  Inventories: ["inventories", "stocks", "inventory"],
+  "Other Current Assets": [
+    "other current assets",
+    "other current asset",
+    "short-term loans and advances",
+    "loans and advances",
+  ],
+  "Fixed Assets": [
+    "fixed assets",
+    "property, plant and equipment",
+    "property, plant & equipment",
+    "fixed asset",
+    "ppe",
+    "tangible assets",
+  ],
+  "Intangible Assets": ["intangible assets", "intangibles", "goodwill"],
+  "Total Assets": ["total assets", "assets"],
+  "Current Liabilities": ["current liabilities", "total current liabilities"],
+  Payables: ["trade payables", "payables", "creditors", "sundry creditors"],
+  "Short-term Debt": [
+    "short-term borrowings",
+    "short term borrowings",
+    "short-term debt",
+    "short term debt",
+  ],
+  "Long-term Debt": [
+    "long-term borrowings",
+    "long term borrowings",
+    "long-term debt",
+    "long term debt",
+  ],
+  "Total Liabilities": ["total liabilities", "liabilities"],
+  "Share Capital": ["share capital", "equity share capital", "capital"],
+  "Reserves & Surplus": [
+    "other equity",
+    "reserves and surplus",
+    "reserves & surplus",
+    "retained earnings",
+  ],
+  "Total Equity": [
+    "total equity",
+    "equity",
+    "shareholders' funds",
+    "shareholders' equity",
+  ],
 };
 
-function matchWithSynonyms(templateMetric: string, candidateMetric: string | number | null | undefined): boolean {
+function matchWithSynonyms(
+  templateMetric: string,
+  candidateMetric: string | number | null | undefined,
+): boolean {
   if (candidateMetric == null) return false;
-  const cand = String(candidateMetric).toLowerCase().trim().replace(/[\s\-_]+/g, ' ');
-  const temp = templateMetric.toLowerCase().trim().replace(/[\s\-_]+/g, ' ');
+  const cand = String(candidateMetric)
+    .toLowerCase()
+    .trim()
+    .replace(/[\s\-_]+/g, " ");
+  const temp = templateMetric
+    .toLowerCase()
+    .trim()
+    .replace(/[\s\-_]+/g, " ");
   if (cand === temp) return true;
 
   const synonyms = SYNONYM_MAP[templateMetric];
   if (synonyms) {
-    return synonyms.some(s => s.toLowerCase().trim().replace(/[\s\-_]+/g, ' ') === cand);
+    return synonyms.some(
+      (s) =>
+        s
+          .toLowerCase()
+          .trim()
+          .replace(/[\s\-_]+/g, " ") === cand,
+    );
   }
   return false;
 }
 
 function mapToPredefinedRows(
   extractedRows: Record<string, string | number | null>[] | null | undefined,
-  template: string[]
+  template: string[],
 ): Record<string, string | number | null>[] {
   const hasRows = extractedRows && extractedRows.length > 0;
   const periodKeys = hasRows
-    ? Object.keys(extractedRows[0]).filter(k => k !== 'metric' && k !== 'Metric')
-    : ['FY23A', 'FY24A', 'FY25A', 'FY26E', 'FY27E']; // Default placeholder period columns if empty
+    ? Object.keys(extractedRows[0]).filter(
+        (k) => k !== "metric" && k !== "Metric",
+      )
+    : ["FY23A", "FY24A", "FY25A", "FY26E", "FY27E"]; // Default placeholder period columns if empty
 
-  return template.map(metric => {
-    const matchedRow = hasRows ? extractedRows.find(r => {
-      const m = r.metric ?? r.Metric;
-      return matchWithSynonyms(metric, m);
-    }) : undefined;
+  return template.map((metric) => {
+    const matchedRow = hasRows
+      ? extractedRows.find((r) => {
+          const m = r.metric ?? r.Metric;
+          return matchWithSynonyms(metric, m);
+        })
+      : undefined;
 
     const newRow: Record<string, string | number | null> = { metric };
-    periodKeys.forEach(p => {
-      newRow[p] = matchedRow ? (matchedRow[p] ?? '-') : '-';
+    periodKeys.forEach((p) => {
+      newRow[p] = matchedRow ? (matchedRow[p] ?? "-") : "-";
     });
     return newRow;
   });
@@ -453,29 +630,42 @@ function mapToPredefinedRows(
 // ── HTML Builder ──────────────────────────────────────────────────────────────
 
 const RATING_COLOR: Record<string, string> = {
-  BUY: '#008358', ACCUMULATE: '#3b82f6', HOLD: '#f59e0b', REDUCE: '#ef4444', SELL: '#b91c1c',
+  BUY: "#008358",
+  ACCUMULATE: "#3b82f6",
+  HOLD: "#f59e0b",
+  REDUCE: "#ef4444",
+  SELL: "#b91c1c",
 };
 
 function escape(s: string | undefined | null): string {
-  return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return (s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function postProcessNormalizedRows(
   rows: Record<string, string | number | null>[],
-  templateType: 'income' | 'balance' | 'cashflow' | 'ratios',
-  extraData?: { incomeRows?: Record<string, string | number | null>[], balanceRows?: Record<string, string | number | null>[] }
+  templateType: "income" | "balance" | "cashflow" | "ratios",
+  extraData?: {
+    incomeRows?: Record<string, string | number | null>[];
+    balanceRows?: Record<string, string | number | null>[];
+  },
 ): Record<string, string | number | null>[] {
-  const periodKeys = Object.keys(rows[0] || {}).filter(k => k !== 'metric');
+  const periodKeys = Object.keys(rows[0] || {}).filter((k) => k !== "metric");
 
-  const getVal = (rowObj: Record<string, string | number | null | undefined> | undefined, period: string): number | null => {
+  const getVal = (
+    rowObj: Record<string, string | number | null | undefined> | undefined,
+    period: string,
+  ): number | null => {
     if (!rowObj) return null;
     const val = rowObj[period];
-    if (val === null || val === undefined || val === '-') return null;
-    const num = parseFloat(String(val).replace(/[^\d.-]/g, ''));
+    if (val === null || val === undefined || val === "-") return null;
+    const num = parseFloat(String(val).replace(/[^\d.-]/g, ""));
     return isNaN(num) ? null : num;
   };
 
-  if (templateType === 'income') {
+  if (templateType === "income") {
     periodKeys.forEach((p, pIdx) => {
       const getPrevPeriodVal = (rowIdx: number): number | null => {
         if (pIdx === 0) return null;
@@ -487,7 +677,11 @@ function postProcessNormalizedRows(
         const prev = getPrevPeriodVal(valIdx);
         if (cur !== null && prev !== null && prev !== 0) {
           const g = ((cur - prev) / Math.abs(prev)) * 100;
-          if (rows[rowIdx][p] === '-' || rows[rowIdx][p] === null || rows[rowIdx][p] === '') {
+          if (
+            rows[rowIdx][p] === "-" ||
+            rows[rowIdx][p] === null ||
+            rows[rowIdx][p] === ""
+          ) {
             rows[rowIdx][p] = g.toFixed(1);
           }
         }
@@ -504,7 +698,7 @@ function postProcessNormalizedRows(
       const depVal = getVal(rows[4], p) ?? 0;
       if (ebitdaVal !== null) {
         const ebitVal = ebitdaVal - depVal;
-        if (rows[5][p] === '-' || rows[5][p] === null || rows[5][p] === '') {
+        if (rows[5][p] === "-" || rows[5][p] === null || rows[5][p] === "") {
           rows[5][p] = ebitVal.toFixed(1);
         }
       }
@@ -515,7 +709,7 @@ function postProcessNormalizedRows(
       const otherIncVal = getVal(rows[7], p) ?? 0;
       if (ebitVal !== null) {
         const pbtVal = ebitVal - intVal + otherIncVal;
-        if (rows[8][p] === '-' || rows[8][p] === null || rows[8][p] === '') {
+        if (rows[8][p] === "-" || rows[8][p] === null || rows[8][p] === "") {
           rows[8][p] = pbtVal.toFixed(1);
         }
       }
@@ -528,7 +722,7 @@ function postProcessNormalizedRows(
       const pbtVal = getVal(rows[8], p);
       if (taxVal !== null && pbtVal !== null && pbtVal !== 0) {
         const taxRate = (taxVal / pbtVal) * 100;
-        if (rows[11][p] === '-' || rows[11][p] === null || rows[11][p] === '') {
+        if (rows[11][p] === "-" || rows[11][p] === null || rows[11][p] === "") {
           rows[11][p] = taxRate.toFixed(1);
         }
       }
@@ -541,7 +735,7 @@ function postProcessNormalizedRows(
       const sharesVal = getVal(rows[16], p);
       if (patVal !== null && sharesVal !== null && sharesVal !== 0) {
         const epsVal = patVal / sharesVal;
-        if (rows[17][p] === '-' || rows[17][p] === null || rows[17][p] === '') {
+        if (rows[17][p] === "-" || rows[17][p] === null || rows[17][p] === "") {
           rows[17][p] = epsVal.toFixed(2);
         }
       }
@@ -549,7 +743,7 @@ function postProcessNormalizedRows(
       // Adjusted EPS Growth (index 18)
       calculateGrowth(18, 17);
     });
-  } else if (templateType === 'ratios') {
+  } else if (templateType === "ratios") {
     const incRows = extraData?.incomeRows;
     const balRows = extraData?.balanceRows;
 
@@ -559,13 +753,13 @@ function postProcessNormalizedRows(
       const ebitRow = incRows[5];
       const patRow = incRows[14];
 
-      periodKeys.forEach(p => {
+      periodKeys.forEach((p) => {
         const salesVal = getVal(salesRow, p);
-        
+
         // EBITDA margin (index 1) = (EBITDA / Sales) * 100
         const ebitdaVal = getVal(ebitdaRow, p);
         if (salesVal !== null && salesVal !== 0 && ebitdaVal !== null) {
-          if (rows[1][p] === '-' || rows[1][p] === null || rows[1][p] === '') {
+          if (rows[1][p] === "-" || rows[1][p] === null || rows[1][p] === "") {
             rows[1][p] = ((ebitdaVal / salesVal) * 100).toFixed(1);
           }
         }
@@ -573,7 +767,7 @@ function postProcessNormalizedRows(
         // EBIT margin (index 2) = (EBIT / Sales) * 100
         const ebitVal = getVal(ebitRow, p);
         if (salesVal !== null && salesVal !== 0 && ebitVal !== null) {
-          if (rows[2][p] === '-' || rows[2][p] === null || rows[2][p] === '') {
+          if (rows[2][p] === "-" || rows[2][p] === null || rows[2][p] === "") {
             rows[2][p] = ((ebitVal / salesVal) * 100).toFixed(1);
           }
         }
@@ -581,7 +775,7 @@ function postProcessNormalizedRows(
         // Net profit mgn (index 3) = (PAT / Sales) * 100
         const patVal = getVal(patRow, p);
         if (salesVal !== null && salesVal !== 0 && patVal !== null) {
-          if (rows[3][p] === '-' || rows[3][p] === null || rows[3][p] === '') {
+          if (rows[3][p] === "-" || rows[3][p] === null || rows[3][p] === "") {
             rows[3][p] = ((patVal / salesVal) * 100).toFixed(1);
           }
         }
@@ -595,12 +789,12 @@ function postProcessNormalizedRows(
       const stdRow = balRows[10]; // Short-term Debt
       const ltdRow = balRows[11]; // Long-term Debt
 
-      periodKeys.forEach(p => {
+      periodKeys.forEach((p) => {
         // Current Ratio (index 9) = Current Assets / Current Liabilities
         const caVal = getVal(caRow, p);
         const clVal = getVal(clRow, p);
         if (caVal !== null && clVal !== null && clVal !== 0) {
-          if (rows[9][p] === '-' || rows[9][p] === null || rows[9][p] === '') {
+          if (rows[9][p] === "-" || rows[9][p] === null || rows[9][p] === "") {
             rows[9][p] = (caVal / clVal).toFixed(2);
           }
         }
@@ -610,7 +804,11 @@ function postProcessNormalizedRows(
         const ltdVal = getVal(ltdRow, p) ?? 0;
         const equityVal = getVal(equityRow, p);
         if (equityVal !== null && equityVal !== 0) {
-          if (rows[12][p] === '-' || rows[12][p] === null || rows[12][p] === '') {
+          if (
+            rows[12][p] === "-" ||
+            rows[12][p] === null ||
+            rows[12][p] === ""
+          ) {
             rows[12][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
           }
         }
@@ -621,67 +819,129 @@ function postProcessNormalizedRows(
   return rows;
 }
 
-function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string {
-  const status = options.status ?? 'draft';
-  const isDraft = status === 'draft';
+function buildHtml(
+  data: EquityResearchData,
+  options: HtmlReportOptions,
+): string {
+  const status = options.status ?? "draft";
+  const isDraft = status === "draft";
   const rec = data.recommendation;
-  const ratingColor = RATING_COLOR[rec.rating] ?? '#334155';
+  const ratingColor = RATING_COLOR[rec.rating] ?? "#334155";
 
   const dfRaw = data.detailedFinancials;
-  const df: DetailedFinancialsData = Array.isArray(dfRaw) ? (dfRaw[0] ?? {}) : (dfRaw ?? {});
+  const df: DetailedFinancialsData = Array.isArray(dfRaw)
+    ? (dfRaw[0] ?? {})
+    : (dfRaw ?? {});
 
   const inc = data.keyFinancials?.incomeStatement ?? [];
   const rawIncStatement = df.incomeStatement || [];
 
   // Pre-compute and post-process statements to fill missing math values (growth, margins, ratios)
-  const normalizedIncome = postProcessNormalizedRows(mapToPredefinedRows(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE), 'income');
-  const normalizedBalance = postProcessNormalizedRows(mapToPredefinedRows(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE), 'balance');
-  const normalizedCashFlow = postProcessNormalizedRows(mapToPredefinedRows(df.cashFlow, CASH_FLOW_ROW_TEMPLATE), 'cashflow');
-  const normalizedRatios = postProcessNormalizedRows(mapToPredefinedRows(df.ratios, RATIOS_ROW_TEMPLATE), 'ratios', {
-    incomeRows: normalizedIncome,
-    balanceRows: normalizedBalance
-  });
+  const normalizedIncome = postProcessNormalizedRows(
+    mapToPredefinedRows(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE),
+    "income",
+  );
+  const normalizedBalance = postProcessNormalizedRows(
+    mapToPredefinedRows(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE),
+    "balance",
+  );
+  const normalizedCashFlow = postProcessNormalizedRows(
+    mapToPredefinedRows(df.cashFlow, CASH_FLOW_ROW_TEMPLATE),
+    "cashflow",
+  );
+  const normalizedRatios = postProcessNormalizedRows(
+    mapToPredefinedRows(df.ratios, RATIOS_ROW_TEMPLATE),
+    "ratios",
+    {
+      incomeRows: normalizedIncome,
+      balanceRows: normalizedBalance,
+    },
+  );
 
-  const periods = [...new Set([
-    ...inc.map(m => m.period),
-    ...(rawIncStatement.length > 0 ? Object.keys(rawIncStatement[0]).filter(k => k !== 'metric' && k !== 'Metric') : [])
-  ])].sort();
+  const periods = [
+    ...new Set([
+      ...inc.map((m) => m.period),
+      ...(rawIncStatement.length > 0
+        ? Object.keys(rawIncStatement[0]).filter(
+            (k) => k !== "metric" && k !== "Metric",
+          )
+        : []),
+    ]),
+  ].sort();
 
   const getValues = (metricName: string) => {
-    const row = normalizedIncome.find(r => r.metric === metricName);
-    return periods.map(p => {
+    const row = normalizedIncome.find((r) => r.metric === metricName);
+    return periods.map((p) => {
       const val = row ? row[p] : null;
-      return val !== null && val !== undefined && val !== '-' ? parseNum(String(val)) : 0;
+      return val !== null && val !== undefined && val !== "-"
+        ? parseNum(String(val))
+        : 0;
     });
   };
 
-  const revenue = getValues('Sales');
-  const ebitda = getValues('EBITDA');
-  const pat = getValues('Reported PAT');
-  const ebitdaMargins = revenue.map((r, i) => r > 0 ? parseFloat(((ebitda[i] / r) * 100).toFixed(1)) : 0);
-  const patMargins = revenue.map((r, i) => r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0);
+  const revenue = getValues("Sales");
+  const ebitda = getValues("EBITDA");
+  const pat = getValues("Reported PAT");
+  const ebitdaMargins = revenue.map((r, i) =>
+    r > 0 ? parseFloat(((ebitda[i] / r) * 100).toFixed(1)) : 0,
+  );
+  const patMargins = revenue.map((r, i) =>
+    r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0,
+  );
 
-  let quarterLabel = 'Q1FY26';
+  let quarterLabel = "Q1FY26";
   if (data.quarterlyFinancials && data.quarterlyFinancials.length > 0) {
-    const qKeys = Object.keys(data.quarterlyFinancials[0]).filter(k => k.startsWith('q') && !k.includes('growth') && !k.includes('Growth'));
+    const qKeys = Object.keys(data.quarterlyFinancials[0]).filter(
+      (k) =>
+        k.startsWith("q") && !k.includes("growth") && !k.includes("Growth"),
+    );
     if (qKeys.length > 0) {
       quarterLabel = qKeys[0].toUpperCase();
     }
   }
 
   // Geojit Style: Primary Bars are Teal/Green (#008358), Trend Line is Orange (#d97706)
-  const revChart = svgComboChart(periods, revenue, ebitdaMargins, '#008358', '#d97706', '%');
-  const ebitdaChart = svgComboChart(periods, ebitda, ebitdaMargins, '#008358', '#d97706', '%');
-  const patChart = svgComboChart(periods, pat, patMargins, '#008358', '#d97706', '%');
+  const revChart = svgComboChart(
+    periods,
+    revenue,
+    ebitdaMargins,
+    "#008358",
+    "#d97706",
+    "%",
+  );
+  const ebitdaChart = svgComboChart(
+    periods,
+    ebitda,
+    ebitdaMargins,
+    "#008358",
+    "#d97706",
+    "%",
+  );
+  const patChart = svgComboChart(
+    periods,
+    pat,
+    patMargins,
+    "#008358",
+    "#d97706",
+    "%",
+  );
 
   let sectorChart = `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:9.5pt;color:#64748b;font-weight:600;">Not applicable for this sector</div>`;
-  const isDeliverySector = ['delivery', 'logistics', 'e-commerce', 'retail', 'quick commerce'].some(sec =>
-    data.company.sector?.toLowerCase().includes(sec) || data.company.industry?.toLowerCase().includes(sec)
+  const isDeliverySector = [
+    "delivery",
+    "logistics",
+    "e-commerce",
+    "retail",
+    "quick commerce",
+  ].some(
+    (sec) =>
+      data.company.sector?.toLowerCase().includes(sec) ||
+      data.company.industry?.toLowerCase().includes(sec),
   );
   if (isDeliverySector) {
-    const govValues = getValues('Gross Order Value');
-    if (govValues.length > 0 && govValues.some(v => v > 0)) {
-      sectorChart = svgBarChart(periods, govValues, '#008358');
+    const govValues = getValues("Gross Order Value");
+    if (govValues.length > 0 && govValues.some((v) => v > 0)) {
+      sectorChart = svgBarChart(periods, govValues, "#008358");
     }
   }
 
@@ -694,81 +954,110 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const recHistoryChart = svgRecommendationChart(recSum);
   const fiveYear = data.fiveYearSummary ?? [];
 
-  let shHeaders = '<th>Category</th>';
-  let shRows = '';
+  let shHeaders = "<th>Category</th>";
+  let shRows = "";
   if (sh.length > 0) {
     const sharePeriods = sh[0]?.periods ?? [];
-    shHeaders = `<th>Category</th>` + sharePeriods.map(p => `<th>${escape(p)}</th>`).join('');
-    shRows = sh.map(row => {
-      const vals = row.values ?? [];
-      return `<tr>
+    shHeaders =
+      `<th>Category</th>` +
+      sharePeriods.map((p) => `<th>${escape(p)}</th>`).join("");
+    shRows = sh
+      .map((row) => {
+        const vals = row.values ?? [];
+        return `<tr>
         <td class="metric-label">${escape(row.category)}</td>
-        ${vals.map(v => `<td>${v != null ? escape(String(v)) : '-'}</td>`).join('')}
+        ${vals.map((v) => `<td>${v != null ? escape(String(v)) : "-"}</td>`).join("")}
       </tr>`;
-    }).join('');
+      })
+      .join("");
   }
 
-  const qfRows = qf.map(row => `
+  const qfRows = qf
+    .map(
+      (row) => `
     <tr>
       <td class="metric-label">${escape(row.metric)}</td>
-      <td>${row.q1fy26 != null ? escape(String(row.q1fy26)) : '-'}</td>
-      <td>${row.q1fy25 != null ? escape(String(row.q1fy25)) : '-'}</td>
-      <td>${row.yoyGrowth != null ? escape(String(row.yoyGrowth)) : '-'}</td>
-      <td>${row.q4fy25 != null ? escape(String(row.q4fy25)) : '-'}</td>
-      <td>${row.qoqGrowth != null ? escape(String(row.qoqGrowth)) : '-'}</td>
+      <td>${row.q1fy26 != null ? escape(String(row.q1fy26)) : "-"}</td>
+      <td>${row.q1fy25 != null ? escape(String(row.q1fy25)) : "-"}</td>
+      <td>${row.yoyGrowth != null ? escape(String(row.yoyGrowth)) : "-"}</td>
+      <td>${row.q4fy25 != null ? escape(String(row.q4fy25)) : "-"}</td>
+      <td>${row.qoqGrowth != null ? escape(String(row.qoqGrowth)) : "-"}</td>
     </tr>
-  `).join('');
+  `,
+    )
+    .join("");
 
-  const estRows = est.map(row => `
+  const estRows = est
+    .map(
+      (row) => `
     <tr>
       <td class="metric-label">${escape(row.metric)}</td>
-      <td>${row.oldFY26 != null ? escape(String(row.oldFY26)) : '-'}</td>
-      <td>${row.oldFY27 != null ? escape(String(row.oldFY27)) : '-'}</td>
-      <td>${row.newFY26 != null ? escape(String(row.newFY26)) : '-'}</td>
-      <td>${row.newFY27 != null ? escape(String(row.newFY27)) : '-'}</td>
-      <td>${row.changeFY26 != null ? escape(String(row.changeFY26)) : '-'}</td>
-      <td>${row.changeFY27 != null ? escape(String(row.changeFY27)) : '-'}</td>
+      <td>${row.oldFY26 != null ? escape(String(row.oldFY26)) : "-"}</td>
+      <td>${row.oldFY27 != null ? escape(String(row.oldFY27)) : "-"}</td>
+      <td>${row.newFY26 != null ? escape(String(row.newFY26)) : "-"}</td>
+      <td>${row.newFY27 != null ? escape(String(row.newFY27)) : "-"}</td>
+      <td>${row.changeFY26 != null ? escape(String(row.changeFY26)) : "-"}</td>
+      <td>${row.changeFY27 != null ? escape(String(row.changeFY27)) : "-"}</td>
     </tr>
-  `).join('');
+  `,
+    )
+    .join("");
 
-  const renderDetailTable = (normalizedRows: Record<string, string | number | null>[]) => {
-    if (!normalizedRows || normalizedRows.length === 0) return '<div class="text-center py-4 text-xs text-slate-400">No data available</div>';
-    const keys = Object.keys(normalizedRows[0]).filter(k => k !== 'metric');
-    const headerHtml = `<tr><th>Metric</th>` + keys.map(k => `<th>${escape(k.toUpperCase())}</th>`).join('') + `</tr>`;
-    const rowsHtml = normalizedRows.map(r => {
-      const metricName = String(r.metric);
-      const isSubHeader = ['profitab. & return', 'w.c & liquidity', 'valuation'].includes(metricName.toLowerCase().trim());
-      if (isSubHeader) {
-        return `
+  const renderDetailTable = (
+    normalizedRows: Record<string, string | number | null>[],
+  ) => {
+    if (!normalizedRows || normalizedRows.length === 0)
+      return '<div class="text-center py-4 text-xs text-slate-400">No data available</div>';
+    const keys = Object.keys(normalizedRows[0]).filter((k) => k !== "metric");
+    const headerHtml =
+      `<tr><th>Metric</th>` +
+      keys.map((k) => `<th>${escape(k.toUpperCase())}</th>`).join("") +
+      `</tr>`;
+    const rowsHtml = normalizedRows
+      .map((r) => {
+        const metricName = String(r.metric);
+        const isSubHeader = [
+          "profitab. & return",
+          "w.c & liquidity",
+          "valuation",
+        ].includes(metricName.toLowerCase().trim());
+        if (isSubHeader) {
+          return `
           <tr style="background: #f1f5f9; font-weight: bold; text-align: left;">
             <td colspan="${keys.length + 1}" style="padding-left: 6px; font-size: 7.2pt; color: #475569;">${escape(metricName)}</td>
           </tr>
         `;
-      }
-      return `
+        }
+        return `
         <tr>
           <td class="metric-label">${escape(metricName)}</td>
-          ${keys.map(k => `<td>${r[k] != null ? escape(String(r[k])) : '-'}</td>`).join('')}
+          ${keys.map((k) => `<td>${r[k] != null ? escape(String(r[k])) : "-"}</td>`).join("")}
         </tr>
       `;
-    }).join('');
+      })
+      .join("");
     return `<table class="fin-table thin-border"><thead>${headerHtml}</thead><tbody>${rowsHtml}</tbody></table>`;
   };
 
-  const draftBanner = isDraft ? `
+  const draftBanner = isDraft
+    ? `
   <div class="draft-banner">
     ⚠ AI-GENERATED DRAFT — NOT FOR DISTRIBUTION
     <div class="draft-sub">This report was generated by EquiGen AI and has not been reviewed by a SEBI-registered Research Analyst. It does not constitute investment advice.</div>
-  </div>` : '';
+  </div>`
+    : "";
 
-  const watermark = isDraft ? `<div class="watermark">DRAFT</div>` : '';
+  const watermark = isDraft ? `<div class="watermark">DRAFT</div>` : "";
 
-  const publishedBlock = (!isDraft && options.reviewerName) ? `
+  const publishedBlock =
+    !isDraft && options.reviewerName
+      ? `
   <div class="published-block">
     <strong>Reviewed & Approved by:</strong> ${escape(options.reviewerName)}<br>
-    <strong>SEBI RA Reg No:</strong> ${escape(options.sebiRegNo ?? '')}<br>
-    <strong>Approved On:</strong> ${options.approvedAt ? new Date(options.approvedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}
-  </div>` : '';
+    <strong>SEBI RA Reg No:</strong> ${escape(options.sebiRegNo ?? "")}<br>
+    <strong>Approved On:</strong> ${options.approvedAt ? new Date(options.approvedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : ""}
+  </div>`
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -887,10 +1176,10 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   }
   .identifiers-bar .val-accent { color: #008358; font-weight: 800; }
 
-  .fin-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 0; }
-  .fin-table th { background: #07877B; color: #fff; padding: 3px 6px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 7pt; text-transform: uppercase; }
+  .fin-table { width: 100%; border-collapse: collapse; font-size: 6.8pt; margin-bottom: 0; }
+  .fin-table th { background: #07877B; color: #fff; padding: 2.2px 4px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 6.5pt; text-transform: uppercase; }
   .fin-table th:first-child { text-align: left; }
-  .fin-table td { padding: 3px 6px; text-align: right; border: 0.5px solid #e2e8f0; color: #000000; }
+  .fin-table td { padding: 2.2px 4px; text-align: right; border: 0.5px solid #e2e8f0; color: #000000; }
   .fin-table td.metric-label { text-align: left; font-weight: 700; color: #000000; }
   .fin-table tr:nth-child(even) td { background: #f8fafc; }
   .thin-border th, .thin-border td { border: 0.25px solid #cbd5e1; }
@@ -952,15 +1241,15 @@ ${watermark}
       
       <!-- Recommendation Box -->
       <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 16px; font-size: 16pt; font-weight: 900; color: ${ratingColor}; text-align: center; min-width: 120px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-transform: uppercase;">
-        ${escape(rec.rating || 'HOLD')}
+        ${escape(rec.rating || "HOLD")}
       </div>
     </div>
   </div>
 
   <!-- Sector and Date metadata line -->
   <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #000; font-weight: 700; margin-bottom: 2mm; border-bottom: 1px solid #cbd5e1; padding-bottom: 1.5mm;">
-    <span>Sector: ${escape(data.company.sector || 'General Corporate')}</span>
-    <span>Date: ${escape(data.company.reportDate || '-')}</span>
+    <span>Sector: ${escape(data.company.sector || "General Corporate")}</span>
+    <span>Date: ${escape(data.company.reportDate || "-")}</span>
   </div>
 
   <!-- Flex container matching Geojit two-column header design exactly -->
@@ -1004,12 +1293,12 @@ ${watermark}
 
           <!-- Row 3: Values -->
           <tr style="color: #000; font-size: 7.5pt; font-weight: 700;">
-            <td style="text-align: left; padding: 2px 0 4px 12px;">${escape(data.stockType || 'Large Cap')}</td>
-            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bloombergCode || '-')}</td>
-            <td style="text-align: center; padding: 2px 0 4px 0;">${data.sensexValue != null ? escape(String(data.sensexValue)) : '-'}</td>
-            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.nseCode || '-')}</td>
-            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bseCode || '-')}</td>
-            <td style="text-align: right; padding: 2px 12px 4px 0;">${escape(data.timeFrame || '12 Months')}</td>
+            <td style="text-align: left; padding: 2px 0 4px 12px;">${escape(data.stockType || "Large Cap")}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bloombergCode || "-")}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${data.sensexValue != null ? escape(String(data.sensexValue)) : "-"}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.nseCode || "-")}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bseCode || "-")}</td>
+            <td style="text-align: right; padding: 2px 12px 4px 0;">${escape(data.timeFrame || "12 Months")}</td>
           </tr>
         </tbody>
       </table>
@@ -1021,16 +1310,16 @@ ${watermark}
         <tbody>
           <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
             <td style="text-align: left; padding: 4px 0 2px 12px; width: 40%;">Target</td>
-            <td style="text-align: right; padding: 4px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.targetPrice != null && rec.targetPrice > 0 ? `Rs. ${rec.targetPrice.toLocaleString('en-IN')}` : '-'}</td>
+            <td style="text-align: right; padding: 4px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.targetPrice != null && rec.targetPrice > 0 ? `Rs. ${rec.targetPrice.toLocaleString("en-IN")}` : "-"}</td>
           </tr>
           <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
             <td style="text-align: left; padding: 2px 0 2px 12px;">CMP</td>
-            <td style="text-align: right; padding: 2px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString('en-IN')}` : '-'}</td>
+            <td style="text-align: right; padding: 2px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString("en-IN")}` : "-"}</td>
           </tr>
           <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
             <td style="text-align: left; padding: 2px 0 4px 12px;">Return</td>
             <td style="text-align: right; padding: 2px 12px 4px 0; font-weight: 800; font-size: 8.5pt; color: #000;">
-              ${rec.currentPrice != null && rec.currentPrice > 0 && rec.targetPrice != null && rec.targetPrice > 0 && rec.upsidePotential != null ? `${rec.upsidePotential >= 0 ? '+' : ''}${rec.upsidePotential.toFixed(1)}%` : '-'}
+              ${rec.currentPrice != null && rec.currentPrice > 0 && rec.targetPrice != null && rec.targetPrice > 0 && rec.upsidePotential != null ? `${rec.upsidePotential >= 0 ? "+" : ""}${rec.upsidePotential.toFixed(1)}%` : "-"}
             </td>
           </tr>
         </tbody>
@@ -1043,24 +1332,28 @@ ${watermark}
     <div class="left-rail">
       <div class="section-header" style="margin-top:0;">Company Data</div>
       <table class="fin-table thin-border">
-        <tr><td class="metric-label" style="font-size:7pt;">Market Cap (Rs. cr)</td><td>${cd.marketCap != null ? escape(String(cd.marketCap)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">52 W High-Low (Rs.)</td><td>${cd.highLow52W != null ? escape(String(cd.highLow52W)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">EV (Rs. cr)</td><td>${cd.enterpriseValue != null ? escape(String(cd.enterpriseValue)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">Outstanding Shares (cr)</td><td>${cd.outstandingShares != null ? escape(String(cd.outstandingShares)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">Free Float (%)</td><td>${cd.freeFloat != null ? escape(String(cd.freeFloat)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">Dividend Yield (%)</td><td>${cd.dividendYield != null ? escape(String(cd.dividendYield)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">6m Avg Vol (cr)</td><td>${cd.avgVolume6m != null ? escape(String(cd.avgVolume6m)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">Beta</td><td>${cd.beta != null ? escape(String(cd.beta)) : '-'}</td></tr>
-        <tr><td class="metric-label" style="font-size:7pt;">Face Value (Rs.)</td><td>${cd.faceValue != null ? escape(String(cd.faceValue)) : '-'}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Market Cap (Rs. cr)</td><td>${cd.marketCap != null ? escape(String(cd.marketCap)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">52 W High-Low (Rs.)</td><td>${cd.highLow52W != null ? escape(String(cd.highLow52W)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">EV (Rs. cr)</td><td>${cd.enterpriseValue != null ? escape(String(cd.enterpriseValue)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Outstanding Shares (cr)</td><td>${cd.outstandingShares != null ? escape(String(cd.outstandingShares)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Free Float (%)</td><td>${cd.freeFloat != null ? escape(String(cd.freeFloat)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Dividend Yield (%)</td><td>${cd.dividendYield != null ? escape(String(cd.dividendYield)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">6m Avg Vol (cr)</td><td>${cd.avgVolume6m != null ? escape(String(cd.avgVolume6m)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Beta</td><td>${cd.beta != null ? escape(String(cd.beta)) : "-"}</td></tr>
+        <tr><td class="metric-label" style="font-size:7pt;">Face Value (Rs.)</td><td>${cd.faceValue != null ? escape(String(cd.faceValue)) : "-"}</td></tr>
       </table>
 
       <div class="section-header">Shareholding (%)</div>
-      ${shRows ? `
+      ${
+        shRows
+          ? `
       <table class="fin-table thin-border">
         <thead><tr>${shHeaders}</tr></thead>
         <tbody>${shRows}</tbody>
-      </table>` : '<p style="font-size:7pt; color:#64748b;">No shareholding data available.</p>'}
-      <div style="font-size:6.5pt; font-weight:600; margin-top: 0.5mm;">Promoter Pledge: <span style="font-weight:400; color:#334155;">${escape(data.promoterPledge != null ? String(data.promoterPledge) : 'Nil')}</span></div>
+      </table>`
+          : '<p style="font-size:7pt; color:#64748b;">No shareholding data available.</p>'
+      }
+      <div style="font-size:6.5pt; font-weight:600; margin-top: 0.5mm;">Promoter Pledge: <span style="font-weight:400; color:#334155;">${escape(data.promoterPledge != null ? String(data.promoterPledge) : "Nil")}</span></div>
 
       <div class="section-header">Price Performance (%)</div>
       <table class="fin-table thin-border">
@@ -1073,16 +1366,24 @@ ${watermark}
           </tr>
         </thead>
         <tbody>
-          ${pp.length > 0 ? pp.map(p => `
+          ${
+            pp.length > 0
+              ? pp
+                  .map(
+                    (p) => `
             <tr>
               <td class="metric-label" style="font-size:7pt;">${escape(p.period)}</td>
-              <td>${p.absoluteReturn || '-'}</td>
-              <td>${p.absoluteSensex || '-'}</td>
-              <td>${p.relativeReturn || '-'}</td>
+              <td>${p.absoluteReturn || "-"}</td>
+              <td>${p.absoluteSensex || "-"}</td>
+              <td>${p.relativeReturn || "-"}</td>
             </tr>
-          `).join('') : `
+          `,
+                  )
+                  .join("")
+              : `
             <tr><td colspan="4">No data.</td></tr>
-          `}
+          `
+          }
         </tbody>
       </table>
     </div>
@@ -1091,25 +1392,34 @@ ${watermark}
     <div class="right-rail">
 
 
-      ${data.headlineTakeaway ? `<div class="company-headline" style="margin-top: 1mm; margin-bottom: 2mm;">${escape(data.headlineTakeaway)}</div>` : ''}
+      ${data.headlineTakeaway ? `<div class="company-headline" style="margin-top: 1mm; margin-bottom: 2mm;">${escape(data.headlineTakeaway)}</div>` : ""}
 
       <div class="section-header" style="margin-top:0;">Company Overview</div>
-      <div class="para">${escape(data.businessOverview || 'No company overview available.')}</div>
+      <div class="para">${escape(data.businessOverview || "No company overview available.")}</div>
 
       <div class="section-header">Key Highlights</div>
       <ul class="bullet-list">
-        ${data.pageOneHighlights && data.pageOneHighlights.length > 0
-      ? data.pageOneHighlights.map(r => `<li>${escape(r)}</li>`).join('')
-      : (data.recommendation.rationale && data.recommendation.rationale.length > 0
-        ? data.recommendation.rationale.map(r => `<li>${escape(r)}</li>`).join('')
-        : '<li>Analytical highlight details are currently unavailable.</li>')}
+        ${
+          data.pageOneHighlights && data.pageOneHighlights.length > 0
+            ? data.pageOneHighlights
+                .map((r) => `<li>${escape(r)}</li>`)
+                .join("")
+            : data.recommendation.rationale &&
+                data.recommendation.rationale.length > 0
+              ? data.recommendation.rationale
+                  .map((r) => `<li>${escape(r)}</li>`)
+                  .join("")
+              : "<li>Analytical highlight details are currently unavailable.</li>"
+        }
       </ul>
 
       <div class="section-header">Outlook &amp; Valuation</div>
-      <div class="para">${escape(data.valuationAnalysis || 'No valuation outlook available.')}</div>
+      <div class="para">${escape(data.valuationAnalysis || "No valuation outlook available.")}</div>
 
       <div class="section-header">Quarterly Financials Consolidated</div>
-      ${qfRows ? `
+      ${
+        qfRows
+          ? `
       <table class="fin-table thin-border">
         <thead>
           <tr>
@@ -1122,7 +1432,9 @@ ${watermark}
           </tr>
         </thead>
         <tbody>${qfRows}</tbody>
-      </table>` : '<p style="font-size:7pt; color:#64748b;">No quarterly financials available.</p>'}
+      </table>`
+          : '<p style="font-size:7pt; color:#64748b;">No quarterly financials available.</p>'
+      }
     </div>
   </div>
 </div>
@@ -1140,7 +1452,9 @@ ${watermark}
     <!-- Left Column (Narrow Left Rail) -->
     <div class="left-rail">
       <div class="section-header" style="margin-top:0;">5-Year March Summary</div>
-      ${fiveYear.length > 0 ? `
+      ${
+        fiveYear.length > 0
+          ? `
       <table class="fin-table thin-border" style="font-size:6pt;">
         <thead>
           <tr>
@@ -1151,27 +1465,31 @@ ${watermark}
           </tr>
         </thead>
         <tbody>
-          <tr><td class="metric-label">Sales (cr)</td>${fiveYear.map(f => `<td>${f.sales ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map(f => `<td>${f.salesGrowth ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">EBITDA (cr)</td>${fiveYear.map(f => `<td>${f.ebitda ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Margin (%)</td>${fiveYear.map(f => `<td>${f.ebitdaMargin ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Adj. PAT (cr)</td>${fiveYear.map(f => `<td>${f.patAdjusted ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map(f => `<td>${f.patGrowth ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Adj. EPS (Rs)</td>${fiveYear.map(f => `<td>${f.adjEps ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map(f => `<td>${f.epsGrowth ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">P/E (x)</td>${fiveYear.map(f => `<td>${f.pe ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">P/B (x)</td>${fiveYear.map(f => `<td>${f.pb ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">EV/EBITDA</td>${fiveYear.map(f => `<td>${f.evEbitda ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">ROE (%)</td>${fiveYear.map(f => `<td>${f.roe ?? '-'}</td>`).join('')}</tr>
-          <tr><td class="metric-label">D/E ratio</td>${fiveYear.map(f => `<td>${f.deRatio ?? '-'}</td>`).join('')}</tr>
+          <tr><td class="metric-label">Sales (cr)</td>${fiveYear.map((f) => `<td>${f.sales ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map((f) => `<td>${f.salesGrowth ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">EBITDA (cr)</td>${fiveYear.map((f) => `<td>${f.ebitda ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Margin (%)</td>${fiveYear.map((f) => `<td>${f.ebitdaMargin ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Adj. PAT (cr)</td>${fiveYear.map((f) => `<td>${f.patAdjusted ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map((f) => `<td>${f.patGrowth ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Adj. EPS (Rs)</td>${fiveYear.map((f) => `<td>${f.adjEps ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Growth (%)</td>${fiveYear.map((f) => `<td>${f.epsGrowth ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">P/E (x)</td>${fiveYear.map((f) => `<td>${f.pe ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">P/B (x)</td>${fiveYear.map((f) => `<td>${f.pb ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">EV/EBITDA</td>${fiveYear.map((f) => `<td>${f.evEbitda ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">ROE (%)</td>${fiveYear.map((f) => `<td>${f.roe ?? "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">D/E ratio</td>${fiveYear.map((f) => `<td>${f.deRatio ?? "-"}</td>`).join("")}</tr>
         </tbody>
-      </table>` : '<p style="font-size:6.5pt; color:#64748b;">No summary data.</p>'}
+      </table>`
+          : '<p style="font-size:6.5pt; color:#64748b;">No summary data.</p>'
+      }
     </div>
 
     <!-- Right Column (Wide Right Rail) -->
     <div class="right-rail">
       <div class="section-header" style="margin-top:0;">Old estimates vs New estimates</div>
-      ${estRows ? `
+      ${
+        estRows
+          ? `
       <table class="fin-table thin-border">
         <thead>
           <tr>
@@ -1190,13 +1508,19 @@ ${watermark}
           </tr>
         </thead>
         <tbody>${estRows}</tbody>
-      </table>` : '<p style="font-size:7.5pt; color:#64748b;">No estimates change data available.</p>'}
+      </table>`
+          : '<p style="font-size:7.5pt; color:#64748b;">No estimates change data available.</p>'
+      }
 
       <div class="section-header">Key Highlights &amp; Insights</div>
       <ul class="bullet-list" style="margin-bottom: 2mm;">
-        ${data.pageTwoHighlights && data.pageTwoHighlights.length > 0
-      ? data.pageTwoHighlights.map(h => `<li>${escape(h)}</li>`).join('')
-      : `<li>${escape(data.narrativeSummary || data.executiveSummary || 'No additional highlights available.')}</li>`}
+        ${
+          data.pageTwoHighlights && data.pageTwoHighlights.length > 0
+            ? data.pageTwoHighlights
+                .map((h) => `<li>${escape(h)}</li>`)
+                .join("")
+            : `<li>${escape(data.narrativeSummary || data.executiveSummary || "No additional highlights available.")}</li>`
+        }
       </ul>
     </div>
   </div>
@@ -1219,7 +1543,7 @@ ${watermark}
       <div class="chart-svg-wrap">${patChart}</div>
     </div>
     <div class="chart-box">
-      <div class="chart-title">${isDeliverySector ? 'Gross Order Value (₹ Cr)' : 'Sector Operating Metric'}</div>
+      <div class="chart-title">${isDeliverySector ? "Gross Order Value (₹ Cr)" : "Sector Operating Metric"}</div>
       <div class="chart-svg-wrap">${sectorChart}</div>
     </div>
   </div>
@@ -1285,15 +1609,23 @@ ${watermark}
           </tr>
         </thead>
         <tbody>
-          ${recSum.length > 0 ? recSum.map(r => `
+          ${
+            recSum.length > 0
+              ? recSum
+                  .map(
+                    (r) => `
             <tr>
               <td class="metric-label" style="font-size:7.5pt;">${escape(r.date)}</td>
               <td style="text-align: center;">${escape(r.rating)}</td>
-              <td style="text-align: right;">${r.target != null ? escape(String(r.target)) : '-'}</td>
+              <td style="text-align: right;">${r.target != null ? escape(String(r.target)) : "-"}</td>
             </tr>
-          `).join('') : `
+          `,
+                  )
+                  .join("")
+              : `
             <tr><td colspan="3">No history available.</td></tr>
-          `}
+          `
+          }
         </tbody>
       </table>
     </div>
@@ -1321,7 +1653,7 @@ ${watermark}
 
   <div class="disclaimer">
     <strong>DISCLAIMER &amp; DISCLOSURES</strong><br><br>
-    <strong>1. Certification:</strong> I, ${escape(options.reviewerName || 'Research Analyst')}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of EquiGen Investments Limited (GIL).<br>
+    <strong>1. Certification:</strong> I, ${escape(options.reviewerName || "Research Analyst")}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of EquiGen Investments Limited (GIL).<br>
     <strong>2. Crisil support:</strong> CRISIL has provided research support in preparation of this research report and the investment rationale contained herein along with financial forecast. The target price and recommendation provided in the report are strictly GIL's views and are NOT PROVIDED by CRISIL. Further, CRISIL expresses no opinion on valuation and the associated recommendations.<br>
     <strong>3. Ownership &amp; connection:</strong> GIL or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither GIL, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
     <strong>4. Compensation &amp; disclosures:</strong> GIL, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
@@ -1345,7 +1677,7 @@ export class HtmlReportGenerator {
    */
   static async generateHTML(
     data: EquityResearchData,
-    options: HtmlReportOptions = {}
+    options: HtmlReportOptions = {},
   ): Promise<string> {
     return buildHtml(data, options);
   }

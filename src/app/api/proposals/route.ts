@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { applyFieldUpdates } from '@/lib/report/proposal-apply';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { applyFieldUpdates } from "@/lib/report/proposal-apply";
 
 /**
  * GET /api/proposals?reportId=...
@@ -15,21 +15,27 @@ import { applyFieldUpdates } from '@/lib/report/proposal-apply';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const reportId = searchParams.get('reportId');
+    const reportId = searchParams.get("reportId");
 
     if (!reportId) {
-      return NextResponse.json({ message: 'Missing reportId parameter.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing reportId parameter." },
+        { status: 400 },
+      );
     }
 
     const proposals = await prisma.correctionProposal.findMany({
       where: { reportId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json(proposals);
   } catch (error) {
-    console.error('Failed to fetch proposals:', error);
-    return NextResponse.json({ message: 'Failed to fetch proposals' }, { status: 500 });
+    console.error("Failed to fetch proposals:", error);
+    return NextResponse.json(
+      { message: "Failed to fetch proposals" },
+      { status: 500 },
+    );
   }
 }
 
@@ -39,7 +45,10 @@ export async function POST(req: NextRequest) {
     const { reportId, field, oldValue, newValue, reasoning, origin } = body;
 
     if (!reportId || !field) {
-      return NextResponse.json({ message: 'Missing required parameters.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing required parameters." },
+        { status: 400 },
+      );
     }
 
     const proposal = await prisma.correctionProposal.create({
@@ -49,30 +58,33 @@ export async function POST(req: NextRequest) {
         oldValue,
         newValue,
         reasoning: reasoning || null,
-        origin: origin || 'math_auditor'
-      }
+        origin: origin || "math_auditor",
+      },
     });
 
     // Write audit log entry
     await prisma.auditLog.create({
       data: {
         reportId,
-        userId: 'system',
-        actorType: 'system',
-        action: 'field_correction_proposed',
+        userId: "system",
+        actorType: "system",
+        action: "field_correction_proposed",
         metadata: {
           field,
           proposalId: proposal.id,
           oldValue,
-          newValue
-        }
-      }
+          newValue,
+        },
+      },
     });
 
     return NextResponse.json(proposal);
   } catch (error) {
-    console.error('Failed to create proposal:', error);
-    return NextResponse.json({ message: 'Failed to create proposal' }, { status: 500 });
+    console.error("Failed to create proposal:", error);
+    return NextResponse.json(
+      { message: "Failed to create proposal" },
+      { status: 500 },
+    );
   }
 }
 
@@ -81,61 +93,83 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { proposalId, status, reviewerName } = body; // status = 'approved' | 'rejected'
 
-    if (!proposalId || !status || (status !== 'approved' && status !== 'rejected')) {
-      return NextResponse.json({ message: 'Invalid payload.' }, { status: 400 });
+    if (
+      !proposalId ||
+      !status ||
+      (status !== "approved" && status !== "rejected")
+    ) {
+      return NextResponse.json(
+        { message: "Invalid payload." },
+        { status: 400 },
+      );
     }
 
     const existing = await prisma.correctionProposal.findUnique({
-      where: { id: proposalId }
+      where: { id: proposalId },
     });
 
     if (!existing) {
-      return NextResponse.json({ message: 'Proposal not found.' }, { status: 404 });
+      return NextResponse.json(
+        { message: "Proposal not found." },
+        { status: 404 },
+      );
     }
 
-    if (status === 'approved') {
-      await applyFieldUpdates(existing.reportId, [{
-        field: existing.field,
-        newValue: existing.newValue,
-        oldValue: existing.oldValue ?? undefined,
-        reasoning: existing.reasoning
-      }], {
-        sessionId: existing.sessionId,
-        actorId: reviewerName || 'analyst',
-        actorType: 'human'
-      });
+    if (status === "approved") {
+      await applyFieldUpdates(
+        existing.reportId,
+        [
+          {
+            field: existing.field,
+            newValue: existing.newValue,
+            oldValue: existing.oldValue ?? undefined,
+            reasoning: existing.reasoning,
+          },
+        ],
+        {
+          sessionId: existing.sessionId,
+          actorId: reviewerName || "analyst",
+          actorType: "human",
+        },
+      );
     }
 
     const updated = await prisma.correctionProposal.update({
       where: { id: proposalId },
       data: {
         status,
-        reviewedBy: reviewerName || 'analyst',
-        reviewedAt: new Date()
-      }
+        reviewedBy: reviewerName || "analyst",
+        reviewedAt: new Date(),
+      },
     });
 
     // Log the action
     await prisma.auditLog.create({
       data: {
         reportId: existing.reportId,
-        userId: reviewerName || 'analyst',
-        actorType: 'human',
-        action: status === 'approved' ? 'field_correction_approved' : 'field_correction_rejected',
+        userId: reviewerName || "analyst",
+        actorType: "human",
+        action:
+          status === "approved"
+            ? "field_correction_approved"
+            : "field_correction_rejected",
         metadata: {
           proposalId,
           field: existing.field,
           oldValue: existing.oldValue,
-          newValue: existing.newValue
-        }
-      }
+          newValue: existing.newValue,
+        },
+      },
     });
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error('Failed to update proposal:', error);
-    return NextResponse.json({ message: 'Failed to update proposal' }, { status: 500 });
+    console.error("Failed to update proposal:", error);
+    return NextResponse.json(
+      { message: "Failed to update proposal" },
+      { status: 500 },
+    );
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
