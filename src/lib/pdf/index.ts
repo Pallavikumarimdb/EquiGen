@@ -1,4 +1,3 @@
-import puppeteer from 'puppeteer';
 import { EquityResearchData } from '@/types';
 import { HtmlReportGenerator } from '@/lib/ai/html-report-generator';
 import fs from 'fs';
@@ -37,20 +36,37 @@ export class PDFGenerationService {
     } catch { /* non-fatal */ }
 
     // 2. Render HTML → PDF with Puppeteer
-    console.log('[PDF] Launching Puppeteer...');
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--font-render-hinting=none',
-      ],
-    });
+    console.log('[PDF] Launching browser...');
+    let browser: any;
+    const isVercel = process.env.VERCEL === '1' || process.env.AWS_EXECUTION_ENV;
+
+    if (isVercel) {
+      console.log('[PDF] Running on Vercel/Serverless. Using sparticuz-chromium...');
+      const puppeteerCore = await import('puppeteer-core');
+      const chromium = (await import('@sparticuz/chromium')).default as any;
+      browser = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless === 'shell' ? true : chromium.headless,
+      });
+    } else {
+      console.log('[PDF] Running locally. Using standard puppeteer...');
+      const puppeteer = await import('puppeteer');
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--font-render-hinting=none',
+        ],
+      });
+    }
 
     try {
-      const page = await browser.newPage();
+      const page = await browser.newPage() as any;
 
       // Set A4 viewport
       await page.setViewport({ width: 794, height: 1123 });
@@ -62,7 +78,7 @@ export class PDFGenerationService {
       });
 
       // Wait for Google Fonts to load (if included)
-      await page.evaluateHandle('document.fonts.ready');
+      await page.evaluate(() => (document as any).fonts.ready);
 
       // Generate PDF
       const pdfBuffer = await page.pdf({

@@ -381,6 +381,52 @@ const RATIOS_ROW_TEMPLATE = [
   'EV/EBITDA (x)'
 ];
 
+const SYNONYM_MAP: Record<string, string[]> = {
+  'Sales': ['revenue', 'revenue from operations', 'net sales', 'turnover', 'total revenue', 'revenue from operation', 'sales/revenue'],
+  'EBITDA': ['ebitda', 'operating profit', 'pbdt', 'operating ebitda', 'earnings before interest tax depreciation'],
+  'Depreciation': ['depreciation', 'depreciation & amortisation', 'depreciation & amortization', 'depn', 'depn. & amort.', 'amortisation'],
+  'EBIT': ['ebit', 'operating ebit', 'operating income'],
+  'Interest': ['interest', 'finance cost', 'finance costs', 'interest expense', 'financial charges'],
+  'Other Income': ['other income', 'non-operating income', 'other non-operating income'],
+  'PBT': ['pbt', 'profit before tax', 'net profit before tax'],
+  'Tax': ['tax', 'provision for tax', 'current tax', 'deferred tax', 'tax expense'],
+  'Reported PAT': ['reported pat', 'pat', 'profit after tax', 'net profit after tax', 'net profit', 'np', 'profit for the period', 'reported profit after tax'],
+  'Adjusted PAT': ['adjusted pat', 'adj. pat', 'adj pat', 'adjusted profit after tax'],
+  'No. of shares (cr)': ['no. of shares', 'no. of shares (cr)', 'shares outstanding', 'outstanding shares', 'equity shares'],
+  'Adjusted EPS': ['adjusted eps', 'adj. eps', 'adj eps', 'eps', 'diluted eps', 'basic eps'],
+  
+  // Balance Sheet
+  'Current Assets': ['current assets', 'total current assets'],
+  'Cash & Equivalents': ['cash and cash equivalents', 'cash & cash equivalents', 'cash and bank balances', 'cash & bank balances', 'cash', 'bank balances'],
+  'Receivables': ['trade receivables', 'receivables', 'debtors', 'sundry debtors'],
+  'Inventories': ['inventories', 'stocks', 'inventory'],
+  'Other Current Assets': ['other current assets', 'other current asset', 'short-term loans and advances', 'loans and advances'],
+  'Fixed Assets': ['fixed assets', 'property, plant and equipment', 'property, plant & equipment', 'fixed asset', 'ppe', 'tangible assets'],
+  'Intangible Assets': ['intangible assets', 'intangibles', 'goodwill'],
+  'Total Assets': ['total assets', 'assets'],
+  'Current Liabilities': ['current liabilities', 'total current liabilities'],
+  'Payables': ['trade payables', 'payables', 'creditors', 'sundry creditors'],
+  'Short-term Debt': ['short-term borrowings', 'short term borrowings', 'short-term debt', 'short term debt'],
+  'Long-term Debt': ['long-term borrowings', 'long term borrowings', 'long-term debt', 'long term debt'],
+  'Total Liabilities': ['total liabilities', 'liabilities'],
+  'Share Capital': ['share capital', 'equity share capital', 'capital'],
+  'Reserves & Surplus': ['other equity', 'reserves and surplus', 'reserves & surplus', 'retained earnings'],
+  'Total Equity': ['total equity', 'equity', "shareholders' funds", "shareholders' equity"]
+};
+
+function matchWithSynonyms(templateMetric: string, candidateMetric: string | number | null | undefined): boolean {
+  if (candidateMetric == null) return false;
+  const cand = String(candidateMetric).toLowerCase().trim().replace(/[\s\-_]+/g, ' ');
+  const temp = templateMetric.toLowerCase().trim().replace(/[\s\-_]+/g, ' ');
+  if (cand === temp) return true;
+
+  const synonyms = SYNONYM_MAP[templateMetric];
+  if (synonyms) {
+    return synonyms.some(s => s.toLowerCase().trim().replace(/[\s\-_]+/g, ' ') === cand);
+  }
+  return false;
+}
+
 function mapToPredefinedRows(
   extractedRows: Record<string, string | number | null>[] | null | undefined,
   template: string[]
@@ -393,7 +439,7 @@ function mapToPredefinedRows(
   return template.map(metric => {
     const matchedRow = hasRows ? extractedRows.find(r => {
       const m = r.metric ?? r.Metric;
-      return m && String(m).toLowerCase().trim() === metric.toLowerCase().trim();
+      return matchWithSynonyms(metric, m);
     }) : undefined;
 
     const newRow: Record<string, string | number | null> = { metric };
@@ -414,23 +460,204 @@ function escape(s: string | undefined | null): string {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function postProcessNormalizedRows(
+  rows: Record<string, string | number | null>[],
+  templateType: 'income' | 'balance' | 'cashflow' | 'ratios',
+  extraData?: { incomeRows?: Record<string, string | number | null>[], balanceRows?: Record<string, string | number | null>[] }
+): Record<string, string | number | null>[] {
+  const periodKeys = Object.keys(rows[0] || {}).filter(k => k !== 'metric');
+
+  const getVal = (rowObj: Record<string, any> | undefined, period: string): number | null => {
+    if (!rowObj) return null;
+    const val = rowObj[period];
+    if (val === null || val === undefined || val === '-') return null;
+    const num = parseFloat(String(val).replace(/[^\d.-]/g, ''));
+    return isNaN(num) ? null : num;
+  };
+
+  if (templateType === 'income') {
+    periodKeys.forEach((p, pIdx) => {
+      const getPrevPeriodVal = (rowIdx: number): number | null => {
+        if (pIdx === 0) return null;
+        return getVal(rows[rowIdx], periodKeys[pIdx - 1]);
+      };
+
+      const calculateGrowth = (rowIdx: number, valIdx: number) => {
+        const cur = getVal(rows[valIdx], p);
+        const prev = getPrevPeriodVal(valIdx);
+        if (cur !== null && prev !== null && prev !== 0) {
+          const g = ((cur - prev) / Math.abs(prev)) * 100;
+          if (rows[rowIdx][p] === '-' || rows[rowIdx][p] === null || rows[rowIdx][p] === '') {
+            rows[rowIdx][p] = g.toFixed(1);
+          }
+        }
+      };
+
+      // Sales Growth (index 1)
+      calculateGrowth(1, 0);
+
+      // EBITDA Growth (index 3)
+      calculateGrowth(3, 2);
+
+      // EBIT (index 5) = EBITDA (2) - Depreciation (4)
+      const ebitdaVal = getVal(rows[2], p);
+      const depVal = getVal(rows[4], p) ?? 0;
+      if (ebitdaVal !== null) {
+        const ebitVal = ebitdaVal - depVal;
+        if (rows[5][p] === '-' || rows[5][p] === null || rows[5][p] === '') {
+          rows[5][p] = ebitVal.toFixed(1);
+        }
+      }
+
+      // PBT (index 8) = EBIT (5) - Interest (6) + Other Income (7)
+      const ebitVal = getVal(rows[5], p);
+      const intVal = getVal(rows[6], p) ?? 0;
+      const otherIncVal = getVal(rows[7], p) ?? 0;
+      if (ebitVal !== null) {
+        const pbtVal = ebitVal - intVal + otherIncVal;
+        if (rows[8][p] === '-' || rows[8][p] === null || rows[8][p] === '') {
+          rows[8][p] = pbtVal.toFixed(1);
+        }
+      }
+
+      // PBT Growth (index 9)
+      calculateGrowth(9, 8);
+
+      // Tax Rate (index 11) = (Tax (10) / PBT (8)) * 100
+      const taxVal = getVal(rows[10], p);
+      const pbtVal = getVal(rows[8], p);
+      if (taxVal !== null && pbtVal !== null && pbtVal !== 0) {
+        const taxRate = (taxVal / pbtVal) * 100;
+        if (rows[11][p] === '-' || rows[11][p] === null || rows[11][p] === '') {
+          rows[11][p] = taxRate.toFixed(1);
+        }
+      }
+
+      // Adjusted PAT Growth (index 15)
+      calculateGrowth(15, 14);
+
+      // Adjusted EPS (index 17) = Adjusted PAT (14) / No. of shares (16)
+      const patVal = getVal(rows[14], p);
+      const sharesVal = getVal(rows[16], p);
+      if (patVal !== null && sharesVal !== null && sharesVal !== 0) {
+        const epsVal = patVal / sharesVal;
+        if (rows[17][p] === '-' || rows[17][p] === null || rows[17][p] === '') {
+          rows[17][p] = epsVal.toFixed(2);
+        }
+      }
+
+      // Adjusted EPS Growth (index 18)
+      calculateGrowth(18, 17);
+    });
+  } else if (templateType === 'ratios') {
+    const incRows = extraData?.incomeRows;
+    const balRows = extraData?.balanceRows;
+
+    if (incRows && incRows.length > 0) {
+      const salesRow = incRows[0];
+      const ebitdaRow = incRows[2];
+      const ebitRow = incRows[5];
+      const patRow = incRows[14];
+
+      periodKeys.forEach(p => {
+        const salesVal = getVal(salesRow, p);
+        
+        // EBITDA margin (index 1) = (EBITDA / Sales) * 100
+        const ebitdaVal = getVal(ebitdaRow, p);
+        if (salesVal !== null && salesVal !== 0 && ebitdaVal !== null) {
+          if (rows[1][p] === '-' || rows[1][p] === null || rows[1][p] === '') {
+            rows[1][p] = ((ebitdaVal / salesVal) * 100).toFixed(1);
+          }
+        }
+
+        // EBIT margin (index 2) = (EBIT / Sales) * 100
+        const ebitVal = getVal(ebitRow, p);
+        if (salesVal !== null && salesVal !== 0 && ebitVal !== null) {
+          if (rows[2][p] === '-' || rows[2][p] === null || rows[2][p] === '') {
+            rows[2][p] = ((ebitVal / salesVal) * 100).toFixed(1);
+          }
+        }
+
+        // Net profit mgn (index 3) = (PAT / Sales) * 100
+        const patVal = getVal(patRow, p);
+        if (salesVal !== null && salesVal !== 0 && patVal !== null) {
+          if (rows[3][p] === '-' || rows[3][p] === null || rows[3][p] === '') {
+            rows[3][p] = ((patVal / salesVal) * 100).toFixed(1);
+          }
+        }
+      });
+    }
+
+    if (balRows && balRows.length > 0) {
+      const caRow = balRows[0]; // Current Assets
+      const clRow = balRows[8]; // Current Liabilities
+      const equityRow = balRows[15]; // Total Equity
+      const stdRow = balRows[10]; // Short-term Debt
+      const ltdRow = balRows[11]; // Long-term Debt
+
+      periodKeys.forEach(p => {
+        // Current Ratio (index 9) = Current Assets / Current Liabilities
+        const caVal = getVal(caRow, p);
+        const clVal = getVal(clRow, p);
+        if (caVal !== null && clVal !== null && clVal !== 0) {
+          if (rows[9][p] === '-' || rows[9][p] === null || rows[9][p] === '') {
+            rows[9][p] = (caVal / clVal).toFixed(2);
+          }
+        }
+
+        // Debt/Equity (index 12) = (Short-term Debt + Long-term Debt) / Total Equity
+        const stdVal = getVal(stdRow, p) ?? 0;
+        const ltdVal = getVal(ltdRow, p) ?? 0;
+        const equityVal = getVal(equityRow, p);
+        if (equityVal !== null && equityVal !== 0) {
+          if (rows[12][p] === '-' || rows[12][p] === null || rows[12][p] === '') {
+            rows[12][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
+          }
+        }
+      });
+    }
+  }
+
+  return rows;
+}
+
 function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string {
   const status = options.status ?? 'draft';
   const isDraft = status === 'draft';
   const rec = data.recommendation;
   const ratingColor = RATING_COLOR[rec.rating] ?? '#334155';
 
-  const inc = data.keyFinancials?.incomeStatement ?? [];
-  const periods = [...new Set(inc.map(m => m.period))].sort();
-  const getValues = (label: string) =>
-    periods.map(p => {
-      const m = inc.find(x => x.label === label && x.period === p);
-      return m ? parseNum(m.value) : 0;
-    });
+  const dfRaw = data.detailedFinancials;
+  const df: DetailedFinancialsData = Array.isArray(dfRaw) ? (dfRaw[0] ?? {}) : (dfRaw ?? {});
 
-  const revenue = getValues('Revenue');
+  const inc = data.keyFinancials?.incomeStatement ?? [];
+  const rawIncStatement = df.incomeStatement || [];
+
+  // Pre-compute and post-process statements to fill missing math values (growth, margins, ratios)
+  const normalizedIncome = postProcessNormalizedRows(mapToPredefinedRows(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE), 'income');
+  const normalizedBalance = postProcessNormalizedRows(mapToPredefinedRows(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE), 'balance');
+  const normalizedCashFlow = postProcessNormalizedRows(mapToPredefinedRows(df.cashFlow, CASH_FLOW_ROW_TEMPLATE), 'cashflow');
+  const normalizedRatios = postProcessNormalizedRows(mapToPredefinedRows(df.ratios, RATIOS_ROW_TEMPLATE), 'ratios', {
+    incomeRows: normalizedIncome,
+    balanceRows: normalizedBalance
+  });
+
+  const periods = [...new Set([
+    ...inc.map(m => m.period),
+    ...(rawIncStatement.length > 0 ? Object.keys(rawIncStatement[0]).filter(k => k !== 'metric' && k !== 'Metric') : [])
+  ])].sort();
+
+  const getValues = (metricName: string) => {
+    const row = normalizedIncome.find(r => r.metric === metricName);
+    return periods.map(p => {
+      const val = row ? row[p] : null;
+      return val !== null && val !== undefined && val !== '-' ? parseNum(String(val)) : 0;
+    });
+  };
+
+  const revenue = getValues('Sales');
   const ebitda = getValues('EBITDA');
-  const pat = getValues('PAT');
+  const pat = getValues('Reported PAT');
   const ebitdaMargins = revenue.map((r, i) => r > 0 ? parseFloat(((ebitda[i] / r) * 100).toFixed(1)) : 0);
   const patMargins = revenue.map((r, i) => r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0);
 
@@ -463,8 +690,6 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const pp = data.pricePerformance ?? [];
   const est = data.estimates ?? [];
   const qf = data.quarterlyFinancials ?? [];
-  const dfRaw = data.detailedFinancials;
-  const df: DetailedFinancialsData = Array.isArray(dfRaw) ? (dfRaw[0] ?? {}) : (dfRaw ?? {});
   const recSum = data.recommendationSummary ?? [];
   const recHistoryChart = svgRecommendationChart(recSum);
   const fiveYear = data.fiveYearSummary ?? [];
@@ -506,8 +731,8 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     </tr>
   `).join('');
 
-  const renderDetailTable = (rows: Record<string, string | number | null>[] | null | undefined, template: string[]) => {
-    const normalizedRows = mapToPredefinedRows(rows, template);
+  const renderDetailTable = (normalizedRows: Record<string, string | number | null>[]) => {
+    if (!normalizedRows || normalizedRows.length === 0) return '<div class="text-center py-4 text-xs text-slate-400">No data available</div>';
     const keys = Object.keys(normalizedRows[0]).filter(k => k !== 'metric');
     const headerHtml = `<tr><th>Metric</th>` + keys.map(k => `<th>${escape(k.toUpperCase())}</th>`).join('') + `</tr>`;
     const rowsHtml = normalizedRows.map(r => {
@@ -1012,11 +1237,11 @@ ${watermark}
   <div style="display: flex; gap: 4mm; margin-top: 1mm;">
     <div style="flex: 1; min-width: 0;">
       <div class="section-header" style="margin-top:0;">Profit &amp; Loss Statement (₹ Cr)</div>
-      ${renderDetailTable(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE)}
+      ${renderDetailTable(normalizedIncome)}
     </div>
     <div style="flex: 1; min-width: 0;">
       <div class="section-header" style="margin-top:0;">Balance Sheet (₹ Cr)</div>
-      ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
+      ${renderDetailTable(normalizedBalance)}
     </div>
   </div>
 
@@ -1024,11 +1249,11 @@ ${watermark}
   <div style="display: flex; gap: 4mm; margin-top: 3mm;">
     <div style="flex: 1; min-width: 0;">
       <div class="section-header" style="margin-top:0;">Cash Flow Statement (₹ Cr)</div>
-      ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
+      ${renderDetailTable(normalizedCashFlow)}
     </div>
     <div style="flex: 1; min-width: 0;">
       <div class="section-header" style="margin-top:0;">Financial Ratios</div>
-      ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
+      ${renderDetailTable(normalizedRatios)}
     </div>
   </div>
 </div>
