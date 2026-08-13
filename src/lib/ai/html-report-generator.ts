@@ -230,7 +230,7 @@ function svgBarChart(
 </svg>`;
 }
 
-function svgRecommendationChart(recSum: any[]): string {
+function svgRecommendationChart(recSum: { date: string; rating: string; target?: number | string | null }[]): string {
   const W = 500, H = 220;
   const lpad = 50, rpad = 30, tpad = 35, bpad = 45;
   const pw = W - lpad - rpad;
@@ -244,14 +244,20 @@ function svgRecommendationChart(recSum: any[]): string {
 
   // Reverse so chronological order is left-to-right
   const items = [...recSum].reverse();
-  const targets = items.map(item => item.target ?? 0);
+  const targets = items.map(item => {
+    const val = item.target;
+    if (val == null) return 0;
+    if (typeof val === 'number') return val;
+    return parseFloat(val) || 0;
+  });
   const maxTarget = Math.max(...targets, 100);
   const minTarget = Math.min(...targets, 0);
   const range = maxTarget - minTarget || 1;
 
   const points = items.map((item, i) => {
     const cx = lpad + (pw / Math.max(items.length - 1, 1)) * i;
-    const cy = tpad + ((maxTarget - (item.target ?? 0)) / range) * ph;
+    const targetVal = item.target != null ? (typeof item.target === 'number' ? item.target : parseFloat(item.target) || 0) : 0;
+    const cy = tpad + ((maxTarget - targetVal) / range) * ph;
     return { x: cx, y: cy, ...item };
   });
 
