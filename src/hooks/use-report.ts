@@ -38,11 +38,20 @@ export function useReport() {
   };
 
   const downloadPDF = async (reportId: string) => {
-    try {
-      window.open(`/api/download?id=${reportId}`, '_blank');
-    } catch (err: unknown) {
-      console.error('Failed to download PDF:', err);
+    const res = await fetch(`/api/download?id=${encodeURIComponent(reportId)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || `PDF download failed (HTTP ${res.status}).`);
     }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `equity-report-${reportId.toLowerCase()}.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
   return {

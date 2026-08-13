@@ -76,13 +76,18 @@ export class PDFGenerationService {
 
       // Load the HTML content
       await page.setContent(html, {
-        waitUntil: 'load',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
 
-      // Wait for Google Fonts to load (if included)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await page.evaluate(() => (document as any).fonts.ready);
+      // Wait for Google Fonts to load (if included) — with a hard timeout so a
+      // slow font CDN can never hang the compile on serverless runtimes.
+      await page.evaluate(() => Promise.race([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (document as any).fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // Generate PDF
       const pdfBuffer = await page.pdf({
