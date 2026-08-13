@@ -887,10 +887,10 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   }
   .identifiers-bar .val-accent { color: #008358; font-weight: 800; }
 
-  .fin-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 0; }
-  .fin-table th { background: #07877B; color: #fff; padding: 3px 6px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 7pt; text-transform: uppercase; }
+  .fin-table { width: 100%; border-collapse: collapse; font-size: 6.8pt; margin-bottom: 0; }
+  .fin-table th { background: #07877B; color: #fff; padding: 2.2px 4px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 6.5pt; text-transform: uppercase; }
   .fin-table th:first-child { text-align: left; }
-  .fin-table td { padding: 3px 6px; text-align: right; border: 0.5px solid #e2e8f0; color: #000000; }
+  .fin-table td { padding: 2.2px 4px; text-align: right; border: 0.5px solid #e2e8f0; color: #000000; }
   .fin-table td.metric-label { text-align: left; font-weight: 700; color: #000000; }
   .fin-table tr:nth-child(even) td { background: #f8fafc; }
   .thin-border th, .thin-border td { border: 0.25px solid #cbd5e1; }
