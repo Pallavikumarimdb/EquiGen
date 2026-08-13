@@ -9,7 +9,7 @@ const geistSans = Geist({
 
 export const metadata: Metadata = {
   title: "EquiGen - AI Equity Research Report Generator",
-  description: "Generate Geojit-style equity research reports instantly using Llama 3.3",
+  description: "Generate Geojit-style equity research reports instantly with EquiGen Freemium AI",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

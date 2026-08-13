@@ -589,8 +589,8 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
         if (res.status === 429) {
           const waitMin = errData.retryAfterSeconds ? Math.ceil(Number(errData.retryAfterSeconds) / 60) : null;
           const retryNote = waitMin
-            ? ` You can retry in ~${waitMin} min, or switch to the 8B model in AI Settings.`
-            : ' You can switch to the 8B model in AI Settings for a faster fallback.';
+            ? ` You can retry in ~${waitMin} min, or switch to the fast Freemium tier in AI Settings.`
+            : ' You can switch to the fast Freemium tier in AI Settings for a speedier fallback.';
           setChatMessages((prev) => [...prev, {
             role: 'agent',
             content: '⚠️ Rate limit reached: ' + friendlyMsg + retryNote,
@@ -832,7 +832,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
   const [steps, setSteps] = useState<ProgressStep[]>([
     { label: 'Reading uploaded document structure', status: 'idle' },
-    { label: 'Extracting key metrics using Groq Llama 3.3 70B', status: 'idle' },
+    { label: 'Extracting key metrics using Freemium AI', status: 'idle' },
     { label: 'Formatting financial sheets & ratios', status: 'idle' },
     { label: 'Compiling Geojit-style PDF layout', status: 'idle' }
   ]);
@@ -840,6 +840,9 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, message, type }]);
+    // Auto-dismiss after a few seconds (errors stay a bit longer)
+    const duration = type === 'error' ? 6000 : 4000;
+    setTimeout(() => removeToast(id), duration);
   };
 
   const removeToast = (id: string) => {
@@ -965,7 +968,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
     const updatedSteps: ProgressStep[] = [
       { label: 'Reading uploaded document structure', status: 'idle' },
-      { label: `Extracting key metrics using ${aiProvider === 'groq' ? 'Groq Llama 3.3 70B' : 'OpenAI GPT-4o'}`, status: 'idle' },
+      { label: `Extracting key metrics using ${aiProvider === 'groq' ? 'Freemium AI' : 'OpenAI GPT-4o'}`, status: 'idle' },
       { label: 'Formatting financial sheets & ratios', status: 'idle' },
       { label: 'Compiling Geojit-style PDF layout', status: 'idle' }
     ];
@@ -1437,23 +1440,41 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
     setIsDownloading(true);
     showToast('Preparing PDF download...', 'info');
     try {
+      let blob: Blob;
+      let filename = `equity-report-${reportId.toLowerCase()}.pdf`;
+
       if (reportPdfBase64) {
         const bytes = Uint8Array.from(atob(reportPdfBase64), (c) => c.charCodeAt(0));
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `equity-report-${reportId.toLowerCase()}.pdf`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(url);
+        blob = new Blob([bytes], { type: 'application/pdf' });
       } else {
-        window.open(`/api/download?id=${reportId}`, '_blank');
+        const res = await fetch(`/api/download?id=${encodeURIComponent(reportId)}`);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `PDF download failed (HTTP ${res.status}).`);
+        }
+        blob = await res.blob();
+        if (blob.type !== 'application/pdf') {
+          throw new Error('Server did not return a PDF. Please try again.');
+        }
+        const disposition = res.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        if (match && match[1]) filename = match[1];
       }
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
       showToast('PDF downloaded successfully!', 'success');
-    } catch {
-      showToast('Failed to trigger download.', 'error');
+    } catch (err: unknown) {
+      const errMessage = err instanceof Error ? err.message : 'Failed to trigger download.';
+      console.error('PDF download failed:', errMessage);
+      showToast(errMessage, 'error');
     } finally {
       setIsDownloading(false);
     }
@@ -1587,7 +1608,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
             <div className="flex items-center gap-2 px-3 py-1.5">
               <Activity className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
               <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest truncate">
-                {aiProvider === 'groq' ? 'Groq · Llama 3.3 70B' : 'OpenAI Active'}
+                {aiProvider === 'groq' ? 'Freemium AI' : 'OpenAI Active'}
               </span>
             </div>
           )}
@@ -1649,7 +1670,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[10px] font-bold text-slate-400">
                 {aiProvider === 'groq'
-                  ? (groqModel === 'llama-3.3-70b-versatile' ? 'Groq · Llama 3.3 70B' : 'Groq · Llama 3.1 8B')
+                  ? 'Freemium AI · auto-fallback'
                   : `OpenAI · ${openaiModel === 'gpt-4o-mini' ? 'GPT-4o Mini' : 'GPT-4o'}`
                 }
               </span>
@@ -2431,7 +2452,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                   onChange={(e) => setTempProvider(e.target.value as 'groq' | 'openai')}
                   className="w-full px-3.5 py-2.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all"
                 >
-                  <option value="groq">Groq (System Default)</option>
+                  <option value="groq">Freemium AI (System Default)</option>
                   <option value="openai">OpenAI (Custom Key)</option>
                 </select>
               </div>
@@ -2441,8 +2462,8 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                 {tempProvider === 'groq' ? (
                   <select value={tempGroqModel} onChange={(e) => setTempGroqModel(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-all">
-                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (Default)</option>
-                    <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Faster)</option>
+                    <option value="llama-3.3-70b-versatile">Freemium AI (Default, auto-fallback)</option>
+                    <option value="llama-3.1-8b-instant">Freemium AI (Fast tier)</option>
                   </select>
                 ) : (
                   <select value={tempOpenaiModel} onChange={(e) => setTempOpenaiModel(e.target.value)}
@@ -2455,7 +2476,7 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
 
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                  {tempProvider === 'groq' ? 'Groq API Key (Optional)' : 'OpenAI API Key'}
+                  {tempProvider === 'groq' ? 'Freemium AI API Key (Optional)' : 'OpenAI API Key'}
                 </label>
                 <div className="relative">
                   <input
@@ -2514,9 +2535,9 @@ const [capacityWaitSeconds, setCapacityWaitSeconds] = useState<number | null>(nu
                 <div className="flex items-start gap-3 p-3.5 bg-amber-950/40 border border-amber-800/40 rounded-xl">
                   <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs font-bold text-amber-300 mb-0.5">Lighter Model Used for Financials</p>
+                    <p className="text-xs font-bold text-amber-300 mb-0.5">Freemium AI Tier Used for Financials</p>
                     <p className="text-[10px] text-amber-500 leading-relaxed">
-                      Revenue, EBITDA and PAT were extracted by <span className="font-bold text-amber-300">llama-3.1-8b-instant</span> (fallback).
+                      Revenue, EBITDA and PAT were extracted by the <span className="font-bold text-amber-300">Freemium fallback tier</span>.
                       Verify all numbers carefully before signing.
                     </p>
                   </div>
