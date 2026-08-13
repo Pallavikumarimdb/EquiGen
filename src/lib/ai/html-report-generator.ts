@@ -230,6 +230,65 @@ function svgBarChart(
 </svg>`;
 }
 
+function svgRecommendationChart(recSum: any[]): string {
+  const W = 500, H = 220;
+  const lpad = 50, rpad = 30, tpad = 35, bpad = 45;
+  const pw = W - lpad - rpad;
+  const ph = H - tpad - bpad;
+
+  if (!recSum || recSum.length === 0) {
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+      <text x="250" y="110" text-anchor="middle" font-size="14" fill="#94a3b8">No history available</text>
+    </svg>`;
+  }
+
+  // Reverse so chronological order is left-to-right
+  const items = [...recSum].reverse();
+  const targets = items.map(item => item.target ?? 0);
+  const maxTarget = Math.max(...targets, 100);
+  const minTarget = Math.min(...targets, 0);
+  const range = maxTarget - minTarget || 1;
+
+  const points = items.map((item, i) => {
+    const cx = lpad + (pw / Math.max(items.length - 1, 1)) * i;
+    const cy = tpad + ((maxTarget - (item.target ?? 0)) / range) * ph;
+    return { x: cx, y: cy, ...item };
+  });
+
+  let linePath = '';
+  if (points.length > 1) {
+    linePath = `<path d="M ${points.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}" fill="none" stroke="#07877B" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+
+  const dots = points.map(p => {
+    const isBuy = p.rating?.toUpperCase() === 'BUY';
+    const dotColor = isBuy ? '#008358' : '#f59e0b';
+    return `
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${dotColor}" stroke="#fff" stroke-width="1.5"/>
+      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b">₹${p.target}</text>
+    `;
+  }).join('');
+
+  const axis = `
+    <line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="${lpad}" y1="${tpad}" x2="${lpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
+  `;
+
+  const labels = points.map(p => `
+    <text x="${p.x.toFixed(1)}" y="${H - bpad + 14}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#475569">${p.date}</text>
+    <text x="${p.x.toFixed(1)}" y="${H - bpad + 24}" text-anchor="middle" font-size="7" font-weight="800" fill="${p.rating?.toUpperCase() === 'BUY' ? '#008358' : '#f59e0b'}">${p.rating}</text>
+  `).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+    <g font-family="Arial, sans-serif">
+      ${axis}
+      ${linePath}
+      ${labels}
+      ${dots}
+    </g>
+  </svg>`;
+}
+
 // ── Fixed Row templates for Financial statements ──────────────────────────────
 
 const INCOME_STATEMENT_ROW_TEMPLATE = [
@@ -275,19 +334,45 @@ const BALANCE_SHEET_ROW_TEMPLATE = [
 ];
 
 const CASH_FLOW_ROW_TEMPLATE = [
-  'Operating Cash Flow',
-  'Investing Cash Flow',
-  'Financing Cash Flow',
-  'Net Cash Flow'
+  'Net inc. + Depn.',
+  'Non-cash adj.',
+  'Other adjustments',
+  'Changes in W.C',
+  'C.F. Operation',
+  'Capital exp.',
+  'Change in inv.',
+  'Other invest.CF',
+  'C.F - Investment',
+  'Issue of equity',
+  'Issue/repay debt',
+  'Dividends paid',
+  'Other finance.CF',
+  'C.F - Finance',
+  'Chg. in cash',
+  'Closing Cash'
 ];
 
 const RATIOS_ROW_TEMPLATE = [
+  'Profitab. & Return',
+  'EBITDA margin (%)',
+  'EBIT margin (%)',
+  'Net profit mgn.(%)',
   'ROE (%)',
   'ROCE (%)',
-  'Debt/Equity',
-  'P/E',
-  'P/B',
-  'EV/EBITDA'
+  'W.C & Liquidity',
+  'Receivables (days)',
+  'Inventory (days)',
+  'Payables (days)',
+  'Net W.C (days)',
+  'Asset Turnover (x)',
+  'Current Ratio (x)',
+  'Quick Ratio (x)',
+  'Debt/Equity (x)',
+  'Valuation',
+  'P/E (x)',
+  'P/B (x)',
+  'EV/Sales (x)',
+  'EV/EBITDA (x)'
 ];
 
 function mapToPredefinedRows(
@@ -297,7 +382,7 @@ function mapToPredefinedRows(
   const hasRows = extractedRows && extractedRows.length > 0;
   const periodKeys = hasRows
     ? Object.keys(extractedRows[0]).filter(k => k !== 'metric' && k !== 'Metric')
-    : ['FY24', 'FY25']; // Default placeholder period columns if empty
+    : ['FY23A', 'FY24A', 'FY25A', 'FY26E', 'FY27E']; // Default placeholder period columns if empty
 
   return template.map(metric => {
     const matchedRow = hasRows ? extractedRows.find(r => {
@@ -375,6 +460,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const dfRaw = data.detailedFinancials;
   const df: DetailedFinancialsData = Array.isArray(dfRaw) ? (dfRaw[0] ?? {}) : (dfRaw ?? {});
   const recSum = data.recommendationSummary ?? [];
+  const recHistoryChart = svgRecommendationChart(recSum);
   const fiveYear = data.fiveYearSummary ?? [];
 
   let shHeaders = '<th>Category</th>';
@@ -418,12 +504,23 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     const normalizedRows = mapToPredefinedRows(rows, template);
     const keys = Object.keys(normalizedRows[0]).filter(k => k !== 'metric');
     const headerHtml = `<tr><th>Metric</th>` + keys.map(k => `<th>${escape(k.toUpperCase())}</th>`).join('') + `</tr>`;
-    const rowsHtml = normalizedRows.map(r => `
-      <tr>
-        <td class="metric-label">${escape(String(r.metric))}</td>
-        ${keys.map(k => `<td>${r[k] != null ? escape(String(r[k])) : '-'}</td>`).join('')}
-      </tr>
-    `).join('');
+    const rowsHtml = normalizedRows.map(r => {
+      const metricName = String(r.metric);
+      const isSubHeader = ['profitab. & return', 'w.c & liquidity', 'valuation'].includes(metricName.toLowerCase().trim());
+      if (isSubHeader) {
+        return `
+          <tr style="background: #f1f5f9; font-weight: bold; text-align: left;">
+            <td colspan="${keys.length + 1}" style="padding-left: 6px; font-size: 7.2pt; color: #475569;">${escape(metricName)}</td>
+          </tr>
+        `;
+      }
+      return `
+        <tr>
+          <td class="metric-label">${escape(metricName)}</td>
+          ${keys.map(k => `<td>${r[k] != null ? escape(String(r[k])) : '-'}</td>`).join('')}
+        </tr>
+      `;
+    }).join('');
     return `<table class="fin-table thin-border"><thead>${headerHtml}</thead><tbody>${rowsHtml}</tbody></table>`;
   };
 
@@ -905,11 +1002,29 @@ ${watermark}
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
-  <div class="section-header" style="margin-top:1mm;">Profit &amp; Loss Statement (₹ Cr)</div>
-  ${renderDetailTable(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE)}
+  <!-- Row 1: P&L Statement and Balance Sheet side-by-side -->
+  <div style="display: flex; gap: 4mm; margin-top: 1mm;">
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Profit &amp; Loss Statement (₹ Cr)</div>
+      ${renderDetailTable(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE)}
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Balance Sheet (₹ Cr)</div>
+      ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
+    </div>
+  </div>
 
-  <div class="section-header" style="margin-top:3mm;">Balance Sheet (₹ Cr)</div>
-  ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
+  <!-- Row 2: Cash Flow Statement and Financial Ratios side-by-side -->
+  <div style="display: flex; gap: 4mm; margin-top: 3mm;">
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Cash Flow Statement (₹ Cr)</div>
+      ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Financial Ratios</div>
+      ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════ PAGE 4 ═══════════════════════════════════ -->
@@ -920,33 +1035,38 @@ ${watermark}
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
-  <div class="section-header" style="margin-top:1mm;">Cash Flow Statement (₹ Cr)</div>
-  ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Financial Ratios</div>
-  ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Recommendation History (Last 3 Years)</div>
-  <table class="fin-table thin-border" style="width: 50%;">
-    <thead>
-      <tr>
-        <th>Dates</th>
-        <th>Rating</th>
-        <th>Target (Rs.)</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${recSum.length > 0 ? recSum.map(r => `
-        <tr>
-          <td class="metric-label">${escape(r.date)}</td>
-          <td>${escape(r.rating)}</td>
-          <td>${r.target != null ? escape(String(r.target)) : '-'}</td>
-        </tr>
-      `).join('') : `
-        <tr><td colspan="3">No history available.</td></tr>
-      `}
-    </tbody>
-  </table>
+  <!-- Side-by-side: Recommendation History Chart (left) and Table (right) -->
+  <div style="display: flex; gap: 4mm; margin-top: 1mm; align-items: stretch;">
+    <div style="flex: 1.2; min-width: 0; display: flex; flex-direction: column;">
+      <div class="section-header" style="margin-top:0;">Recommendation Summary (last 3 years)</div>
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; background: #fff; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 200px;">
+        ${recHistoryChart}
+      </div>
+    </div>
+    <div style="flex: 0.8; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Recommendation History</div>
+      <table class="fin-table thin-border" style="width: 100%; height: calc(100% - 15px);">
+        <thead>
+          <tr>
+            <th>Dates</th>
+            <th>Rating</th>
+            <th>Target (Rs.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recSum.length > 0 ? recSum.map(r => `
+            <tr>
+              <td class="metric-label" style="font-size:7.5pt;">${escape(r.date)}</td>
+              <td style="text-align: center;">${escape(r.rating)}</td>
+              <td style="text-align: right;">${r.target != null ? escape(String(r.target)) : '-'}</td>
+            </tr>
+          `).join('') : `
+            <tr><td colspan="3">No history available.</td></tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  </div>
 
   <div class="section-header" style="margin-top:3mm;">Investment Rating Criteria</div>
   <table class="fin-table thin-border">
