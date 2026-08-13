@@ -37,12 +37,14 @@ export class PDFGenerationService {
 
     // 2. Render HTML → PDF with Puppeteer
     console.log('[PDF] Launching browser...');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let browser: any;
     const isVercel = process.env.VERCEL === '1' || process.env.AWS_EXECUTION_ENV;
 
     if (isVercel) {
       console.log('[PDF] Running on Vercel/Serverless. Using sparticuz-chromium...');
       const puppeteerCore = await import('puppeteer-core');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const chromium = (await import('@sparticuz/chromium')).default as any;
       browser = await puppeteerCore.launch({
         args: chromium.args,
@@ -66,6 +68,7 @@ export class PDFGenerationService {
     }
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const page = await browser.newPage() as any;
 
       // Set A4 viewport
@@ -78,6 +81,7 @@ export class PDFGenerationService {
       });
 
       // Wait for Google Fonts to load (if included)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await page.evaluate(() => (document as any).fonts.ready);
 
       // Generate PDF

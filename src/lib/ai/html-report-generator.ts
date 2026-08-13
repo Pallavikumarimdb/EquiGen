@@ -467,7 +467,7 @@ function postProcessNormalizedRows(
 ): Record<string, string | number | null>[] {
   const periodKeys = Object.keys(rows[0] || {}).filter(k => k !== 'metric');
 
-  const getVal = (rowObj: Record<string, any> | undefined, period: string): number | null => {
+  const getVal = (rowObj: Record<string, string | number | null | undefined> | undefined, period: string): number | null => {
     if (!rowObj) return null;
     const val = rowObj[period];
     if (val === null || val === undefined || val === '-') return null;
