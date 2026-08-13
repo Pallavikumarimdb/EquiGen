@@ -32,7 +32,8 @@ function parseNum(v: number | string): number {
 export const LocalExtractionSchema = z.object({
   relevantSWOT: z.array(z.string()).describe('SWOT factors or risk signals found in this section (empty if none)'),
   relevantFinancials: z.array(z.string()).describe('Key financial figures, EBITDA, revenues, or targets mentioned in this section (empty if none)'),
-  briefSectionSummary: z.string().describe('1-2 sentence high-density summary of operational facts in this section')
+  briefSectionSummary: z.string().describe('1-2 sentence high-density summary of operational facts in this section'),
+  rawTabularData: z.string().optional().describe('Verbatim markdown, CSV, or structured text of any Balance Sheet, P&L, Cash Flow, or Ratios tables found in this section (leave empty if none)')
 });
 
 export const CompanyGeneralSchema = z.object({
@@ -252,7 +253,11 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
       ]);
       
       const condensedLine = `[Chunk ${i + 1}]: ${res.briefSectionSummary}. SWOT: ${res.relevantSWOT.join(', ')}. Fin: ${res.relevantFinancials.join(', ')}`;
-      results.push(condensedLine);
+      if (res.rawTabularData && res.rawTabularData.trim().length > 0) {
+        results.push(`${condensedLine}\n[VERBATIM TABLE CHUNK ${i + 1}]:\n${res.rawTabularData}\n`);
+      } else {
+        results.push(condensedLine);
+      }
     } catch (e) {
       console.warn(`[QueueWorker Chunker] Chunk ${i} failed. Skipping chunk. Error:`, e);
     }

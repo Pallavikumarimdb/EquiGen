@@ -114,7 +114,7 @@ function svgComboChart(
             width="${bw.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}"
             fill="${barColor}"/>
       <text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle"
-            font-size="18" font-weight="800" fill="#1e293b">${fmtK(v)}</text>
+            font-size="18" font-weight="800" fill="rgba(32, 139, 111, 0.6)">${fmtK(v)}</text>
       <text x="${cx.toFixed(1)}" y="${(H - bpad + 34).toFixed(1)}" text-anchor="middle"
             font-size="18" font-weight="700" fill="#475569">${label}</text>`;
   }).join('');
@@ -128,11 +128,11 @@ function svgComboChart(
 
   let linePath = '';
   let areaPath = '';
-  
+
   if (linePts.length > 1) {
     let d = `M ${linePts[0].x.toFixed(1)} ${linePts[0].y.toFixed(1)}`;
     let areaD = `M ${linePts[0].x.toFixed(1)} ${linePts[0].y.toFixed(1)}`;
-    
+
     for (let i = 0; i < linePts.length - 1; i++) {
       const curr = linePts[i];
       const next = linePts[i + 1];
@@ -140,13 +140,13 @@ function svgComboChart(
       const cpY1 = curr.y;
       const cpX2 = next.x - slot * 0.35;
       const cpY2 = next.y;
-      
+
       d += ` C ${cpX1.toFixed(1)} ${cpY1.toFixed(1)}, ${cpX2.toFixed(1)} ${cpY2.toFixed(1)}, ${next.x.toFixed(1)} ${next.y.toFixed(1)}`;
       areaD += ` C ${cpX1.toFixed(1)} ${cpY1.toFixed(1)}, ${cpX2.toFixed(1)} ${cpY2.toFixed(1)}, ${next.x.toFixed(1)} ${next.y.toFixed(1)}`;
     }
-    
+
     linePath = `<path d="${d}" fill="none" stroke="${lineColor}" stroke-width="4" stroke-linecap="round"/>`;
-    
+
     areaD += ` L ${linePts[linePts.length - 1].x.toFixed(1)} ${(H - bpad).toFixed(1)} L ${linePts[0].x.toFixed(1)} ${(H - bpad).toFixed(1)} Z`;
     areaPath = `<path d="${areaD}" fill="${lineColor}" fill-opacity="0.08"/>`;
   }
@@ -230,6 +230,71 @@ function svgBarChart(
 </svg>`;
 }
 
+function svgRecommendationChart(recSum: { date: string; rating: string; target?: number | string | null }[]): string {
+  const W = 500, H = 220;
+  const lpad = 50, rpad = 30, tpad = 35, bpad = 45;
+  const pw = W - lpad - rpad;
+  const ph = H - tpad - bpad;
+
+  if (!recSum || recSum.length === 0) {
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+      <text x="250" y="110" text-anchor="middle" font-size="14" fill="#94a3b8">No history available</text>
+    </svg>`;
+  }
+
+  // Reverse so chronological order is left-to-right
+  const items = [...recSum].reverse();
+  const targets = items.map(item => {
+    const val = item.target;
+    if (val == null) return 0;
+    if (typeof val === 'number') return val;
+    return parseFloat(val) || 0;
+  });
+  const maxTarget = Math.max(...targets, 100);
+  const minTarget = Math.min(...targets, 0);
+  const range = maxTarget - minTarget || 1;
+
+  const points = items.map((item, i) => {
+    const cx = lpad + (pw / Math.max(items.length - 1, 1)) * i;
+    const targetVal = item.target != null ? (typeof item.target === 'number' ? item.target : parseFloat(item.target) || 0) : 0;
+    const cy = tpad + ((maxTarget - targetVal) / range) * ph;
+    return { x: cx, y: cy, ...item };
+  });
+
+  let linePath = '';
+  if (points.length > 1) {
+    linePath = `<path d="M ${points.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}" fill="none" stroke="#07877B" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+
+  const dots = points.map(p => {
+    const isBuy = p.rating?.toUpperCase() === 'BUY';
+    const dotColor = isBuy ? '#008358' : '#f59e0b';
+    return `
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${dotColor}" stroke="#fff" stroke-width="1.5"/>
+      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b">₹${p.target}</text>
+    `;
+  }).join('');
+
+  const axis = `
+    <line x1="${lpad}" y1="${H - bpad}" x2="${W - rpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="${lpad}" y1="${tpad}" x2="${lpad}" y2="${H - bpad}" stroke="#cbd5e1" stroke-width="1.5"/>
+  `;
+
+  const labels = points.map(p => `
+    <text x="${p.x.toFixed(1)}" y="${H - bpad + 14}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#475569">${p.date}</text>
+    <text x="${p.x.toFixed(1)}" y="${H - bpad + 24}" text-anchor="middle" font-size="7" font-weight="800" fill="${p.rating?.toUpperCase() === 'BUY' ? '#008358' : '#f59e0b'}">${p.rating}</text>
+  `).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+    <g font-family="Arial, sans-serif">
+      ${axis}
+      ${linePath}
+      ${labels}
+      ${dots}
+    </g>
+  </svg>`;
+}
+
 // ── Fixed Row templates for Financial statements ──────────────────────────────
 
 const INCOME_STATEMENT_ROW_TEMPLATE = [
@@ -275,19 +340,45 @@ const BALANCE_SHEET_ROW_TEMPLATE = [
 ];
 
 const CASH_FLOW_ROW_TEMPLATE = [
-  'Operating Cash Flow',
-  'Investing Cash Flow',
-  'Financing Cash Flow',
-  'Net Cash Flow'
+  'Net inc. + Depn.',
+  'Non-cash adj.',
+  'Other adjustments',
+  'Changes in W.C',
+  'C.F. Operation',
+  'Capital exp.',
+  'Change in inv.',
+  'Other invest.CF',
+  'C.F - Investment',
+  'Issue of equity',
+  'Issue/repay debt',
+  'Dividends paid',
+  'Other finance.CF',
+  'C.F - Finance',
+  'Chg. in cash',
+  'Closing Cash'
 ];
 
 const RATIOS_ROW_TEMPLATE = [
+  'Profitab. & Return',
+  'EBITDA margin (%)',
+  'EBIT margin (%)',
+  'Net profit mgn.(%)',
   'ROE (%)',
   'ROCE (%)',
-  'Debt/Equity',
-  'P/E',
-  'P/B',
-  'EV/EBITDA'
+  'W.C & Liquidity',
+  'Receivables (days)',
+  'Inventory (days)',
+  'Payables (days)',
+  'Net W.C (days)',
+  'Asset Turnover (x)',
+  'Current Ratio (x)',
+  'Quick Ratio (x)',
+  'Debt/Equity (x)',
+  'Valuation',
+  'P/E (x)',
+  'P/B (x)',
+  'EV/Sales (x)',
+  'EV/EBITDA (x)'
 ];
 
 function mapToPredefinedRows(
@@ -297,7 +388,7 @@ function mapToPredefinedRows(
   const hasRows = extractedRows && extractedRows.length > 0;
   const periodKeys = hasRows
     ? Object.keys(extractedRows[0]).filter(k => k !== 'metric' && k !== 'Metric')
-    : ['FY24', 'FY25']; // Default placeholder period columns if empty
+    : ['FY23A', 'FY24A', 'FY25A', 'FY26E', 'FY27E']; // Default placeholder period columns if empty
 
   return template.map(metric => {
     const matchedRow = hasRows ? extractedRows.find(r => {
@@ -328,7 +419,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const isDraft = status === 'draft';
   const rec = data.recommendation;
   const ratingColor = RATING_COLOR[rec.rating] ?? '#334155';
-  
+
   const inc = data.keyFinancials?.incomeStatement ?? [];
   const periods = [...new Set(inc.map(m => m.period))].sort();
   const getValues = (label: string) =>
@@ -342,7 +433,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const pat = getValues('PAT');
   const ebitdaMargins = revenue.map((r, i) => r > 0 ? parseFloat(((ebitda[i] / r) * 100).toFixed(1)) : 0);
   const patMargins = revenue.map((r, i) => r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0);
-  
+
   let quarterLabel = 'Q1FY26';
   if (data.quarterlyFinancials && data.quarterlyFinancials.length > 0) {
     const qKeys = Object.keys(data.quarterlyFinancials[0]).filter(k => k.startsWith('q') && !k.includes('growth') && !k.includes('Growth'));
@@ -375,6 +466,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   const dfRaw = data.detailedFinancials;
   const df: DetailedFinancialsData = Array.isArray(dfRaw) ? (dfRaw[0] ?? {}) : (dfRaw ?? {});
   const recSum = data.recommendationSummary ?? [];
+  const recHistoryChart = svgRecommendationChart(recSum);
   const fiveYear = data.fiveYearSummary ?? [];
 
   let shHeaders = '<th>Category</th>';
@@ -418,12 +510,23 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     const normalizedRows = mapToPredefinedRows(rows, template);
     const keys = Object.keys(normalizedRows[0]).filter(k => k !== 'metric');
     const headerHtml = `<tr><th>Metric</th>` + keys.map(k => `<th>${escape(k.toUpperCase())}</th>`).join('') + `</tr>`;
-    const rowsHtml = normalizedRows.map(r => `
-      <tr>
-        <td class="metric-label">${escape(String(r.metric))}</td>
-        ${keys.map(k => `<td>${r[k] != null ? escape(String(r[k])) : '-'}</td>`).join('')}
-      </tr>
-    `).join('');
+    const rowsHtml = normalizedRows.map(r => {
+      const metricName = String(r.metric);
+      const isSubHeader = ['profitab. & return', 'w.c & liquidity', 'valuation'].includes(metricName.toLowerCase().trim());
+      if (isSubHeader) {
+        return `
+          <tr style="background: #f1f5f9; font-weight: bold; text-align: left;">
+            <td colspan="${keys.length + 1}" style="padding-left: 6px; font-size: 7.2pt; color: #475569;">${escape(metricName)}</td>
+          </tr>
+        `;
+      }
+      return `
+        <tr>
+          <td class="metric-label">${escape(metricName)}</td>
+          ${keys.map(k => `<td>${r[k] != null ? escape(String(r[k])) : '-'}</td>`).join('')}
+        </tr>
+      `;
+    }).join('');
     return `<table class="fin-table thin-border"><thead>${headerHtml}</thead><tbody>${rowsHtml}</tbody></table>`;
   };
 
@@ -479,7 +582,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     position: absolute;
     right: 0px;
     top: 35mm;
-    background: #00704a;
+    background: #07877B;
     color: #fff;
     padding: 4px 12px;
     font-weight: 800;
@@ -502,14 +605,14 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   .brand-logo-title {
     font-size: 22pt;
     font-weight: 900;
-    color: #00704a;
+    color: #07877B;
     letter-spacing: -1px;
     line-height: 1;
     display: flex;
     align-items: center;
     gap: 6px;
   }
-  .brand-logo-title span { color: #0c3c60; }
+  .brand-logo-title span { color: #07877B; }
   .brand-logo-tagline {
     font-size: 6pt;
     font-weight: 600;
@@ -528,8 +631,8 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   .right-rail { display: flex; flex-direction: column; gap: 2.5mm; page-break-inside: avoid; }
 
   .company-title-block { margin-bottom: 1mm; }
-  .company-title { font-size: 18pt; font-weight: 900; color: #0c3c60; line-height: 1.1; }
-  .company-headline { font-size: 10pt; font-weight: 700; color: #00704a; margin-top: 1mm; margin-bottom: 1mm; border-left: 2.5px solid #00704a; padding-left: 5px; line-height: 1.25; }
+  .company-title { font-size: 18pt; font-weight: 900; color: #000000; line-height: 1.1; }
+  .company-headline { font-size: 10pt; font-weight: 700; color: #07877B; margin-top: 1mm; margin-bottom: 1mm; border-left: 2.5px solid #07877B; padding-left: 5px; line-height: 1.25; }
 
   .identifiers-bar {
     width: 100%;
@@ -539,7 +642,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     font-size: 8pt;
   }
   .identifiers-bar th {
-    background: #003366; /* Geojit dark blue header color */
+    background: #07877B; /* Teal header color */
     color: #fff;
     font-weight: 800;
     text-transform: uppercase;
@@ -553,23 +656,23 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
     padding: 8px 8px;
     text-align: center;
     font-weight: 700;
-    color: #334155;
+    color: #000000;
     background: #f8fafc;
     border: 1px solid #cbd5e1;
   }
   .identifiers-bar .val-accent { color: #008358; font-weight: 800; }
 
   .fin-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 0; }
-  .fin-table th { background: #0c3c60; color: #fff; padding: 3px 6px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 7pt; text-transform: uppercase; }
+  .fin-table th { background: #07877B; color: #fff; padding: 3px 6px; font-weight: 700; text-align: right; border: 0.5px solid #cbd5e1; font-size: 7pt; text-transform: uppercase; }
   .fin-table th:first-child { text-align: left; }
-  .fin-table td { padding: 3px 6px; text-align: right; border: 0.5px solid #e2e8f0; }
-  .fin-table td.metric-label { text-align: left; font-weight: 700; color: #0c3c60; }
+  .fin-table td { padding: 3px 6px; text-align: right; border: 0.5px solid #e2e8f0; color: #000000; }
+  .fin-table td.metric-label { text-align: left; font-weight: 700; color: #000000; }
   .fin-table tr:nth-child(even) td { background: #f8fafc; }
   .thin-border th, .thin-border td { border: 0.25px solid #cbd5e1; }
 
   .swot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin-bottom: 3mm; }
   .swot-card { border: 1px solid #cbd5e1; border-radius: 4px; padding: 3mm; background: #fff; }
-  .swot-card h4 { font-size: 8.5pt; font-weight: 700; text-transform: uppercase; margin-bottom: 1.5mm; color: #0c3c60; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5mm; }
+  .swot-card h4 { font-size: 8.5pt; font-weight: 700; text-transform: uppercase; margin-bottom: 1.5mm; color: #000000; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5mm; }
   .swot-card ul { padding-left: 10px; font-size: 7.5pt; }
   .swot-card li { margin-bottom: 0.5mm; color: #334155; }
 
@@ -580,7 +683,7 @@ function buildHtml(data: EquityResearchData, options: HtmlReportOptions): string
   .chart-svg-wrap { flex: 1; min-height: 0; display: flex; align-items: stretch; justify-content: center; }
   .chart-svg-wrap svg { width: 100%; height: 100%; }
 
-  .section-header { font-size: 9.5pt; font-weight: 800; color: #0c3c60; border-bottom: 1.5px solid #00704a; padding-bottom: 1px; margin: 2mm 0 1mm; text-transform: uppercase; letter-spacing: 0.5px; }
+  .section-header { font-size: 9.5pt; font-weight: 800; color: #07877B; border-bottom: 1.5px solid #07877B; padding-bottom: 1px; margin: 2mm 0 1mm; text-transform: uppercase; letter-spacing: 0.5px; }
   .para { font-size: 8pt; color: #334155; text-align: justify; margin-bottom: 1.5mm; line-height: 1.4; }
   .bullet-list { padding-left: 12px; margin-bottom: 1.5mm; }
   .bullet-list li { font-size: 8pt; color: #334155; margin-bottom: 1mm; line-height: 1.35; }
@@ -612,13 +715,13 @@ ${watermark}
 
   <div class="brand-header-block" style="align-items: flex-end; margin-bottom: 4mm;">
     <div style="display: flex; flex-direction: column;">
-      <div style="font-size: 14pt; font-weight: 700; color: #24a177ff; text-transform: uppercase; letter-spacing: 0.5px;">Retail Equity Research</div>
+      <div style="font-size: 14pt; font-weight: 700; color: #07877B; text-transform: uppercase; letter-spacing: 0.5px;">Retail Equity Research</div>
       <div class="company-title" style="font-size: 24pt; margin-top: 0.6mm; margin-bottom: 0.3mm;">${escape(data.company.name)}</div>
     </div>
     
     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4mm;">
       <div class="brand-logo-area" style="align-items: flex-end;">
-        <div class="brand-logo-title" style="font-size: 20pt; color: #24a177ff; letter-spacing: -0.5px;">EquiGen</div>
+        <div class="brand-logo-title" style="font-size: 20pt; color: #07877B; letter-spacing: -0.5px;">EquiGen</div>
         <div class="brand-logo-tagline" style="font-size: 5.5pt; letter-spacing: 1px;">AI-Powered Equity Research</div>
       </div>
       
@@ -629,39 +732,86 @@ ${watermark}
     </div>
   </div>
 
-  <!-- Full-width key changes / ratings / indicators table -->
-  <table class="identifiers-bar">
-    <thead>
-      <tr>
-        <th style="width:14%">Key Changes</th>
-        <th style="width:14%">CMP (Rs.)</th>
-        <th style="width:14%">Target Price</th>
-        <th style="width:15%">Upside Potential</th>
-        <th style="width:14%">Rating</th>
-        <th style="width:14%">Bloomberg Code</th>
-        <th style="width:15%">Sensex</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>
-          <span style="font-size: 8pt; font-weight: 700;">
-            Target <span style="color: #64748b; font-size: 9pt;">●</span> |
-            Rating <span style="color: #64748b; font-size: 9pt;">●</span> |
-            Earnings <span style="color: #008358; font-size: 10pt;">▲</span>
-          </span>
-        </td>
-        <td class="val-accent">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString('en-IN')}` : '-'}</td>
-        <td class="val-accent">${rec.targetPrice != null && rec.targetPrice > 0 ? `Rs. ${rec.targetPrice.toLocaleString('en-IN')}` : '-'}</td>
-        <td class="val-accent" style="color:${rec.upsidePotential != null && rec.upsidePotential >= 0 ? '#008358' : '#ef4444'}">
-          ${rec.currentPrice != null && rec.currentPrice > 0 && rec.targetPrice != null && rec.targetPrice > 0 && rec.upsidePotential != null ? `${rec.upsidePotential >= 0 ? '+' : ''}${rec.upsidePotential.toFixed(1)}%` : '-'}
-        </td>
-        <td class="val-accent" style="color:${ratingColor}">${escape(rec.rating || 'HOLD')}</td>
-        <td>${escape(data.bloombergCode || '-')}</td>
-        <td>${data.sensexValue != null ? escape(String(data.sensexValue)) : '-'}</td>
-      </tr>
-    </tbody>
-  </table>
+  <!-- Sector and Date metadata line -->
+  <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #000; font-weight: 700; margin-bottom: 2mm; border-bottom: 1px solid #cbd5e1; padding-bottom: 1.5mm;">
+    <span>Sector: ${escape(data.company.sector || 'General Corporate')}</span>
+    <span>Date: ${escape(data.company.reportDate || '-')}</span>
+  </div>
+
+  <!-- Flex container matching Geojit two-column header design exactly -->
+  <div style="display: flex; gap: 6px; width: 100%; margin-bottom: 4mm;">
+    <!-- Left Column: Key Changes & Identifiers (Table) -->
+    <div style="flex: 1.7; display: flex;">
+      <table style="width: 100%; border-collapse: collapse; background: #f4f6f5; border-top: 1.5px solid #07877B; border-bottom: 1.5px solid #07877B; font-family: 'Inter', sans-serif;">
+        <tbody>
+          <!-- Row 1: Key Changes -->
+          <tr style="font-weight: 800; color: #000; font-size: 7.5pt; text-transform: uppercase;">
+            <td colspan="2" style="text-align: left; padding: 4px 0 2px 12px;">Key Changes</td>
+            <td style="text-align: center; padding: 4px 0 2px 0;">
+              <div style="display: inline-flex; align-items: center; gap: 4px;">
+                <span>Target</span>
+                <span style="color: #008358; font-size: 11pt; line-height: 1;">▲</span>
+              </div>
+            </td>
+            <td style="text-align: center; padding: 4px 0 2px 0;">
+              <div style="display: inline-flex; align-items: center; gap: 4px;">
+                <span>Rating</span>
+                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">▼</span>
+              </div>
+            </td>
+            <td colspan="2" style="text-align: center; padding: 4px 12px 2px 0;">
+              <div style="display: inline-flex; align-items: center; gap: 4px; justify-content: center;">
+                <span>Earnings</span>
+                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">▼</span>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Row 2: Labels -->
+          <tr style="background: #ffffff; color: #475569; font-size: 7.2pt; font-weight: 600;">
+            <td style="width: 16%; text-align: left; padding: 2px 0 2px 12px;">Stock Type</td>
+            <td style="width: 20%; text-align: center; padding: 2px 0;">Bloomberg Code</td>
+            <td style="width: 16%; text-align: center; padding: 2px 0;">Sensex</td>
+            <td style="width: 16%; text-align: center; padding: 2px 0;">NSE Code</td>
+            <td style="width: 16%; text-align: center; padding: 2px 0;">BSE Code</td>
+            <td style="width: 16%; text-align: right; padding: 2px 12px 2px 0;">Time Frame</td>
+          </tr>
+
+          <!-- Row 3: Values -->
+          <tr style="color: #000; font-size: 7.5pt; font-weight: 700;">
+            <td style="text-align: left; padding: 2px 0 4px 12px;">${escape(data.stockType || 'Large Cap')}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bloombergCode || '-')}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${data.sensexValue != null ? escape(String(data.sensexValue)) : '-'}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.nseCode || '-')}</td>
+            <td style="text-align: center; padding: 2px 0 4px 0;">${escape(data.bseCode || '-')}</td>
+            <td style="text-align: right; padding: 2px 12px 4px 0;">${escape(data.timeFrame || '12 Months')}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Right Column: Target / CMP / Return (Table) -->
+    <div style="flex: 0.8; display: flex;">
+      <table style="width: 100%; border-collapse: collapse; background: #f4f6f5; border-top: 1.5px solid #07877B; border-bottom: 1.5px solid #07877B; font-family: 'Inter', sans-serif;">
+        <tbody>
+          <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
+            <td style="text-align: left; padding: 4px 0 2px 12px; width: 40%;">Target</td>
+            <td style="text-align: right; padding: 4px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.targetPrice != null && rec.targetPrice > 0 ? `Rs. ${rec.targetPrice.toLocaleString('en-IN')}` : '-'}</td>
+          </tr>
+          <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
+            <td style="text-align: left; padding: 2px 0 2px 12px;">CMP</td>
+            <td style="text-align: right; padding: 2px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString('en-IN')}` : '-'}</td>
+          </tr>
+          <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
+            <td style="text-align: left; padding: 2px 0 4px 12px;">Return</td>
+            <td style="text-align: right; padding: 2px 12px 4px 0; font-weight: 800; font-size: 8.5pt; color: #000;">
+              ${rec.currentPrice != null && rec.currentPrice > 0 && rec.targetPrice != null && rec.targetPrice > 0 && rec.upsidePotential != null ? `${rec.upsidePotential >= 0 ? '+' : ''}${rec.upsidePotential.toFixed(1)}%` : '-'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 
   <div class="page1-body">
     <!-- Left Column (Narrow Left Rail) -->
@@ -714,22 +864,20 @@ ${watermark}
 
     <!-- Right Column (Wide Right Rail) -->
     <div class="right-rail">
-      <div style="font-size: 8pt; color: #475569; font-weight: 600; margin-bottom: 1.5mm;">
-        Sector: ${escape(data.company.sector || 'General Corporate')} | NSE: ${escape(data.nseCode || '-')} | BSE: ${escape(data.bseCode || '-')} | Time Frame: ${escape(data.timeFrame || '12 Months')} | Stock Type: ${escape(data.stockType || 'Large Cap')}
-      </div>
 
-      ${data.headlineTakeaway ? `<div class="company-headline" style="font-size: 10pt; font-weight: 700; color: #00704a; margin-top: 1mm; margin-bottom: 2mm; border-left: 2.5px solid #00704a; padding-left: 5px; line-height: 1.25;">${escape(data.headlineTakeaway)}</div>` : ''}
+
+      ${data.headlineTakeaway ? `<div class="company-headline" style="margin-top: 1mm; margin-bottom: 2mm;">${escape(data.headlineTakeaway)}</div>` : ''}
 
       <div class="section-header" style="margin-top:0;">Company Overview</div>
       <div class="para">${escape(data.businessOverview || 'No company overview available.')}</div>
 
       <div class="section-header">Key Highlights</div>
       <ul class="bullet-list">
-        ${data.pageOneHighlights && data.pageOneHighlights.length > 0 
-          ? data.pageOneHighlights.map(r => `<li>${escape(r)}</li>`).join('')
-          : (data.recommendation.rationale && data.recommendation.rationale.length > 0
-            ? data.recommendation.rationale.map(r => `<li>${escape(r)}</li>`).join('')
-            : '<li>Analytical highlight details are currently unavailable.</li>')}
+        ${data.pageOneHighlights && data.pageOneHighlights.length > 0
+      ? data.pageOneHighlights.map(r => `<li>${escape(r)}</li>`).join('')
+      : (data.recommendation.rationale && data.recommendation.rationale.length > 0
+        ? data.recommendation.rationale.map(r => `<li>${escape(r)}</li>`).join('')
+        : '<li>Analytical highlight details are currently unavailable.</li>')}
       </ul>
 
       <div class="section-header">Outlook &amp; Valuation</div>
@@ -758,7 +906,7 @@ ${watermark}
 <div class="page">
   <div class="top-logo">
     <span>Retail Equity Research</span>
-    <span style="background: #00704a; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Estimates &amp; Trends</span>
+    <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Estimates &amp; Trends</span>
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
@@ -822,8 +970,8 @@ ${watermark}
       <div class="section-header">Key Highlights &amp; Insights</div>
       <ul class="bullet-list" style="margin-bottom: 2mm;">
         ${data.pageTwoHighlights && data.pageTwoHighlights.length > 0
-          ? data.pageTwoHighlights.map(h => `<li>${escape(h)}</li>`).join('')
-          : `<li>${escape(data.narrativeSummary || data.executiveSummary || 'No additional highlights available.')}</li>`}
+      ? data.pageTwoHighlights.map(h => `<li>${escape(h)}</li>`).join('')
+      : `<li>${escape(data.narrativeSummary || data.executiveSummary || 'No additional highlights available.')}</li>`}
       </ul>
     </div>
   </div>
@@ -856,52 +1004,75 @@ ${watermark}
 <div class="page">
   <div class="top-logo">
     <span>Consolidated Financials</span>
-    <span style="background: #00704a; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
+    <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
-  <div class="section-header" style="margin-top:1mm;">Profit &amp; Loss Statement (₹ Cr)</div>
-  ${renderDetailTable(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE)}
+  <!-- Row 1: P&L Statement and Balance Sheet side-by-side -->
+  <div style="display: flex; gap: 4mm; margin-top: 1mm;">
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Profit &amp; Loss Statement (₹ Cr)</div>
+      ${renderDetailTable(df.incomeStatement, INCOME_STATEMENT_ROW_TEMPLATE)}
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Balance Sheet (₹ Cr)</div>
+      ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
+    </div>
+  </div>
 
-  <div class="section-header" style="margin-top:3mm;">Balance Sheet (₹ Cr)</div>
-  ${renderDetailTable(df.balanceSheet, BALANCE_SHEET_ROW_TEMPLATE)}
+  <!-- Row 2: Cash Flow Statement and Financial Ratios side-by-side -->
+  <div style="display: flex; gap: 4mm; margin-top: 3mm;">
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Cash Flow Statement (₹ Cr)</div>
+      ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Financial Ratios</div>
+      ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════ PAGE 4 ═══════════════════════════════════ -->
 <div class="page">
   <div class="top-logo">
     <span>Consolidated Financials</span>
-    <span style="background: #00704a; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
+    <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
 
-  <div class="section-header" style="margin-top:1mm;">Cash Flow Statement (₹ Cr)</div>
-  ${renderDetailTable(df.cashFlow, CASH_FLOW_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Financial Ratios</div>
-  ${renderDetailTable(df.ratios, RATIOS_ROW_TEMPLATE)}
-
-  <div class="section-header" style="margin-top:3mm;">Recommendation History (Last 3 Years)</div>
-  <table class="fin-table thin-border" style="width: 50%;">
-    <thead>
-      <tr>
-        <th>Dates</th>
-        <th>Rating</th>
-        <th>Target (Rs.)</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${recSum.length > 0 ? recSum.map(r => `
-        <tr>
-          <td class="metric-label">${escape(r.date)}</td>
-          <td>${escape(r.rating)}</td>
-          <td>${r.target != null ? escape(String(r.target)) : '-'}</td>
-        </tr>
-      `).join('') : `
-        <tr><td colspan="3">No history available.</td></tr>
-      `}
-    </tbody>
-  </table>
+  <!-- Side-by-side: Recommendation History Chart (left) and Table (right) -->
+  <div style="display: flex; gap: 4mm; margin-top: 1mm; align-items: stretch;">
+    <div style="flex: 1.2; min-width: 0; display: flex; flex-direction: column;">
+      <div class="section-header" style="margin-top:0;">Recommendation Summary (last 3 years)</div>
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; background: #fff; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 200px;">
+        ${recHistoryChart}
+      </div>
+    </div>
+    <div style="flex: 0.8; min-width: 0;">
+      <div class="section-header" style="margin-top:0;">Recommendation History</div>
+      <table class="fin-table thin-border" style="width: 100%; height: calc(100% - 15px);">
+        <thead>
+          <tr>
+            <th>Dates</th>
+            <th>Rating</th>
+            <th>Target (Rs.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recSum.length > 0 ? recSum.map(r => `
+            <tr>
+              <td class="metric-label" style="font-size:7.5pt;">${escape(r.date)}</td>
+              <td style="text-align: center;">${escape(r.rating)}</td>
+              <td style="text-align: right;">${r.target != null ? escape(String(r.target)) : '-'}</td>
+            </tr>
+          `).join('') : `
+            <tr><td colspan="3">No history available.</td></tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  </div>
 
   <div class="section-header" style="margin-top:3mm;">Investment Rating Criteria</div>
   <table class="fin-table thin-border">
