@@ -30,7 +30,7 @@ export interface ChartDataPoint {
 
 export interface ReportChart {
   title: string;
-  type: 'bar' | 'line';
+  type: "bar" | "line";
   xAxisKey: string;
   data: ChartDataPoint[];
   series: {
@@ -55,9 +55,9 @@ export interface ReportRisk {
 }
 
 export interface ReportRecommendation {
-  rating: 'BUY' | 'ACCUMULATE' | 'HOLD' | 'REDUCE' | 'SELL';
+  rating: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE" | "SELL";
   currentPrice: string; // pre-formatted e.g. "₹1,420.00"
-  targetPrice: string;  // pre-formatted e.g. "₹1,780.00"
+  targetPrice: string; // pre-formatted e.g. "₹1,780.00"
   upsidePotential: string; // pre-formatted e.g. "+25.35%"
   rationale: string[];
 }

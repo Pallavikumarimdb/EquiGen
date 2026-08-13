@@ -9,15 +9,17 @@ const geistSans = Geist({
 
 export const metadata: Metadata = {
   title: "EquiGen - AI Equity Research Report Generator",
-  description: "Generate Geojit-style equity research reports instantly with EquiGen Freemium AI",
+  description:
+    "Generate Geojit-style equity research reports instantly with EquiGen Freemium AI",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} h-full antialiased`}
-    >
+    <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

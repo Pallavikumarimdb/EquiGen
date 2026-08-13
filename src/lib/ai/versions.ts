@@ -8,7 +8,7 @@
  * Versions must be bumped in the same commit that changes the corresponding prompt/schema.
  */
 
-import { computeSHA256 } from '@/lib/utils/hash';
+import { computeSHA256 } from "@/lib/utils/hash";
 
 export const PROMPT_VERSIONS = {
   general: 1,
@@ -20,8 +20,13 @@ export const PROMPT_VERSIONS = {
 export type ExtractType = keyof typeof PROMPT_VERSIONS;
 
 /** Stable idempotency key for a chunk — changes only when text OR prompt version changes. */
-export function chunkInputHash(chunkText: string, extractType: ExtractType): string {
-  return computeSHA256(`${chunkText}|${extractType}|${PROMPT_VERSIONS[extractType]}`);
+export function chunkInputHash(
+  chunkText: string,
+  extractType: ExtractType,
+): string {
+  return computeSHA256(
+    `${chunkText}|${extractType}|${PROMPT_VERSIONS[extractType]}`,
+  );
 }
 
 /** Snapshot of all versions — stored on ExtractionJob.schemaVersion for audit + invalidation checks. */

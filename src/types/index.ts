@@ -10,7 +10,7 @@ export interface FinancialMetric {
   label: string;
   value: string | number;
   period: string; // e.g., "FY24", "Q3 FY25"
-  unit?: string;  // e.g., "Cr", "%", "USD"
+  unit?: string; // e.g., "Cr", "%", "USD"
 }
 
 export interface FinancialStatements {
@@ -20,7 +20,7 @@ export interface FinancialStatements {
 }
 
 export interface AnalystRecommendation {
-  rating: 'BUY' | 'ACCUMULATE' | 'HOLD' | 'REDUCE' | 'SELL';
+  rating: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE" | "SELL";
   currentPrice: number | null;
   targetPrice: number | null;
   upsidePotential: number | null;
@@ -130,7 +130,7 @@ export interface EquityResearchData {
   industryOverview?: string | null;
   businessOverview?: string | null;
   futureGrowth?: string | null;
-  
+
   // Geojit-specific fields
   nseCode?: string | null;
   bseCode?: string | null;
@@ -157,5 +157,5 @@ export interface ParseResult {
   rawText: string;
   metadata?: Record<string, unknown>;
   fileName: string;
-  fileType: 'pdf' | 'csv' | 'txt';
+  fileType: "pdf" | "csv" | "txt";
 }

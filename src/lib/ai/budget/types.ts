@@ -12,7 +12,7 @@ export interface ModelLimitRecord {
   tpm: number;
   /** Tokens per day ceiling (0 = unlimited/unset) */
   tpd: number;
-  source: 'configured' | 'discovered' | 'env';
+  source: "configured" | "discovered" | "env";
   lastDiscoveredAt?: Date | null;
 }
 

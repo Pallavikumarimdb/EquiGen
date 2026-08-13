@@ -1,5 +1,5 @@
-import path from 'path';
-import { existsSync } from 'fs';
+import path from "path";
+import { existsSync } from "fs";
 
 let cachedWorkerPath: string | null = null;
 
@@ -14,17 +14,17 @@ export function resolveTesseractWorkerPath(): string {
 
   const candidate = path.join(
     process.cwd(),
-    'node_modules',
-    'tesseract.js',
-    'src',
-    'worker-script',
-    'node',
-    'index.js'
+    "node_modules",
+    "tesseract.js",
+    "src",
+    "worker-script",
+    "node",
+    "index.js",
   );
 
   if (!existsSync(candidate)) {
     throw new Error(
-      `Tesseract worker script not found at ${candidate} — run "pnpm install" to restore node_modules.`
+      `Tesseract worker script not found at ${candidate} — run "pnpm install" to restore node_modules.`,
     );
   }
 

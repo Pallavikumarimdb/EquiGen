@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/db';
-import { dayKey, minuteKey, ModelLimitRecord, TokenBudgetStore } from './types';
+import { prisma } from "@/lib/db";
+import { dayKey, minuteKey, ModelLimitRecord, TokenBudgetStore } from "./types";
 
 /**
  * Postgres-backed TokenBudgetStore.
@@ -16,7 +16,9 @@ export class PostgresBudgetStore implements TokenBudgetStore {
     const rows = await prisma.tokenBudgetUsage.findMany({
       where: {
         model,
-        minuteKey: { in: [minuteKey(), minuteKey(new Date(Date.now() - 60_000))] },
+        minuteKey: {
+          in: [minuteKey(), minuteKey(new Date(Date.now() - 60_000))],
+        },
       },
       select: { used: true },
     });
@@ -73,7 +75,7 @@ export class PostgresBudgetStore implements TokenBudgetStore {
       model: row.model,
       tpm: row.tpm,
       tpd: row.tpd,
-      source: row.source as ModelLimitRecord['source'],
+      source: row.source as ModelLimitRecord["source"],
       lastDiscoveredAt: row.lastDiscoveredAt,
     };
   }

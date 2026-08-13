@@ -1,16 +1,24 @@
-import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
-import { ChatGroq } from '@langchain/groq';
-import { z } from 'zod';
-import { prisma } from '@/lib/db';
-import type { Prisma } from '@prisma/client';
-import { AIServiceOptions } from './langchain-service';
-import { AIExtractionResult } from './schema';
-import { getModelForRequest, getFallbackGroqModel, recordActualUsage } from './model-router';
-import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
+import { Annotation, StateGraph, START, END } from "@langchain/langgraph";
+import { ChatGroq } from "@langchain/groq";
+import { z } from "zod";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
+import { AIServiceOptions } from "./langchain-service";
+import { AIExtractionResult } from "./schema";
+import {
+  getModelForRequest,
+  getFallbackGroqModel,
+  recordActualUsage,
+} from "./model-router";
+import { withRateLimitRetry, RateLimitError } from "./retry-wrapper";
 
 // --- Helper: Simple Character Chunker with overlap ---
 
-function splitTextIntoChunks(text: string, chunkSize = 20000, overlap = 2000): string[] {
+function splitTextIntoChunks(
+  text: string,
+  chunkSize = 20000,
+  overlap = 2000,
+): string[] {
   const chunks: string[] = [];
   let start = 0;
   while (start < text.length) {
@@ -23,52 +31,99 @@ function splitTextIntoChunks(text: string, chunkSize = 20000, overlap = 2000): s
 }
 
 function parseNum(v: number | string): number {
-  if (typeof v === 'number') return v;
-  return parseFloat(String(v).replace(/[^\d.-]/g, '')) || 0;
+  if (typeof v === "number") return v;
+  return parseFloat(String(v).replace(/[^\d.-]/g, "")) || 0;
 }
 
 // --- Specialized Node Zod Sub-schemas ---
 
 export const LocalExtractionSchema = z.object({
-  relevantSWOT: z.array(z.string()).describe('SWOT factors or risk signals found in this section (empty if none)'),
-  relevantFinancials: z.array(z.string()).describe('Key financial figures, EBITDA, revenues, or targets mentioned in this section (empty if none)'),
-  briefSectionSummary: z.string().describe('1-2 sentence high-density summary of operational facts in this section'),
-  rawTabularData: z.string().optional().describe('Verbatim markdown, CSV, or structured text of any Balance Sheet, P&L, Cash Flow, or Ratios tables found in this section (leave empty if none)')
+  relevantSWOT: z
+    .array(z.string())
+    .describe(
+      "SWOT factors or risk signals found in this section (empty if none)",
+    ),
+  relevantFinancials: z
+    .array(z.string())
+    .describe(
+      "Key financial figures, EBITDA, revenues, or targets mentioned in this section (empty if none)",
+    ),
+  briefSectionSummary: z
+    .string()
+    .describe(
+      "1-2 sentence high-density summary of operational facts in this section",
+    ),
+  rawTabularData: z
+    .string()
+    .optional()
+    .describe(
+      "Verbatim markdown, CSV, or structured text of any Balance Sheet, P&L, Cash Flow, or Ratios tables found in this section (leave empty if none)",
+    ),
 });
 
 export const CompanyGeneralSchema = z.object({
-  companyName: z.string().describe('Full corporate name of the target entity'),
-  ticker: z.string().describe('Stock market ticker symbol'),
-  narrativeSummary: z.string().describe('Narrative summary of findings (outlook, recommendation, key drivers)'),
-  industryOverview: z.string().describe('High-level outlook of the industry vertical'),
-  businessOverview: z.string().describe('Brief operational overview of business divisions'),
-  headlineTakeaway: z.string().describe('A punchy, editorial-style headline under 12 words summarizing the thesis. E.g. "Blinkit propels growth; valuation limits upside"')
+  companyName: z.string().describe("Full corporate name of the target entity"),
+  ticker: z.string().describe("Stock market ticker symbol"),
+  narrativeSummary: z
+    .string()
+    .describe(
+      "Narrative summary of findings (outlook, recommendation, key drivers)",
+    ),
+  industryOverview: z
+    .string()
+    .describe("High-level outlook of the industry vertical"),
+  businessOverview: z
+    .string()
+    .describe("Brief operational overview of business divisions"),
+  headlineTakeaway: z
+    .string()
+    .describe(
+      'A punchy, editorial-style headline under 12 words summarizing the thesis. E.g. "Blinkit propels growth; valuation limits upside"',
+    ),
 });
 
 export const SwotAndThesisSchema = z.object({
-  highlights: z.array(z.string()).describe('Key highlights (strengths, expansion, strategic positioning)'),
-  investmentThesis: z.string().describe('Main investment case and rationale'),
-  risks: z.array(z.string()).describe('Primary business and financial risks/weaknesses'),
-  futureGrowth: z.union([z.string(), z.array(z.string())]).describe('Key growth drivers and pipeline plans')
+  highlights: z
+    .array(z.string())
+    .describe("Key highlights (strengths, expansion, strategic positioning)"),
+  investmentThesis: z.string().describe("Main investment case and rationale"),
+  risks: z
+    .array(z.string())
+    .describe("Primary business and financial risks/weaknesses"),
+  futureGrowth: z
+    .union([z.string(), z.array(z.string())])
+    .describe("Key growth drivers and pipeline plans"),
 });
 
 export const FinancialsSchema = z.object({
-  revenue: z.array(z.object({
-    period: z.string().describe('Fiscal period, e.g. FY23, FY24, FY25'),
-    value: z.number().describe('Revenue figure value'),
-    unit: z.string().describe('Cr or Mn')
-  })).describe('Revenue statement entries'),
-  ebitda: z.array(z.object({
-    period: z.string().describe('Fiscal period'),
-    value: z.number().describe('EBITDA value'),
-    unit: z.string().describe('Cr or Mn')
-  })).describe('EBITDA statement entries'),
-  pat: z.array(z.object({
-    period: z.string().describe('Fiscal period'),
-    value: z.number().describe('PAT value'),
-    unit: z.string().describe('Cr or Mn')
-  })).describe('PAT statement entries'),
-  recommendation: z.enum(['BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL']),
+  revenue: z
+    .array(
+      z.object({
+        period: z.string().describe("Fiscal period, e.g. FY23, FY24, FY25"),
+        value: z.number().describe("Revenue figure value"),
+        unit: z.string().describe("Cr or Mn"),
+      }),
+    )
+    .describe("Revenue statement entries"),
+  ebitda: z
+    .array(
+      z.object({
+        period: z.string().describe("Fiscal period"),
+        value: z.number().describe("EBITDA value"),
+        unit: z.string().describe("Cr or Mn"),
+      }),
+    )
+    .describe("EBITDA statement entries"),
+  pat: z
+    .array(
+      z.object({
+        period: z.string().describe("Fiscal period"),
+        value: z.number().describe("PAT value"),
+        unit: z.string().describe("Cr or Mn"),
+      }),
+    )
+    .describe("PAT statement entries"),
+  recommendation: z.enum(["BUY", "ACCUMULATE", "HOLD", "REDUCE", "SELL"]),
   currentPrice: z.number().nullable().optional(),
   targetPrice: z.number().nullable().optional(),
   nseCode: z.string().nullable().optional(),
@@ -88,76 +143,140 @@ export const FinancialsSchema = z.object({
   avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
   beta: z.union([z.string(), z.number()]).nullable().optional(),
   faceValue: z.union([z.string(), z.number()]).nullable().optional(),
-  companyData: z.object({
-    marketCap: z.union([z.string(), z.number()]).nullable().optional(),
-    highLow52W: z.string().nullable().optional(),
-    enterpriseValue: z.union([z.string(), z.number()]).nullable().optional(),
-    ev: z.union([z.string(), z.number()]).nullable().optional(),
-    outstandingShares: z.union([z.string(), z.number()]).nullable().optional(),
-    freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
-    dividendYield: z.union([z.string(), z.number()]).nullable().optional(),
-    avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
-    avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
-    beta: z.union([z.string(), z.number()]).nullable().optional(),
-    faceValue: z.union([z.string(), z.number()]).nullable().optional(),
-  }).nullable().optional(),
-  shareholding: z.array(z.object({
-    category: z.string(),
-    periods: z.array(z.string()),
-    values: z.array(z.union([z.string(), z.number()]))
-  })).nullable().optional(),
+  companyData: z
+    .object({
+      marketCap: z.union([z.string(), z.number()]).nullable().optional(),
+      highLow52W: z.string().nullable().optional(),
+      enterpriseValue: z.union([z.string(), z.number()]).nullable().optional(),
+      ev: z.union([z.string(), z.number()]).nullable().optional(),
+      outstandingShares: z
+        .union([z.string(), z.number()])
+        .nullable()
+        .optional(),
+      freeFloat: z.union([z.string(), z.number()]).nullable().optional(),
+      dividendYield: z.union([z.string(), z.number()]).nullable().optional(),
+      avgVolume6m: z.union([z.string(), z.number()]).nullable().optional(),
+      avgVolume: z.union([z.string(), z.number()]).nullable().optional(),
+      beta: z.union([z.string(), z.number()]).nullable().optional(),
+      faceValue: z.union([z.string(), z.number()]).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  shareholding: z
+    .array(
+      z.object({
+        category: z.string(),
+        periods: z.array(z.string()),
+        values: z.array(z.union([z.string(), z.number()])),
+      }),
+    )
+    .nullable()
+    .optional(),
   promoterPledge: z.union([z.string(), z.number()]).nullable().optional(),
-  pricePerformance: z.array(z.object({
-    period: z.string(),
-    absoluteReturn: z.union([z.string(), z.number()]).nullable().optional(),
-    absoluteSensex: z.union([z.string(), z.number()]).nullable().optional(),
-    relativeReturn: z.union([z.string(), z.number()]).nullable().optional()
-  })).nullable().optional(),
-  estimates: z.array(z.object({
-    metric: z.string(),
-    oldFY26: z.union([z.string(), z.number()]).nullable().optional(),
-    oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
-    newFY26: z.union([z.string(), z.number()]).nullable().optional(),
-    newFY27: z.union([z.string(), z.number()]).nullable().optional(),
-    changeFY26: z.union([z.string(), z.number()]).nullable().optional(),
-    changeFY27: z.union([z.string(), z.number()]).nullable().optional()
-  })).nullable().optional(),
-  quarterlyFinancials: z.array(z.object({
-    metric: z.string(),
-    q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
-    q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
-    yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
-    q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
-    qoqGrowth: z.union([z.string(), z.number()]).nullable().optional()
-  })).nullable().optional(),
-  detailedFinancials: z.object({
-    incomeStatement: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
-    balanceSheet: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
-    cashFlow: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional(),
-    ratios: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).nullable().optional()
-  }).nullable().optional(),
-  recommendationSummary: z.array(z.object({
-    date: z.string().describe("The date or period of the recommendation, e.g. '12-May-24', 'Q1FY25' or 'September 2023'"),
-    rating: z.string().describe("The recommendation rating, e.g. 'BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL'"),
-    target: z.union([z.string(), z.number()]).describe("The target price on that date")
-  })).nullable().optional().describe("Recommendation history/summary over the last 3 years (often found under 'Recommendation Summary (last 3 years)' or 'Recommendation History'), consisting of past dates, ratings/recommendations, and target prices."),
+  pricePerformance: z
+    .array(
+      z.object({
+        period: z.string(),
+        absoluteReturn: z.union([z.string(), z.number()]).nullable().optional(),
+        absoluteSensex: z.union([z.string(), z.number()]).nullable().optional(),
+        relativeReturn: z.union([z.string(), z.number()]).nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  estimates: z
+    .array(
+      z.object({
+        metric: z.string(),
+        oldFY26: z.union([z.string(), z.number()]).nullable().optional(),
+        oldFY27: z.union([z.string(), z.number()]).nullable().optional(),
+        newFY26: z.union([z.string(), z.number()]).nullable().optional(),
+        newFY27: z.union([z.string(), z.number()]).nullable().optional(),
+        changeFY26: z.union([z.string(), z.number()]).nullable().optional(),
+        changeFY27: z.union([z.string(), z.number()]).nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  quarterlyFinancials: z
+    .array(
+      z.object({
+        metric: z.string(),
+        q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
+        q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
+        yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+        q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
+        qoqGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  detailedFinancials: z
+    .object({
+      incomeStatement: z
+        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .nullable()
+        .optional(),
+      balanceSheet: z
+        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .nullable()
+        .optional(),
+      cashFlow: z
+        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .nullable()
+        .optional(),
+      ratios: z
+        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
+  recommendationSummary: z
+    .array(
+      z.object({
+        date: z
+          .string()
+          .describe(
+            "The date or period of the recommendation, e.g. '12-May-24', 'Q1FY25' or 'September 2023'",
+          ),
+        rating: z
+          .string()
+          .describe(
+            "The recommendation rating, e.g. 'BUY', 'HOLD', 'ACCUMULATE', 'REDUCE', 'SELL'",
+          ),
+        target: z
+          .union([z.string(), z.number()])
+          .describe("The target price on that date"),
+      }),
+    )
+    .nullable()
+    .optional()
+    .describe(
+      "Recommendation history/summary over the last 3 years (often found under 'Recommendation Summary (last 3 years)' or 'Recommendation History'), consisting of past dates, ratings/recommendations, and target prices.",
+    ),
   sensexValue: z.union([z.string(), z.number()]).nullable().optional(),
-  fiveYearSummary: z.array(z.object({
-    period: z.string(),
-    sales: z.union([z.string(), z.number()]).nullable().optional(),
-    salesGrowth: z.union([z.string(), z.number()]).nullable().optional(),
-    ebitda: z.union([z.string(), z.number()]).nullable().optional(),
-    ebitdaMargin: z.union([z.string(), z.number()]).nullable().optional(),
-    patAdjusted: z.union([z.string(), z.number()]).nullable().optional(),
-    patGrowth: z.union([z.string(), z.number()]).nullable().optional(),
-    adjEps: z.union([z.string(), z.number()]).nullable().optional(),
-    epsGrowth: z.union([z.string(), z.number()]).nullable().optional(),
-    pe: z.union([z.string(), z.number()]).nullable().optional(),
-    pb: z.union([z.string(), z.number()]).nullable().optional(),
-    evEbitda: z.union([z.string(), z.number()]).nullable().optional(),
-    roe: z.union([z.string(), z.number()]).nullable().optional(),
-    deRatio: z.union([z.string(), z.number()]).nullable().optional()
-  })).nullable().optional()
+  fiveYearSummary: z
+    .array(
+      z.object({
+        period: z.string(),
+        sales: z.union([z.string(), z.number()]).nullable().optional(),
+        salesGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+        ebitda: z.union([z.string(), z.number()]).nullable().optional(),
+        ebitdaMargin: z.union([z.string(), z.number()]).nullable().optional(),
+        patAdjusted: z.union([z.string(), z.number()]).nullable().optional(),
+        patGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+        adjEps: z.union([z.string(), z.number()]).nullable().optional(),
+        epsGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+        pe: z.union([z.string(), z.number()]).nullable().optional(),
+        pb: z.union([z.string(), z.number()]).nullable().optional(),
+        evEbitda: z.union([z.string(), z.number()]).nullable().optional(),
+        roe: z.union([z.string(), z.number()]).nullable().optional(),
+        deRatio: z.union([z.string(), z.number()]).nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
 });
 
 // --- State Definition ---
@@ -172,7 +291,7 @@ export const ResearchState = Annotation.Root({
   // Condensed summary generated by map-reduce preprocessor
   condensedContext: Annotation<string>({
     reducer: (a, b) => b,
-    default: () => ''
+    default: () => "",
   }),
 
   // Extract results
@@ -183,31 +302,32 @@ export const ResearchState = Annotation.Root({
   // Audit details
   mathErrors: Annotation<string[]>({
     reducer: (a, b) => a.concat(b),
-    default: () => []
+    default: () => [],
   }),
   retryCount: Annotation<number>({
     reducer: (a, b) => a + b,
-    default: () => 0
+    default: () => 0,
   }),
   mathematicallyValid: Annotation<boolean>({
     reducer: (a, b) => b,
-    default: () => true
+    default: () => true,
   }),
   /** Tracks which model actually ran financials extraction (for reviewer audit trail) */
   modelUsedForFinancials: Annotation<string>({
     reducer: (a, b) => b || a,
-    default: () => ''
-  })
+    default: () => "",
+  }),
 });
 
 // --- Helper: Preprocessor model (always high-TPM 8B) ---
 
 function getPreprocessorModel(options: AIServiceOptions): ChatGroq {
-  const apiKey = options.apiKey || process.env.GROQ_API_KEY || '';
-  if (!apiKey) throw new Error('Groq API key not configured for preprocessor model.');
+  const apiKey = options.apiKey || process.env.GROQ_API_KEY || "";
+  if (!apiKey)
+    throw new Error("Groq API key not configured for preprocessor model.");
   return new ChatGroq({
     apiKey,
-    model: 'llama-3.1-8b-instant', // 500,000 TPM — safe for bulk chunking
+    model: "llama-3.1-8b-instant", // 500,000 TPM — safe for bulk chunking
     temperature: 0.1,
     maxRetries: 5,
   });
@@ -218,18 +338,23 @@ function getPreprocessorModel(options: AIServiceOptions): ChatGroq {
  * can render a live countdown instead of a silently frozen running step.
  * Non-fatal: failures here never abort the pipeline.
  */
-function notifyBudgetWait(state: typeof ResearchState.State, waitMs: number): void {
+function notifyBudgetWait(
+  state: typeof ResearchState.State,
+  waitMs: number,
+): void {
   if (!state.jobId || waitMs <= 0) return;
   prisma.extractionJob
     .update({
       where: { id: state.jobId },
       data: {
-        waitMessage: 'AI model at capacity — resuming automatically',
+        waitMessage: "AI model at capacity — resuming automatically",
         waitUntil: new Date(Date.now() + waitMs),
-        updatedAt: new Date()
-      }
+        updatedAt: new Date(),
+      },
     })
-    .catch(() => {/* best-effort progress surfacing */ });
+    .catch(() => {
+      /* best-effort progress surfacing */
+    });
 }
 
 // --- Node 0: Map-Reduce Chunker Node ---
@@ -252,56 +377,66 @@ async function preprocessChunksNode(state: typeof ResearchState.State) {
 
     // Add rate-limiting cooldown delay between sequential requests
     if (i > 0) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
     try {
       const systemPrompt = `You are a corporate data extraction analyst. Read the segment of an annual report / prospectus. Extract any relevant SWOT details, financials, or critical operations facts. Keep arrays empty if nothing is found.`;
       const userPrompt = `Company: ${state.companyName}\n\nSegment (Part ${i + 1} of ${chunks.length}):\n${chunk}`;
 
-      const res = await structuredModel.invoke([
-        ['system', systemPrompt],
-        ['user', userPrompt]
-      ], { signal: AbortSignal.timeout(180000) });
+      const res = await structuredModel.invoke(
+        [
+          ["system", systemPrompt],
+          ["user", userPrompt],
+        ],
+        { signal: AbortSignal.timeout(180000) },
+      );
 
-      const condensedLine = `[Chunk ${i + 1}]: ${res.briefSectionSummary}. SWOT: ${res.relevantSWOT.join(', ')}. Fin: ${res.relevantFinancials.join(', ')}`;
+      const condensedLine = `[Chunk ${i + 1}]: ${res.briefSectionSummary}. SWOT: ${res.relevantSWOT.join(", ")}. Fin: ${res.relevantFinancials.join(", ")}`;
       if (res.rawTabularData && res.rawTabularData.trim().length > 0) {
-        results.push(`${condensedLine}\n[VERBATIM TABLE CHUNK ${i + 1}]:\n${res.rawTabularData}\n`);
+        results.push(
+          `${condensedLine}\n[VERBATIM TABLE CHUNK ${i + 1}]:\n${res.rawTabularData}\n`,
+        );
       } else {
         results.push(condensedLine);
       }
     } catch (e) {
-      console.warn(`[QueueWorker Chunker] Chunk ${i} failed. Skipping chunk. Error:`, e);
+      console.warn(
+        `[QueueWorker Chunker] Chunk ${i} failed. Skipping chunk. Error:`,
+        e,
+      );
     }
   }
 
-  return { condensedContext: results.join('\n') };
+  return { condensedContext: results.join("\n") };
 }
 
 // --- Node 1: Company General details ---
 
-async function extractCompanyGeneralNode(state: typeof ResearchState.State): Promise<{ companyGeneral: z.infer<typeof CompanyGeneralSchema> }> {
-  let contextText = '';
+async function extractCompanyGeneralNode(
+  state: typeof ResearchState.State,
+): Promise<{ companyGeneral: z.infer<typeof CompanyGeneralSchema> }> {
+  let contextText = "";
   const job = await prisma.extractionJob.findUnique({
-    where: { id: state.jobId }
+    where: { id: state.jobId },
   });
   if (job?.documentId) {
     const narrativeExtractions = await prisma.chunkExtraction.findMany({
       where: {
         jobId: state.jobId,
-        extractType: 'narrative',
-        status: 'ok'
-      }
+        extractType: "narrative",
+        status: "ok",
+      },
     });
     contextText = narrativeExtractions
       .map((e) => {
         if (e.extractionJson && Array.isArray(e.extractionJson)) {
-          return (e.extractionJson as string[]).join('\n');
+          return (e.extractionJson as string[]).join("\n");
         }
-        return '';
+        return "";
       })
       .filter(Boolean)
-      .join('\n\n');
+      .join("\n\n");
   }
   if (!contextText) {
     contextText = state.condensedContext || state.rawText;
@@ -320,33 +455,63 @@ Read the provided document text and extract the following:
 
   // Pre-flight: checks request size vs TPM ceiling, waits for real budget, reroutes if needed
   const { model, modelName, downgraded } = await getModelForRequest(
-    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile',
-    (waitMs) => notifyBudgetWait(state, waitMs)
+    state.modelOptions,
+    fullPrompt,
+    "llama-3.3-70b-versatile",
+    (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);
 
   if (downgraded) {
-    console.warn(`[extract_general] Rerouted to ${modelName} due to request size.`);
+    console.warn(
+      `[extract_general] Rerouted to ${modelName} due to request size.`,
+    );
   }
 
   const structuredModel = model.withStructuredOutput(CompanyGeneralSchema);
-  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(CompanyGeneralSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(
+    state.modelOptions,
+  ).withStructuredOutput(CompanyGeneralSchema);
   let res;
   try {
     res = await withRateLimitRetry(
-      () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        structuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
       () => clearJobWait(state),
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) })
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
     );
   } catch (primaryErr) {
-    console.warn('[extract_general] Primary model failed or parsed incorrectly. Triggering fallback model...', primaryErr);
+    console.warn(
+      "[extract_general] Primary model failed or parsed incorrectly. Triggering fallback model...",
+      primaryErr,
+    );
     res = await withRateLimitRetry(
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-      () => clearJobWait(state)
+      () => clearJobWait(state),
     );
   }
   clearJobWait(state);
@@ -357,28 +522,30 @@ Read the provided document text and extract the following:
 
 // --- Node 2: SWOT & Investment Thesis ---
 
-async function extractSwotNode(state: typeof ResearchState.State): Promise<{ swotAndThesis: z.infer<typeof SwotAndThesisSchema> }> {
-  let contextText = '';
+async function extractSwotNode(
+  state: typeof ResearchState.State,
+): Promise<{ swotAndThesis: z.infer<typeof SwotAndThesisSchema> }> {
+  let contextText = "";
   const job = await prisma.extractionJob.findUnique({
-    where: { id: state.jobId }
+    where: { id: state.jobId },
   });
   if (job?.documentId) {
     const swotExtractions = await prisma.chunkExtraction.findMany({
       where: {
         jobId: state.jobId,
-        extractType: 'swot',
-        status: 'ok'
-      }
+        extractType: "swot",
+        status: "ok",
+      },
     });
     contextText = swotExtractions
       .map((e) => {
         if (e.extractionJson && Array.isArray(e.extractionJson)) {
-          return (e.extractionJson as string[]).join('\n');
+          return (e.extractionJson as string[]).join("\n");
         }
-        return '';
+        return "";
       })
       .filter(Boolean)
-      .join('\n\n');
+      .join("\n\n");
   }
   if (!contextText) {
     contextText = state.condensedContext || state.rawText;
@@ -392,33 +559,63 @@ async function extractSwotNode(state: typeof ResearchState.State): Promise<{ swo
   const fullPrompt = systemPrompt + userPrompt;
 
   const { model, modelName, downgraded } = await getModelForRequest(
-    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile',
-    (waitMs) => notifyBudgetWait(state, waitMs)
+    state.modelOptions,
+    fullPrompt,
+    "llama-3.3-70b-versatile",
+    (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);
 
   if (downgraded) {
-    console.warn(`[extract_swot] Rerouted to ${modelName} due to request size.`);
+    console.warn(
+      `[extract_swot] Rerouted to ${modelName} due to request size.`,
+    );
   }
 
   const structuredModel = model.withStructuredOutput(SwotAndThesisSchema);
-  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(SwotAndThesisSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(
+    state.modelOptions,
+  ).withStructuredOutput(SwotAndThesisSchema);
   let res;
   try {
     res = await withRateLimitRetry(
-      () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        structuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
       () => clearJobWait(state),
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) })
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
     );
   } catch (primaryErr) {
-    console.warn('[extract_swot] Primary model failed or parsed incorrectly. Triggering fallback model...', primaryErr);
+    console.warn(
+      "[extract_swot] Primary model failed or parsed incorrectly. Triggering fallback model...",
+      primaryErr,
+    );
     res = await withRateLimitRetry(
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-      () => clearJobWait(state)
+      () => clearJobWait(state),
     );
   }
   clearJobWait(state);
@@ -429,18 +626,23 @@ async function extractSwotNode(state: typeof ResearchState.State): Promise<{ swo
 
 // --- Node 3: Financials ---
 
-async function extractFinancialsNode(state: typeof ResearchState.State): Promise<{ financials: z.infer<typeof FinancialsSchema>; modelUsedForFinancials: string }> {
-  let contextText = '';
+async function extractFinancialsNode(
+  state: typeof ResearchState.State,
+): Promise<{
+  financials: z.infer<typeof FinancialsSchema>;
+  modelUsedForFinancials: string;
+}> {
+  let contextText = "";
   const job = await prisma.extractionJob.findUnique({
-    where: { id: state.jobId }
+    where: { id: state.jobId },
   });
   if (job?.documentId) {
     const financialExtractions = await prisma.chunkExtraction.findMany({
       where: {
         jobId: state.jobId,
-        extractType: 'financials',
-        status: 'ok'
-      }
+        extractType: "financials",
+        status: "ok",
+      },
     });
     const facts: string[] = [];
     interface ExtractedFinancialFact {
@@ -450,23 +652,25 @@ async function extractFinancialsNode(state: typeof ResearchState.State): Promise
     for (const ext of financialExtractions) {
       if (ext.extractionJson && Array.isArray(ext.extractionJson)) {
         for (const item of ext.extractionJson as unknown as ExtractedFinancialFact[]) {
-          if (item && typeof item === 'object' && item.text) {
+          if (item && typeof item === "object" && item.text) {
             facts.push(`- ${item.text} [Page ${item.page || ext.chunkKey}]`);
           }
         }
       }
     }
     if (facts.length > 0) {
-      contextText = facts.join('\n');
+      contextText = facts.join("\n");
     }
-    console.log(`[Pipeline] Routing ${facts.length} extracted financial facts directly to 70B node (bypassing summarizer).`);
+    console.log(
+      `[Pipeline] Routing ${facts.length} extracted financial facts directly to 70B node (bypassing summarizer).`,
+    );
   }
   if (!contextText || contextText.trim().length === 0) {
     contextText = state.condensedContext || state.rawText;
   }
-  let feedback = '';
+  let feedback = "";
   if (state.mathErrors && state.mathErrors.length > 0) {
-    feedback = `\n\n[WARNING: Previous extraction had errors! Please pay special attention to the following calculation issues and correct them:\n- ${state.mathErrors.join('\n- ')}]`;
+    feedback = `\n\n[WARNING: Previous extraction had errors! Please pay special attention to the following calculation issues and correct them:\n- ${state.mathErrors.join("\n- ")}]`;
   }
 
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
@@ -489,39 +693,72 @@ async function extractFinancialsNode(state: typeof ResearchState.State): Promise
   const fullPrompt = systemPrompt + userPrompt;
 
   const { model, modelName, downgraded } = await getModelForRequest(
-    state.modelOptions, fullPrompt, 'llama-3.3-70b-versatile',
-    (waitMs) => notifyBudgetWait(state, waitMs)
+    state.modelOptions,
+    fullPrompt,
+    "llama-3.3-70b-versatile",
+    (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);
 
   if (downgraded) {
-    console.warn(`[extract_financials] Rerouted to ${modelName} due to request size.`);
+    console.warn(
+      `[extract_financials] Rerouted to ${modelName} due to request size.`,
+    );
   }
 
   const structuredModel = model.withStructuredOutput(FinancialsSchema);
-  const fallbackStructuredModel = getFallbackGroqModel(state.modelOptions).withStructuredOutput(FinancialsSchema);
+  const fallbackStructuredModel = getFallbackGroqModel(
+    state.modelOptions,
+  ).withStructuredOutput(FinancialsSchema);
   let res;
   try {
     res = await withRateLimitRetry(
-      () => structuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        structuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
       () => clearJobWait(state),
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) })
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
     );
   } catch (primaryErr) {
-    console.warn('[extract_financials] Primary model failed or parsed incorrectly. Triggering fallback model...', primaryErr);
+    console.warn(
+      "[extract_financials] Primary model failed or parsed incorrectly. Triggering fallback model...",
+      primaryErr,
+    );
     res = await withRateLimitRetry(
-      () => fallbackStructuredModel.invoke([['system', systemPrompt], ['user', userPrompt]], { signal: AbortSignal.timeout(120000) }),
+      () =>
+        fallbackStructuredModel.invoke(
+          [
+            ["system", systemPrompt],
+            ["user", userPrompt],
+          ],
+          { signal: AbortSignal.timeout(120000) },
+        ),
       2,
       (waitSeconds) => notifyBudgetWait(state, waitSeconds * 1000),
-      () => clearJobWait(state)
+      () => clearJobWait(state),
     );
   }
   clearJobWait(state);
 
   recordActualUsage(modelName, fullPrompt, JSON.stringify(res));
-  return { financials: res as z.infer<typeof FinancialsSchema>, modelUsedForFinancials: modelName };
+  return {
+    financials: res as z.infer<typeof FinancialsSchema>,
+    modelUsedForFinancials: modelName,
+  };
 }
 
 // --- Node 4: Math Audit Router ---
@@ -532,7 +769,7 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
 
   // Presence Check & Completeness-Aware Gating
   if (!financials) {
-    errors.push('No financials object extracted.');
+    errors.push("No financials object extracted.");
     return { mathErrors: errors, mathematicallyValid: false };
   }
 
@@ -548,17 +785,23 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
     }
   };
 
-  checkGrowth('Revenue', rev);
+  checkGrowth("Revenue", rev);
 
   // Validation: Check if YoY quarterly metrics are mathematically aligned with annual series direction
   const qf = financials.quarterlyFinancials || [];
   if (qf.length > 0 && rev.length > 0) {
-    const q1SalesRow = qf.find(r => r.metric.toLowerCase().includes('sales') || r.metric.toLowerCase().includes('revenue'));
+    const q1SalesRow = qf.find(
+      (r) =>
+        r.metric.toLowerCase().includes("sales") ||
+        r.metric.toLowerCase().includes("revenue"),
+    );
     const annualSalesVal = parseNum(rev[rev.length - 1]?.value || 0);
     if (q1SalesRow && annualSalesVal > 0) {
       const q1Val = parseNum(q1SalesRow.q1fy26 || q1SalesRow.q1fy25 || 0);
       if (q1Val > annualSalesVal) {
-        errors.push(`YoY Quarterly Q1 sales (${q1Val}) cannot exceed projected full year annual sales (${annualSalesVal}). Possible scale/unit mismatch.`);
+        errors.push(
+          `YoY Quarterly Q1 sales (${q1Val}) cannot exceed projected full year annual sales (${annualSalesVal}). Possible scale/unit mismatch.`,
+        );
       }
     }
   }
@@ -569,23 +812,31 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
     const periodCount = sh[0]?.values?.length || 0;
     for (let pIdx = 0; pIdx < periodCount; pIdx++) {
       let sum = 0;
-      sh.forEach(cat => {
+      sh.forEach((cat) => {
         sum += parseNum(cat.values?.[pIdx] || 0);
       });
       if (sum > 0 && (sum < 98 || sum > 102)) {
-        errors.push(`Shareholding category sum for period index ${pIdx} is ${sum.toFixed(1)}%, which is not close to 100%.`);
+        errors.push(
+          `Shareholding category sum for period index ${pIdx} is ${sum.toFixed(1)}%, which is not close to 100%.`,
+        );
       }
     }
   }
 
   // Gating check: Did we extract enough historical/projected fiscal periods?
-  const extractedPeriods = rev.map(r => r.period.toUpperCase());
+  const extractedPeriods = rev.map((r) => r.period.toUpperCase());
   const textContext = state.condensedContext || state.rawText;
-  const meaningfulPeriods = ['FY25', 'FY26', 'FY27'].filter(p => textContext.toUpperCase().includes(p));
+  const meaningfulPeriods = ["FY25", "FY26", "FY27"].filter((p) =>
+    textContext.toUpperCase().includes(p),
+  );
   if (meaningfulPeriods.length > 1) {
-    const missingMajorPeriods = meaningfulPeriods.filter(p => !extractedPeriods.includes(p));
+    const missingMajorPeriods = meaningfulPeriods.filter(
+      (p) => !extractedPeriods.includes(p),
+    );
     if (missingMajorPeriods.length > 1 && extractedPeriods.length <= 1) {
-      errors.push(`Extracted only ${extractedPeriods.length} periods, but document suggests multiple periods are present: ${meaningfulPeriods.slice(0, 3).join(', ')}.`);
+      errors.push(
+        `Extracted only ${extractedPeriods.length} periods, but document suggests multiple periods are present: ${meaningfulPeriods.slice(0, 3).join(", ")}.`,
+      );
     }
   }
 
@@ -596,13 +847,13 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
     return {
       mathErrors: errors,
       retryCount: 1,
-      mathematicallyValid: false
+      mathematicallyValid: false,
     };
   }
 
   return {
     mathErrors: errors,
-    mathematicallyValid: !hasErrors
+    mathematicallyValid: !hasErrors,
   };
 }
 
@@ -610,36 +861,38 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
 
 function routeAfterAudit(state: typeof ResearchState.State) {
   if (!state.mathematicallyValid && state.retryCount < 2) {
-    console.warn(`[LangGraph Math Auditor] Audit failed with ${state.mathErrors.length} errors. Re-routing back to extractFinancials node (Retry count: ${state.retryCount}).`);
-    return 'extract_financials';
+    console.warn(
+      `[LangGraph Math Auditor] Audit failed with ${state.mathErrors.length} errors. Re-routing back to extractFinancials node (Retry count: ${state.retryCount}).`,
+    );
+    return "extract_financials";
   }
-  return 'end';
+  return "end";
 }
 
 // --- Build and Compile the Graph ---
 
 const workflow = new StateGraph(ResearchState)
-  .addNode('preprocess_chunks', preprocessChunksNode)
-  .addNode('extract_general', extractCompanyGeneralNode)
-  .addNode('extract_swot', extractSwotNode)
-  .addNode('extract_financials', extractFinancialsNode)
-  .addNode('audit_financials', auditFinancialsNode)
+  .addNode("preprocess_chunks", preprocessChunksNode)
+  .addNode("extract_general", extractCompanyGeneralNode)
+  .addNode("extract_swot", extractSwotNode)
+  .addNode("extract_financials", extractFinancialsNode)
+  .addNode("audit_financials", auditFinancialsNode)
 
   // Starting flow runs chunking preprocessor first
-  .addEdge(START, 'preprocess_chunks')
+  .addEdge(START, "preprocess_chunks")
 
   // Run extractions sequentially with built-in model rate limit cooling delays
-  .addEdge('preprocess_chunks', 'extract_general')
-  .addEdge('extract_general', 'extract_swot')
-  .addEdge('extract_swot', 'extract_financials')
+  .addEdge("preprocess_chunks", "extract_general")
+  .addEdge("extract_general", "extract_swot")
+  .addEdge("extract_swot", "extract_financials")
 
   // Financial workflow routes to audit check
-  .addEdge('extract_financials', 'audit_financials')
+  .addEdge("extract_financials", "audit_financials")
 
   // Conditional audit routing path
-  .addConditionalEdges('audit_financials', routeAfterAudit, {
-    extract_financials: 'extract_financials',
-    end: END
+  .addConditionalEdges("audit_financials", routeAfterAudit, {
+    extract_financials: "extract_financials",
+    end: END,
   });
 
 export const langGraphResearchPipeline = workflow.compile();
@@ -650,23 +903,26 @@ export const langGraphResearchPipeline = workflow.compile();
 export async function runResearchPipeline(
   companyName: string,
   rawText: string,
-  options: AIServiceOptions
+  options: AIServiceOptions,
 ): Promise<AIExtractionResult> {
   const result = await langGraphResearchPipeline.invoke({
     companyName,
     rawText,
-    modelOptions: options
+    modelOptions: options,
   });
 
   const rawCompanyData = result.financials.companyData || {};
   const normalizedCompanyData = {
     marketCap: result.financials.marketCap ?? rawCompanyData.marketCap,
     highLow52W: result.financials.highLow52W ?? rawCompanyData.highLow52W,
-    enterpriseValue: result.financials.enterpriseValue ?? rawCompanyData.enterpriseValue,
+    enterpriseValue:
+      result.financials.enterpriseValue ?? rawCompanyData.enterpriseValue,
     ev: result.financials.ev ?? rawCompanyData.ev,
-    outstandingShares: result.financials.outstandingShares ?? rawCompanyData.outstandingShares,
+    outstandingShares:
+      result.financials.outstandingShares ?? rawCompanyData.outstandingShares,
     freeFloat: result.financials.freeFloat ?? rawCompanyData.freeFloat,
-    dividendYield: result.financials.dividendYield ?? rawCompanyData.dividendYield,
+    dividendYield:
+      result.financials.dividendYield ?? rawCompanyData.dividendYield,
     avgVolume6m: result.financials.avgVolume6m ?? rawCompanyData.avgVolume6m,
     avgVolume: result.financials.avgVolume ?? rawCompanyData.avgVolume,
     beta: result.financials.beta ?? rawCompanyData.beta,
@@ -676,7 +932,7 @@ export async function runResearchPipeline(
   return {
     companyName: result.companyGeneral.companyName,
     ticker: result.companyGeneral.ticker,
-    recommendation: result.financials.recommendation || 'HOLD',
+    recommendation: result.financials.recommendation || "HOLD",
     investmentThesis: result.swotAndThesis.investmentThesis,
     outlook: result.companyGeneral.narrativeSummary,
     risks: result.swotAndThesis.risks,
@@ -690,7 +946,7 @@ export async function runResearchPipeline(
     industryOverview: result.companyGeneral.industryOverview,
     businessOverview: result.companyGeneral.businessOverview,
     futureGrowth: Array.isArray(result.swotAndThesis.futureGrowth)
-      ? result.swotAndThesis.futureGrowth.join('\n')
+      ? result.swotAndThesis.futureGrowth.join("\n")
       : result.swotAndThesis.futureGrowth,
     nseCode: result.financials.nseCode,
     bseCode: result.financials.bseCode,
@@ -717,10 +973,14 @@ export async function runResearchPipeline(
     detailedFinancials: result.financials.detailedFinancials,
     recommendationSummary: result.financials.recommendationSummary,
     headlineTakeaway: result.companyGeneral.headlineTakeaway,
-    pageOneHighlights: result.swotAndThesis.highlights ? result.swotAndThesis.highlights.slice(0, 5) : [],
-    pageTwoHighlights: result.swotAndThesis.highlights ? result.swotAndThesis.highlights.slice(5) : [],
+    pageOneHighlights: result.swotAndThesis.highlights
+      ? result.swotAndThesis.highlights.slice(0, 5)
+      : [],
+    pageTwoHighlights: result.swotAndThesis.highlights
+      ? result.swotAndThesis.highlights.slice(5)
+      : [],
     sensexValue: result.financials.sensexValue,
-    fiveYearSummary: result.financials.fiveYearSummary
+    fiveYearSummary: result.financials.fiveYearSummary,
   };
 }
 
@@ -733,55 +993,57 @@ export async function runOrResumeResearchPipeline(
   companyName?: string,
   rawText?: string,
   options?: AIServiceOptions,
-  resume = false
+  resume = false,
 ): Promise<AIExtractionResult> {
   let job;
 
   if (resume) {
     job = await prisma.extractionJob.findUnique({
-      where: { id: jobId }
+      where: { id: jobId },
     });
     if (!job) {
       throw new Error(`Cannot resume: Job ${jobId} not found.`);
     }
   } else {
     if (!companyName || !rawText) {
-      throw new Error('companyName and rawText are required when starting a new extraction job.');
+      throw new Error(
+        "companyName and rawText are required when starting a new extraction job.",
+      );
     }
     // Initialize stateful tracking record
     job = await prisma.extractionJob.upsert({
       where: { id: jobId },
       update: {
         companyName,
-        fileName: 'uploaded_document.pdf',
+        fileName: "uploaded_document.pdf",
         rawText,
-        status: 'running',
-        stepIndex: 0
+        status: "running",
+        stepIndex: 0,
       },
       create: {
         id: jobId,
         companyName,
-        fileName: 'uploaded_document.pdf',
+        fileName: "uploaded_document.pdf",
         rawText,
-        status: 'running',
-        stepIndex: 0
-      }
+        status: "running",
+        stepIndex: 0,
+      },
     });
   }
 
   const state = {
     jobId,
     companyName: job.companyName,
-    rawText: rawText || '',
-    modelOptions: options || { provider: 'groq' as const },
-    condensedContext: '',
+    rawText: rawText || "",
+    modelOptions: options || { provider: "groq" as const },
+    condensedContext: "",
     companyGeneral: {} as z.infer<typeof CompanyGeneralSchema>,
     swotAndThesis: {} as z.infer<typeof SwotAndThesisSchema>,
     financials: {} as z.infer<typeof FinancialsSchema>,
     mathErrors: [] as string[],
     retryCount: 0,
     mathematicallyValid: true,
-    modelUsedForFinancials: ''
+    modelUsedForFinancials: "",
   };
 
   try {
@@ -792,7 +1054,7 @@ export async function runOrResumeResearchPipeline(
 
       await prisma.extractionJob.update({
         where: { id: jobId },
-        data: { stepIndex: 1 }
+        data: { stepIndex: 1 },
       });
     }
 
@@ -805,17 +1067,19 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 2,
-          companyGeneral: state.companyGeneral as Prisma.InputJsonValue
-        }
+          companyGeneral: state.companyGeneral as Prisma.InputJsonValue,
+        },
       });
     } else {
-      state.companyGeneral = ((job.companyGeneral as unknown) as z.infer<typeof CompanyGeneralSchema>) || {
-        companyName: '',
-        ticker: '',
-        narrativeSummary: '',
-        industryOverview: '',
-        businessOverview: '',
-        headlineTakeaway: ''
+      state.companyGeneral = (job.companyGeneral as unknown as z.infer<
+        typeof CompanyGeneralSchema
+      >) || {
+        companyName: "",
+        ticker: "",
+        narrativeSummary: "",
+        industryOverview: "",
+        businessOverview: "",
+        headlineTakeaway: "",
       };
     }
 
@@ -828,15 +1092,17 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 3,
-          swotAndThesis: state.swotAndThesis as Prisma.InputJsonValue
-        }
+          swotAndThesis: state.swotAndThesis as Prisma.InputJsonValue,
+        },
       });
     } else {
-      state.swotAndThesis = ((job.swotAndThesis as unknown) as z.infer<typeof SwotAndThesisSchema>) || {
+      state.swotAndThesis = (job.swotAndThesis as unknown as z.infer<
+        typeof SwotAndThesisSchema
+      >) || {
         highlights: [],
-        investmentThesis: '',
+        investmentThesis: "",
         risks: [],
-        futureGrowth: ''
+        futureGrowth: "",
       };
     }
 
@@ -850,15 +1116,17 @@ export async function runOrResumeResearchPipeline(
         where: { id: jobId },
         data: {
           stepIndex: 4,
-          financials: state.financials as Prisma.InputJsonValue
-        }
+          financials: state.financials as Prisma.InputJsonValue,
+        },
       });
     } else {
-      state.financials = ((job.financials as unknown) as z.infer<typeof FinancialsSchema>) || {
+      state.financials = (job.financials as unknown as z.infer<
+        typeof FinancialsSchema
+      >) || {
         revenue: [],
         ebitda: [],
         pat: [],
-        recommendation: 'HOLD'
+        recommendation: "HOLD",
       };
     }
 
@@ -874,8 +1142,8 @@ export async function runOrResumeResearchPipeline(
           where: { id: jobId },
           data: {
             stepIndex: 3,
-            mathErrors: state.mathErrors
-          }
+            mathErrors: state.mathErrors,
+          },
         });
 
         // Re-execute step 3 with calculation audit feedback loop
@@ -893,19 +1161,19 @@ export async function runOrResumeResearchPipeline(
           where: { id: jobId },
           data: {
             stepIndex: 5,
-            status: 'completed',
+            status: "completed",
             financials: state.financials as Prisma.InputJsonValue,
-            mathErrors: state.mathErrors
-          }
+            mathErrors: state.mathErrors,
+          },
         });
       } else {
         await prisma.extractionJob.update({
           where: { id: jobId },
           data: {
             stepIndex: 5,
-            status: 'completed',
-            mathErrors: state.mathErrors
-          }
+            status: "completed",
+            mathErrors: state.mathErrors,
+          },
         });
       }
     } else {
@@ -917,7 +1185,7 @@ export async function runOrResumeResearchPipeline(
     return {
       companyName: state.companyGeneral.companyName,
       ticker: state.companyGeneral.ticker,
-      recommendation: state.financials.recommendation || 'HOLD',
+      recommendation: state.financials.recommendation || "HOLD",
       investmentThesis: state.swotAndThesis.investmentThesis,
       outlook: state.companyGeneral.narrativeSummary,
       risks: state.swotAndThesis.risks,
@@ -931,7 +1199,7 @@ export async function runOrResumeResearchPipeline(
       industryOverview: state.companyGeneral.industryOverview,
       businessOverview: state.companyGeneral.businessOverview,
       futureGrowth: Array.isArray(state.swotAndThesis.futureGrowth)
-        ? state.swotAndThesis.futureGrowth.join('\n')
+        ? state.swotAndThesis.futureGrowth.join("\n")
         : state.swotAndThesis.futureGrowth,
       nseCode: state.financials.nseCode,
       bseCode: state.financials.bseCode,
@@ -947,26 +1215,31 @@ export async function runOrResumeResearchPipeline(
       detailedFinancials: state.financials.detailedFinancials,
       recommendationSummary: state.financials.recommendationSummary,
       headlineTakeaway: state.companyGeneral.headlineTakeaway,
-      pageOneHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(0, 5) : [],
-      pageTwoHighlights: state.swotAndThesis.highlights ? state.swotAndThesis.highlights.slice(5) : [],
+      pageOneHighlights: state.swotAndThesis.highlights
+        ? state.swotAndThesis.highlights.slice(0, 5)
+        : [],
+      pageTwoHighlights: state.swotAndThesis.highlights
+        ? state.swotAndThesis.highlights.slice(5)
+        : [],
       sensexValue: state.financials.sensexValue,
       fiveYearSummary: state.financials.fiveYearSummary,
       // Audit trail: which model ran the financials extraction
-      modelUsedForFinancials: state.modelUsedForFinancials || null
+      modelUsedForFinancials: state.modelUsedForFinancials || null,
     };
-
   } catch (err: unknown) {
     if (err instanceof RateLimitError) {
       // Temporary rate-limit — job is resumable, NOT permanently failed
-      console.warn(`[Pipeline] Throttled. Auto-resume in ${err.retryAfterSeconds}s.`);
+      console.warn(
+        `[Pipeline] Throttled. Auto-resume in ${err.retryAfterSeconds}s.`,
+      );
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          status: 'rate_limited',
-          waitMessage: 'Rate limited by AI provider — resuming automatically',
+          status: "rate_limited",
+          waitMessage: "Rate limited by AI provider — resuming automatically",
           waitUntil: new Date(Date.now() + err.retryAfterSeconds * 1000),
-          updatedAt: new Date()
-        }
+          updatedAt: new Date(),
+        },
       });
     } else {
       // Permanent failure
@@ -974,11 +1247,12 @@ export async function runOrResumeResearchPipeline(
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: {
-          status: 'failed',
-          waitMessage: err instanceof Error ? err.message : 'Unknown pipeline error',
+          status: "failed",
+          waitMessage:
+            err instanceof Error ? err.message : "Unknown pipeline error",
           waitUntil: null,
-          updatedAt: new Date()
-        }
+          updatedAt: new Date(),
+        },
       });
     }
     throw err;
@@ -993,8 +1267,8 @@ function clearJobWait(state: typeof ResearchState.State): void {
       data: {
         waitMessage: null,
         waitUntil: null,
-        updatedAt: new Date()
-      }
+        updatedAt: new Date(),
+      },
     })
-    .catch(() => { });
+    .catch(() => {});
 }

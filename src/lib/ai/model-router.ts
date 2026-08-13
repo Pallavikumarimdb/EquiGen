@@ -9,13 +9,13 @@
  *  - Otherwise waits for real budget headroom on the preferred model (fixes repeated 429s).
  */
 
-import { ChatGroq } from '@langchain/groq';
-import { ChatOpenAI } from '@langchain/openai';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { tokenBudgetManager, estimateTokens } from './rate-limiter';
-import { modelLimitRegistry, MODEL_IDS } from './budget/model-limit-registry';
-import { ensureLimitsDiscovered } from './budget/limit-discovery';
-import { AIServiceOptions } from './langchain-service';
+import { ChatGroq } from "@langchain/groq";
+import { ChatOpenAI } from "@langchain/openai";
+import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { tokenBudgetManager, estimateTokens } from "./rate-limiter";
+import { modelLimitRegistry, MODEL_IDS } from "./budget/model-limit-registry";
+import { ensureLimitsDiscovered } from "./budget/limit-discovery";
+import { AIServiceOptions } from "./langchain-service";
 
 export interface ModelChoice {
   model: BaseChatModel;
@@ -35,7 +35,7 @@ export { MODEL_IDS as GROQ_MODELS };
 export const FALLBACK_GROQ_MODEL = MODEL_IDS.BULK_8B;
 
 /** Vision model used by the table-extraction ladder / OCR fallback path. */
-export { VISION_MODEL as GROQ_VISION_MODEL } from './budget/model-limit-registry';
+export { VISION_MODEL as GROQ_VISION_MODEL } from "./budget/model-limit-registry";
 
 // Completion token buffer: don't consume the entire window on a single request
 const COMPLETION_TOKEN_BUFFER = 2500;
@@ -51,10 +51,13 @@ async function ensureBudgetSystem(apiKey: string): Promise<void> {
     budgetStoreAttached = true;
     if (process.env.DATABASE_URL) {
       try {
-        const { PostgresBudgetStore } = await import('./budget/postgres-store');
+        const { PostgresBudgetStore } = await import("./budget/postgres-store");
         tokenBudgetManager.setStore(new PostgresBudgetStore());
       } catch (err) {
-        console.warn('[ModelRouter] Budget store unavailable — running in-memory only:', err);
+        console.warn(
+          "[ModelRouter] Budget store unavailable — running in-memory only:",
+          err,
+        );
       }
     }
   }
@@ -68,9 +71,9 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
     return new ChatOpenAI({
       apiKey: openRouterKey,
       configuration: {
-        baseURL: 'https://openrouter.ai/api/v1',
+        baseURL: "https://openrouter.ai/api/v1",
       },
-      modelName: 'openrouter/free',
+      modelName: "openrouter/free",
       temperature: 0.1,
       maxRetries: 3,
       timeout: 20000, // 20s timeout to prevent hanging
@@ -78,7 +81,8 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
   }
 
   const apiKey = options.apiKey || process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error(`API key for provider "groq" is not configured.`);
+  if (!apiKey)
+    throw new Error(`API key for provider "groq" is not configured.`);
   return new ChatGroq({
     apiKey,
     model: FALLBACK_GROQ_MODEL,
@@ -95,37 +99,40 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
  * real budget if there's just temporary contention (fixes the 429 case).
  * `onWaitStart` fires with the wait duration whenever budget contention forces a delay,
  * so callers can surface a live countdown to the user.
- * 
+ *
  * Set `forcePreferred` to true (e.g. on second retry attempt) to bypass the fallback routes
  * and queue using waitForBudget.
  */
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
-  preferredModel = 'llama-3.3-70b-versatile',
+  preferredModel = "llama-3.3-70b-versatile",
   onWaitStart?: (waitMs: number) => void,
-  forcePreferred = false
+  forcePreferred = false,
 ): Promise<ModelChoice> {
   const estimated = estimateTokens(promptText) + COMPLETION_TOKEN_BUFFER;
   const provider = options.provider;
-  const apiKey = options.apiKey ||
-    (provider === 'groq' ? process.env.GROQ_API_KEY : process.env.OPENAI_API_KEY);
+  const apiKey =
+    options.apiKey ||
+    (provider === "groq"
+      ? process.env.GROQ_API_KEY
+      : process.env.OPENAI_API_KEY);
 
-  if (!apiKey) throw new Error(`API key for provider "${provider}" is not configured.`);
+  if (!apiKey)
+    throw new Error(`API key for provider "${provider}" is not configured.`);
 
   // Hydrate store limits + probe live ceilings BEFORE pre-flighting so constants never gate requests
   await ensureBudgetSystem(apiKey);
 
   // Determine the effective TPM limit for the preferred model
-  const primaryLimit = provider === 'groq'
-    ? modelLimitRegistry.getTpm(preferredModel)
-    : 200000;
+  const primaryLimit =
+    provider === "groq" ? modelLimitRegistry.getTpm(preferredModel) : 200000;
 
   // --- Pre-flight: request itself too large for the model, no waiting will help ---
   if (estimated > primaryLimit && !forcePreferred) {
     console.warn(
       `[ModelRouter] Request (~${estimated} tokens) exceeds ${preferredModel}'s ${primaryLimit} TPM ceiling. ` +
-      `Rerouting to ${FALLBACK_GROQ_MODEL}.`
+        `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
       model: getFallbackGroqModel(options),
@@ -135,11 +142,15 @@ export async function getModelForRequest(
   }
 
   // --- Pre-flight: primary model's daily quota exhausted → use the fallback's separate quota ---
-  if (provider === 'groq' && !tokenBudgetManager.hasDailyBudget(preferredModel, estimated) && !forcePreferred) {
+  if (
+    provider === "groq" &&
+    !tokenBudgetManager.hasDailyBudget(preferredModel, estimated) &&
+    !forcePreferred
+  ) {
     console.warn(
       `[ModelRouter] ${preferredModel} TPD budget nearly exhausted ` +
-      `(${tokenBudgetManager.dailyUsedToday(preferredModel)} tokens used today). ` +
-      `Rerouting to ${FALLBACK_GROQ_MODEL}.`
+        `(${tokenBudgetManager.dailyUsedToday(preferredModel)} tokens used today). ` +
+        `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
       model: getFallbackGroqModel(options),
@@ -149,20 +160,26 @@ export async function getModelForRequest(
   }
 
   // --- Normal path: wait for real budget, then return preferred model ---
-  const waitedMs = await tokenBudgetManager.waitForBudget(preferredModel, estimated, onWaitStart);
+  const waitedMs = await tokenBudgetManager.waitForBudget(
+    preferredModel,
+    estimated,
+    onWaitStart,
+  );
   if (waitedMs > 0) {
-    console.log(`[ModelRouter] Waited ${waitedMs}ms for budget headroom on ${preferredModel}.`);
+    console.log(
+      `[ModelRouter] Waited ${waitedMs}ms for budget headroom on ${preferredModel}.`,
+    );
   }
 
-  if (provider === 'openai') {
+  if (provider === "openai") {
     return {
       model: new ChatOpenAI({
         apiKey,
-        model: options.modelName || 'gpt-4o-mini',
+        model: options.modelName || "gpt-4o-mini",
         temperature: 0.1,
         maxRetries: 3,
       }),
-      modelName: options.modelName || 'gpt-4o-mini',
+      modelName: options.modelName || "gpt-4o-mini",
       downgraded: false,
     };
   }
@@ -181,9 +198,15 @@ export async function getModelForRequest(
 }
 
 /** Records actual usage after a call completes, so future budget checks are accurate. */
-export function recordActualUsage(modelName: string, inputText: string, outputText: string) {
+export function recordActualUsage(
+  modelName: string,
+  inputText: string,
+  outputText: string,
+) {
   const total = estimateTokens(inputText) + estimateTokens(outputText);
   tokenBudgetManager.recordUsage(modelName, total);
   tokenBudgetManager.recordDailyUsage(modelName, total);
-  console.log(`[ModelRouter] Recorded ${total} tokens for ${modelName}. Available budget: ${tokenBudgetManager.availableBudget(modelName)}`);
+  console.log(
+    `[ModelRouter] Recorded ${total} tokens for ${modelName}. Available budget: ${tokenBudgetManager.availableBudget(modelName)}`,
+  );
 }

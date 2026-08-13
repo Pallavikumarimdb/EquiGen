@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 
 /**
  * Simple API secret guard for sensitive routes.
@@ -22,7 +22,7 @@ export function requireApiSecret(req: NextRequest): NextResponse | null {
   // Auth disabled — skip check (local dev / no secret configured)
   if (!secret) return null;
 
-  const provided = req.headers.get('x-api-secret');
+  const provided = req.headers.get("x-api-secret");
   if (provided) {
     const a = Buffer.from(provided);
     const b = Buffer.from(secret);
@@ -30,12 +30,15 @@ export function requireApiSecret(req: NextRequest): NextResponse | null {
   }
 
   // Same-origin browser fallback: exact match against NEXT_PUBLIC_APP_URL only.
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/+$/, '');
-  const origin = req.headers.get('origin') || req.headers.get('referer') || '';
-  if (appUrl && origin.replace(/\/+$/, '') === appUrl) return null;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+  const origin = req.headers.get("origin") || req.headers.get("referer") || "";
+  if (appUrl && origin.replace(/\/+$/, "") === appUrl) return null;
 
   return NextResponse.json(
-    { message: 'Unauthorized. Set the x-api-secret header to access this endpoint.' },
-    { status: 401 }
+    {
+      message:
+        "Unauthorized. Set the x-api-secret header to access this endpoint.",
+    },
+    { status: 401 },
   );
 }

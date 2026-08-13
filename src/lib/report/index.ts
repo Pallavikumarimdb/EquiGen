@@ -1,7 +1,7 @@
-import { EquityResearchData } from '@/types';
+import { EquityResearchData } from "@/types";
 
-export * from './types';
-export * from './mapper';
+export * from "./types";
+export * from "./mapper";
 
 /**
  * Report Orchestrator Service.
@@ -10,7 +10,9 @@ export class ReportService {
   /**
    * Generates analytical recommendations, summaries and gathers chart metadata.
    */
-  public generateReportData(extractedData: EquityResearchData): EquityResearchData {
+  public generateReportData(
+    extractedData: EquityResearchData,
+  ): EquityResearchData {
     // Perform any post-processing, valuation calculations, or ratio computations here.
     return {
       ...extractedData,
@@ -18,13 +20,16 @@ export class ReportService {
         ...extractedData.recommendation,
         upsidePotential: this.calculateUpside(
           extractedData.recommendation.currentPrice,
-          extractedData.recommendation.targetPrice
-        )
-      }
+          extractedData.recommendation.targetPrice,
+        ),
+      },
     };
   }
 
-  private calculateUpside(current: number | null, target: number | null): number | null {
+  private calculateUpside(
+    current: number | null,
+    target: number | null,
+  ): number | null {
     if (current === null || target === null || !current) return null;
     return parseFloat((((target - current) / current) * 100).toFixed(2));
   }

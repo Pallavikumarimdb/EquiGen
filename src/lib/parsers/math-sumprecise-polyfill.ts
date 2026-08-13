@@ -13,9 +13,11 @@
  * pdf.js's Font code can run. The fallback accumulates in fp64, which is equivalent for the
  * font-metrics/checksum arithmetic pdf.js performs.
  */
-const MathWith = Math as unknown as { sumPrecise?: (values: Iterable<number>) => number };
+const MathWith = Math as unknown as {
+  sumPrecise?: (values: Iterable<number>) => number;
+};
 
-if (typeof MathWith.sumPrecise !== 'function') {
+if (typeof MathWith.sumPrecise !== "function") {
   MathWith.sumPrecise = (values: Iterable<number>): number => {
     let sum = 0;
     for (const value of values) {

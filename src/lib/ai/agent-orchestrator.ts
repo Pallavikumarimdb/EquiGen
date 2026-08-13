@@ -1,28 +1,64 @@
-import { Prisma } from '@prisma/client';
-import { prisma } from '../db';
-import { ReportStatus } from '../report/state-machine';
-import { applyFieldUpdates } from '../report/proposal-apply';
-import { getModelForRequest, getFallbackGroqModel, recordActualUsage } from './model-router';
-import { withRateLimitRetry, RateLimitError } from './retry-wrapper';
-import { EquityResearchData } from '@/types';
+import { Prisma } from "@prisma/client";
+import { prisma } from "../db";
+import { ReportStatus } from "../report/state-machine";
+import { applyFieldUpdates } from "../report/proposal-apply";
+import {
+  getModelForRequest,
+  getFallbackGroqModel,
+  recordActualUsage,
+} from "./model-router";
+import { withRateLimitRetry, RateLimitError } from "./retry-wrapper";
+import { EquityResearchData } from "@/types";
 
 export interface AgentChatMessage {
-  role: 'user' | 'agent';
+  role: "user" | "agent";
   content: string;
 }
 
 /** Exact-match approval/apply intents (normalized: lowercased, trimmed, trailing punctuation stripped). */
 const APPROVAL_INTENTS = new Set([
-  'approved', 'approve', 'approve it', 'approve all', 'approve them', 'approve these',
-  'accepted', 'accept', 'accept all', 'accept it', 'accept them',
-  'apply', 'apply it', 'apply all', 'apply them', 'apply the changes',
-  'add them to the report', 'add it to the report', 'add them', 'add it', 'add these to the report',
-  'add to the report', 'add to report', 'update the report', 'update the report now',
-  'go ahead', 'go ahead with it', 'yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'sounds good'
+  "approved",
+  "approve",
+  "approve it",
+  "approve all",
+  "approve them",
+  "approve these",
+  "accepted",
+  "accept",
+  "accept all",
+  "accept it",
+  "accept them",
+  "apply",
+  "apply it",
+  "apply all",
+  "apply them",
+  "apply the changes",
+  "add them to the report",
+  "add it to the report",
+  "add them",
+  "add it",
+  "add these to the report",
+  "add to the report",
+  "add to report",
+  "update the report",
+  "update the report now",
+  "go ahead",
+  "go ahead with it",
+  "yes",
+  "yeah",
+  "yep",
+  "ok",
+  "okay",
+  "sure",
+  "sounds good",
 ]);
 
 function normalizeIntent(text: string): string {
-  return text.toLowerCase().trim().replace(/[.!?]+$/, '').trim();
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[.!?]+$/, "")
+    .trim();
 }
 
 export class AgentOrchestrator {
@@ -35,14 +71,22 @@ export class AgentOrchestrator {
   public async handleAgentTurn(
     sessionId: string,
     userPrompt: string,
-    options: { provider: 'groq' | 'openai'; apiKey?: string; modelName?: string }
-  ): Promise<{ response: string; forkedReportId?: string; correctionsApplied?: boolean }> {
+    options: {
+      provider: "groq" | "openai";
+      apiKey?: string;
+      modelName?: string;
+    },
+  ): Promise<{
+    response: string;
+    forkedReportId?: string;
+    correctionsApplied?: boolean;
+  }> {
     const startTime = Date.now();
 
     // 1. Fetch ResearchSession & its Report
     const session = await prisma.researchSession.findUnique({
       where: { id: sessionId },
-      include: { messages: true }
+      include: { messages: true },
     });
 
     if (!session) {
@@ -51,7 +95,7 @@ export class AgentOrchestrator {
 
     const reportId = session.reportId;
     const dbReport = await prisma.reportHistory.findUnique({
-      where: { id: reportId }
+      where: { id: reportId },
     });
 
     if (!dbReport) {
@@ -60,7 +104,7 @@ export class AgentOrchestrator {
 
     // Save user message to database
     await prisma.conversationMessage.create({
-      data: { sessionId, role: 'user', content: userPrompt }
+      data: { sessionId, role: "user", content: userPrompt },
     });
 
     let forkedReportId: string | undefined;
@@ -70,44 +114,54 @@ export class AgentOrchestrator {
     // correction proposals deterministically and reply with a confirmation.
     if (APPROVAL_INTENTS.has(normalizeIntent(userPrompt))) {
       const pendingProposals = await prisma.correctionProposal.findMany({
-        where: { reportId, status: 'pending' },
-        orderBy: { createdAt: 'asc' }
+        where: { reportId, status: "pending" },
+        orderBy: { createdAt: "asc" },
       });
 
       if (pendingProposals.length > 0) {
-        const applyResult = await applyFieldUpdates(reportId, pendingProposals.map((p) => ({
-          field: p.field,
-          newValue: p.newValue ?? null,
-          oldValue: p.oldValue ?? undefined,
-          reasoning: p.reasoning
-        })), {
-          sessionId,
-          actorId: 'analyst',
-          actorType: 'human'
-        });
+        const applyResult = await applyFieldUpdates(
+          reportId,
+          pendingProposals.map((p) => ({
+            field: p.field,
+            newValue: p.newValue ?? null,
+            oldValue: p.oldValue ?? undefined,
+            reasoning: p.reasoning,
+          })),
+          {
+            sessionId,
+            actorId: "analyst",
+            actorType: "human",
+          },
+        );
 
         for (const p of pendingProposals) {
           await prisma.correctionProposal.update({
             where: { id: p.id },
-            data: { status: 'approved', reviewedBy: 'analyst', reviewedAt: new Date() }
+            data: {
+              status: "approved",
+              reviewedBy: "analyst",
+              reviewedAt: new Date(),
+            },
           });
           await prisma.auditLog.create({
             data: {
               reportId: p.reportId,
-              userId: 'analyst',
-              actorType: 'human',
-              action: 'field_correction_approved',
+              userId: "analyst",
+              actorType: "human",
+              action: "field_correction_approved",
               metadata: {
                 proposalId: p.id,
                 field: p.field,
                 oldValue: p.oldValue,
-                newValue: p.newValue
-              }
-            }
+                newValue: p.newValue,
+              },
+            },
           });
         }
 
-        const appliedFields = pendingProposals.map((p) => `\`${p.field}\``).join(', ');
+        const appliedFields = pendingProposals
+          .map((p) => `\`${p.field}\``)
+          .join(", ");
         let responseText = `I have applied ${pendingProposals.length} approved correction(s) to the report: ${appliedFields}. The report preview and PDF now reflect the updates.`;
         if (applyResult.forkedReportId) {
           forkedReportId = applyResult.forkedReportId;
@@ -115,9 +169,13 @@ export class AgentOrchestrator {
         }
 
         await prisma.conversationMessage.create({
-          data: { sessionId, role: 'agent', content: responseText }
+          data: { sessionId, role: "agent", content: responseText },
         });
-        return { response: responseText, forkedReportId, correctionsApplied: true };
+        return {
+          response: responseText,
+          forkedReportId,
+          correctionsApplied: true,
+        };
       }
     }
 
@@ -160,32 +218,33 @@ CRITICAL RULES:
 4. For questions or analysis, respond with normal conversation text. If you need live data you do not have (e.g. competitor equity analysis), answer from general knowledge and clearly label it as indicative, NOT as report data.
 5. Do not dump the entire report JSON back at the user — describe changes briefly in plain text.`;
 
-    const preferredModel = options.modelName ||
-      (options.provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini');
+    const preferredModel =
+      options.modelName ||
+      (options.provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini");
 
-    const messages: [string, string][] = [
-      ['system', systemPrompt]
-    ];
+    const messages: [string, string][] = [["system", systemPrompt]];
     session.messages.forEach((m) => {
-      messages.push([m.role === 'user' ? 'user' : 'assistant', m.content]);
+      messages.push([m.role === "user" ? "user" : "assistant", m.content]);
     });
-    messages.push(['user', userPrompt]);
+    messages.push(["user", userPrompt]);
 
-    let responseText = '';
+    let responseText = "";
     let loopAttempts = 0;
 
     while (loopAttempts < 5) {
       loopAttempts++;
 
-      const promptString = messages.map(m => m[1]).join('\n');
+      const promptString = messages.map((m) => m[1]).join("\n");
       const { model, modelName, downgraded } = await getModelForRequest(
         options,
         promptString,
-        preferredModel
+        preferredModel,
       );
 
       if (downgraded) {
-        console.warn(`[AgentOrchestrator] Chat rerouted to ${modelName} (size or daily quota).`);
+        console.warn(
+          `[AgentOrchestrator] Chat rerouted to ${modelName} (size or daily quota).`,
+        );
       }
 
       let res;
@@ -195,21 +254,26 @@ CRITICAL RULES:
           2,
           undefined,
           undefined,
-          options.provider === 'groq'
+          options.provider === "groq"
             ? () => getFallbackGroqModel(options).invoke(messages)
-            : undefined
+            : undefined,
         );
       } catch (err) {
         if (err instanceof RateLimitError) throw err;
-        throw new Error(`AI Co-Pilot request failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(
+          `AI Co-Pilot request failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
-      recordActualUsage(modelName, promptString, String(res?.content ?? ''));
+      recordActualUsage(modelName, promptString, String(res?.content ?? ""));
 
       const content = String(res.content).trim();
 
       // Check if LLM requested the RecomputeFieldTool
-      if (content.includes('"tool"') && content.includes('"RecomputeFieldTool"')) {
+      if (
+        content.includes('"tool"') &&
+        content.includes('"RecomputeFieldTool"')
+      ) {
         try {
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
@@ -222,17 +286,17 @@ CRITICAL RULES:
               field,
               value,
               reasoning,
-              startTime
+              startTime,
             );
 
-            responseText = `I have proposed a correction to update \`${field}\` to \`${JSON.stringify(value)}\`.\nReason: ${reasoning || 'Recompute requested'}.`;
+            responseText = `I have proposed a correction to update \`${field}\` to \`${JSON.stringify(value)}\`.\nReason: ${reasoning || "Recompute requested"}.`;
             if (toolResult.forkedReportId) {
               forkedReportId = toolResult.forkedReportId;
               responseText += `\n*Note: Since the report was approved/published, it has been forked to a new draft baseline (ID: ${forkedReportId}) in changes_requested status.*`;
             }
           }
         } catch (err) {
-          console.error('Failed to parse RecomputeFieldTool JSON:', err);
+          console.error("Failed to parse RecomputeFieldTool JSON:", err);
           responseText = `I attempted to propose a change but encountered a formatting error. Please try again.`;
         }
         break;
@@ -245,13 +309,16 @@ CRITICAL RULES:
           if (jsonMatch) {
             const toolRequest = JSON.parse(jsonMatch[0]);
             const { query } = toolRequest;
-            const searchResult = await this.executeSearchPagesTool(reportId, query);
-            messages.push(['assistant', content]);
-            messages.push(['user', `[search_pages result]:\n${searchResult}`]);
+            const searchResult = await this.executeSearchPagesTool(
+              reportId,
+              query,
+            );
+            messages.push(["assistant", content]);
+            messages.push(["user", `[search_pages result]:\n${searchResult}`]);
             continue;
           }
         } catch (err) {
-          console.error('Failed to parse search_pages JSON:', err);
+          console.error("Failed to parse search_pages JSON:", err);
         }
       }
 
@@ -262,13 +329,19 @@ CRITICAL RULES:
           if (jsonMatch) {
             const toolRequest = JSON.parse(jsonMatch[0]);
             const { pageNumber } = toolRequest;
-            const pageResult = await this.executeFetchPageTool(reportId, Number(pageNumber));
-            messages.push(['assistant', content]);
-            messages.push(['user', `[fetch_page result for page ${pageNumber}]:\n${pageResult}`]);
+            const pageResult = await this.executeFetchPageTool(
+              reportId,
+              Number(pageNumber),
+            );
+            messages.push(["assistant", content]);
+            messages.push([
+              "user",
+              `[fetch_page result for page ${pageNumber}]:\n${pageResult}`,
+            ]);
             continue;
           }
         } catch (err) {
-          console.error('Failed to parse fetch_page JSON:', err);
+          console.error("Failed to parse fetch_page JSON:", err);
         }
       }
 
@@ -278,7 +351,7 @@ CRITICAL RULES:
 
     // Save agent message to database
     await prisma.conversationMessage.create({
-      data: { sessionId, role: 'agent', content: responseText }
+      data: { sessionId, role: "agent", content: responseText },
     });
 
     return { response: responseText, forkedReportId };
@@ -294,21 +367,25 @@ CRITICAL RULES:
     field: string,
     value: Prisma.InputJsonValue,
     reasoning: string,
-    startTime: number
+    startTime: number,
   ): Promise<{ success: boolean; forkedReportId?: string }> {
     const dbReport = await prisma.reportHistory.findUnique({
-      where: { id: reportId }
+      where: { id: reportId },
     });
 
-    if (!dbReport) throw new Error('Report not found');
+    if (!dbReport) throw new Error("Report not found");
 
     const currentStatus = dbReport.status as ReportStatus;
     let activeReportId = reportId;
     let forkedReportId: string | undefined;
 
     // RULE 5.1 GATING: Fork if approved or published
-    if (currentStatus === 'approved' || currentStatus === 'published') {
-      const newId = 'rep_fork_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+    if (currentStatus === "approved" || currentStatus === "published") {
+      const newId =
+        "rep_fork_" +
+        Math.random().toString(36).substring(2, 9) +
+        "_" +
+        Date.now();
 
       // Copy report data to a new row with changes_requested status
       await prisma.reportHistory.create({
@@ -318,19 +395,19 @@ CRITICAL RULES:
           fileName: dbReport.fileName,
           reportData: dbReport.reportData as Prisma.InputJsonValue,
           pdfBase64: dbReport.pdfBase64,
-          status: 'changes_requested',
+          status: "changes_requested",
           reviewerName: dbReport.reviewerName,
           sebiRegNo: dbReport.sebiRegNo,
           versionNo: dbReport.versionNo + 1,
           contentHash: dbReport.contentHash,
-          modelUsedForFinancials: dbReport.modelUsedForFinancials
-        }
+          modelUsedForFinancials: dbReport.modelUsedForFinancials,
+        },
       });
 
       // Update active session pointer to point to the new forked report
       await prisma.researchSession.update({
         where: { id: sessionId },
-        data: { reportId: newId }
+        data: { reportId: newId },
       });
 
       activeReportId = newId;
@@ -340,22 +417,24 @@ CRITICAL RULES:
       await prisma.auditLog.create({
         data: {
           reportId: reportId,
-          userId: 'agent',
-          actorType: 'agent',
-          action: 'recompute',
+          userId: "agent",
+          actorType: "agent",
+          action: "recompute",
           fromState: currentStatus,
-          toState: 'changes_requested',
+          toState: "changes_requested",
           metadata: {
             message: `Forked approved report ${reportId} to new draft baseline ${newId} for edits.`,
-            forkedReportId: newId
-          }
-        }
+            forkedReportId: newId,
+          },
+        },
       });
     }
 
     // Apply the update to the active report's JSON data
-    const activeReport = await prisma.reportHistory.findUnique({ where: { id: activeReportId } });
-    if (!activeReport) throw new Error('Active report not found');
+    const activeReport = await prisma.reportHistory.findUnique({
+      where: { id: activeReportId },
+    });
+    if (!activeReport) throw new Error("Active report not found");
 
     const reportData = activeReport.reportData as unknown;
     const oldValue = this.getNestedValue(reportData, field);
@@ -369,9 +448,9 @@ CRITICAL RULES:
         oldValue: oldValue as Prisma.InputJsonValue,
         newValue: value,
         reasoning,
-        origin: 'agent_tool',
-        status: 'pending'
-      }
+        origin: "agent_tool",
+        status: "pending",
+      },
     });
 
     // Save ToolCall record for tracing/logs
@@ -379,24 +458,30 @@ CRITICAL RULES:
     await prisma.toolCall.create({
       data: {
         sessionId,
-        toolName: 'RecomputeFieldTool',
+        toolName: "RecomputeFieldTool",
         inputJson: { field, value, reasoning } as Prisma.InputJsonObject,
-        outputJson: { proposalId: proposal.id, activeReportId } as Prisma.InputJsonObject,
+        outputJson: {
+          proposalId: proposal.id,
+          activeReportId,
+        } as Prisma.InputJsonObject,
         latencyMs,
-        status: 'success'
-      }
+        status: "success",
+      },
     });
 
     return { success: true, forkedReportId };
   }
 
-  private async executeSearchPagesTool(reportId: string, query: string): Promise<string> {
+  private async executeSearchPagesTool(
+    reportId: string,
+    query: string,
+  ): Promise<string> {
     try {
       const job = await prisma.extractionJob.findFirst({
-        where: { reportId }
+        where: { reportId },
       });
       const documentId = job?.documentId;
-      if (!documentId) return 'No document source linked to this report.';
+      if (!documentId) return "No document source linked to this report.";
 
       interface DbPageSearchResult {
         pageNo: number;
@@ -415,47 +500,53 @@ CRITICAL RULES:
             AND to_tsvector('english', coalesce("nativeText", '') || ' ' || coalesce("ocrText", '')) @@ websearch_to_tsquery('english', ${query})
           ORDER BY rank DESC
           LIMIT 5;
-        `
+        `,
       );
 
-      if (results.length === 0) return 'No matches found.';
+      if (results.length === 0) return "No matches found.";
 
-      return results.map(r => {
-        const text = r.nativeText || r.ocrText || '';
-        const snippet = text.length > 300 ? text.substring(0, 300) + '...' : text;
-        return `[Page ${r.pageNo}] (Search Rank: ${Number(r.rank).toFixed(3)})\n${snippet}\n`;
-      }).join('\n---\n\n');
+      return results
+        .map((r) => {
+          const text = r.nativeText || r.ocrText || "";
+          const snippet =
+            text.length > 300 ? text.substring(0, 300) + "..." : text;
+          return `[Page ${r.pageNo}] (Search Rank: ${Number(r.rank).toFixed(3)})\n${snippet}\n`;
+        })
+        .join("\n---\n\n");
     } catch (e) {
-      console.error('executeSearchPagesTool failed:', e);
-      return 'Error occurred during lexical search.';
+      console.error("executeSearchPagesTool failed:", e);
+      return "Error occurred during lexical search.";
     }
   }
 
-  private async executeFetchPageTool(reportId: string, pageNumber: number): Promise<string> {
+  private async executeFetchPageTool(
+    reportId: string,
+    pageNumber: number,
+  ): Promise<string> {
     try {
       const job = await prisma.extractionJob.findFirst({
-        where: { reportId }
+        where: { reportId },
       });
       const documentId = job?.documentId;
-      if (!documentId) return 'No document source linked to this report.';
+      if (!documentId) return "No document source linked to this report.";
 
       const page = await prisma.documentPage.findUnique({
         where: {
-          documentId_pageNo: { documentId, pageNo: pageNumber }
-        }
+          documentId_pageNo: { documentId, pageNo: pageNumber },
+        },
       });
 
       if (!page) return `Page ${pageNumber} not found.`;
-      return page.nativeText || page.ocrText || 'Page content is empty.';
+      return page.nativeText || page.ocrText || "Page content is empty.";
     } catch (e) {
-      console.error('executeFetchPageTool failed:', e);
+      console.error("executeFetchPageTool failed:", e);
       return `Error retrieving page ${pageNumber}.`;
     }
   }
 
   private getNestedValue(obj: unknown, path: string): unknown {
-    return path.split('.').reduce<unknown>((acc, part) => {
-      if (acc && typeof acc === 'object') {
+    return path.split(".").reduce<unknown>((acc, part) => {
+      if (acc && typeof acc === "object") {
         return (acc as Record<string, unknown>)[part];
       }
       return undefined;

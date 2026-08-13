@@ -12,7 +12,7 @@ EquiGen is an enterprise-grade AI engine that automates the generation of public
 
 ## 🚀 Key Features
 
-*   **Multiformat Ingestion**: Instantly parse `.pdf`, `.csv`, and `.txt` files containing raw balance sheets, earnings call transcripts, or financial reports.
+*   **Multiformat Ingestion**: Instantly parse `.pdf` and `.txt` files containing raw balance sheets, earnings call transcripts, or financial reports (with experimental `.csv` support built-in).
 *   **Self-Correcting LLM Extraction**: Queries `llama-3.3-70b-versatile` over Groq with strict JSON schemas enforced via LangChain `.withStructuredOutput()`. If extracted financials fail mathematical validation (e.g. EBITDA > Revenue), a **self-correction retry loop** feeds the errors back to the model.
 *   **Stateful Background Jobs**: Extraction runs as a background job stored in PostgreSQL (`ExtractionJob` table). The frontend polls `/api/extract/status`. If Groq rate-limits mid-job, the job saves its step checkpoint and auto-resumes from that exact point.
 *   **Multi-Provider AI Support**: Switch between **Groq** (Llama 3.3 70B) and **OpenAI** (GPT-4o Mini) from the settings panel. BYOK (bring-your-own-key) keys are AES-256-GCM encrypted before being stored in the database.
@@ -25,69 +25,10 @@ EquiGen is an enterprise-grade AI engine that automates the generation of public
 
 ---
 
-## 🛠️ Architecture & Core Pipeline
+## 🏗️ Architecture & Core Pipeline
 
-```mermaid
-graph TD
-    A[Raw Financial File] -->|Ingest & Parse| B(Parser Coordinator)
-    B -->|pdf-extractor / papaparse / txt| C[Unified Text Extract]
-    C -->|POST /api/extract| D[ExtractionJob created in DB]
-    D -->|Background Worker| E[LangGraph Research Pipeline]
-
-    subgraph LangGraph Research Pipeline - Sequential
-      E --> F[Step 0: Map-Reduce Chunker]
-      F -->|Condensed Context| G[Step 1: extract_general]
-      G --> H[Step 2: extract_swot]
-      H --> I[Step 3: extract_financials]
-      I --> J[Math Auditor Node]
-      J -->|Validation Failed + retry < 2| I
-      J -->|Passed / Max Retries| K[Save to ReportHistory DB]
-    end
-
-    K --> L[Poll /api/extract/status]
-    L -->|completed| M[Fetch ReportHistory from DB]
-    M --> N(Report Presentation Mapper)
-    N -->|Generate HTML + SVGs| O[Puppeteer headless browser]
-    O -->|Render to PDF| P[A4 PDF Buffer]
-    P -->|base64 in DB| Q[GET /api/download or inline preview]
-```
-
-### 📄 Fallback-First Page Ingestion Pipeline
-
-To handle mixed digital and scanned prospectuses, the PDF extractor uses a stateful, page-by-page pipeline:
-
-1. **Native Ingestion (Fast & Free)**: Extracts text natively from each PDF page using `unpdf`.
-2. **Threshold Criteria**: If a page yields **fewer than 100 characters**, the pipeline flags the page for image rendering.
-3. **High-DPI Page Rendering**: Renders the target page to a PNG data URL using `@napi-rs/canvas`.
-4. **Visual Inspection**: Scans the page for embedded graphics using `unpdf.extractImages`.
-   - **Groq Vision Fallback**: If non-trivial graphics (width > 120px, height > 120px) are found, invokes `llama-3.2-11b-vision-preview` to interpret charts and tables visually.
-   - **Tesseract OCR Fallback**: If no graphics are found, runs local `tesseract.js` OCR for scanned text at zero API cost.
-
----
-
-## 🤖 AI Orchestration (LangChain & LangGraph)
-
-### 🔌 The Role of LangChain
-*   **Unified Model Switcher**: Provides a uniform interface over **Groq** (Llama 3.3 70B) and **OpenAI** (GPT-4o Mini) providers.
-*   **Dynamic API Keys**: Users can input their own custom API keys in the settings panel. Keys are encrypted AES-256-GCM and stored in the database — they are NOT stored in plaintext anywhere server-side.
-*   **Native Schema Enforcement**: Uses LangChain's `.withStructuredOutput(...)` API to enforce strict Zod schemas at the model-provider call level.
-
-### 🕸️ The Role of LangGraph
-
-LangGraph orchestrates a **sequential, stateful multi-step** research workflow with intermediate checkpointing to the database:
-
-1. **Step 0 — Map-Reduce Preprocessor**: If raw text exceeds 25,000 characters, the document is split into overlapping chunks (12,000 chars with 1,200-char overlap). Each chunk is processed by `llama-3.1-8b-instant` (500K TPM) to extract localized SWOT signals and financials. The results are merged into a high-density condensed context, reducing prompt sizes by ~90%.
-2. **Step 1 — General Details Extraction**: `extract_general` extracts company name, ticker, industry overview, and business overview.
-3. **Step 2 — SWOT & Thesis Extraction**: `extract_swot` extracts highlights, risks, investment thesis, and future growth drivers.
-4. **Step 3 — Financials Extraction + Math Audit**: `extract_financials` extracts Revenue, EBITDA, PAT series plus current/target price and recommendation. A math auditor then validates (EBITDA ≤ Revenue, PAT ≤ EBITDA) and triggers a retry loop (max 1 retry) if inconsistencies are found.
-
-Each step saves its output to the `ExtractionJob` record so that if a rate-limit interrupts mid-pipeline, the job can resume from the failed step instead of restarting from scratch.
-
-### ⚖️ Model Router & Rate Limiter
-
-*   **`model-router.ts`**: Before each extraction call, estimates the token size of the prompt. If it exceeds the primary model's TPM ceiling, automatically reroutes to `llama-3.1-8b-instant`. Otherwise, waits for real budget headroom using the `TokenBudgetManager`.
-*   **`TokenBudgetManager`**: Tracks actual token usage per model in a sliding 60-second window, preventing rate-limit collisions.
-*   **`retry-wrapper.ts`**: On genuine 429 errors, parses Groq's `"try again in Xs"` hint and waits exactly that long before retrying once. If still rate-limited, throws a typed `RateLimitError` to signal `throttled` status in the DB.
+For full details on the system architecture, Map-Reduce chunking pipeline, visual-first page extraction fallbacks, and the LangGraph orchestrator, please refer to:
+👉 **[Architecture.md](file:///d:/13.my-startups/EquiGen/Architecture.md)**
 
 ---
 
@@ -95,9 +36,10 @@ Each step saves its output to the `ExtractionJob` record so that if a rate-limit
 
 ### Prerequisites
 
-- **Node.js 20+** and **pnpm** installed globally
-- **PostgreSQL** running locally or via Docker (see Docker section below)
-- A **Groq API key** from [console.groq.com](https://console.groq.com)
+*   **Node.js 20+** and **pnpm** (version 9 or 10) installed globally.
+*   **PostgreSQL** (version 15 or 16) running locally or via Docker.
+*   A **Groq API key** from [console.groq.com](https://console.groq.com) (for Llama extraction) or an **OpenAI API key** (for GPT fallback).
+*   **OpenRouter API key** (optional, for free fallback model routing).
 
 ```bash
 npm install -g pnpm
@@ -105,108 +47,76 @@ npm install -g pnpm
 
 ### Installation
 
-1. **Clone the workspace and install packages**:
+1. **Clone the repository and install dependencies**:
    ```bash
    pnpm install
    ```
 
-2. **Rebuild native packages** (canvas for PDF page rendering):
+2. **Rebuild native packages**:
+   Some PDF canvas rendering libraries require local node-gyp rebuilding:
    ```bash
    pnpm rebuild @napi-rs/canvas
    ```
 
-3. **Setup environment variables**:
+3. **Configure Environment Variables**:
    ```bash
    cp .env.example .env
    ```
-   Fill in your `.env`:
+   Open `.env` and fill in the required variables:
    ```env
    GROQ_API_KEY=gsk_YOUR_KEY_HERE
-   DATABASE_URL=postgresql://postgres:password@localhost:5432/equigen
-   ENCRYPTION_KEY=<exactly-32-chars-random-secret>
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
+   DATABASE_URL="postgresql://postgres:password@localhost:5432/equigen?sslmode=disable"
+   ENCRYPTION_KEY="exactly-32-chars-random-secret"
+   NEXT_PUBLIC_APP_URL="http://localhost:3000"
    ```
-   > ⚠️ `ENCRYPTION_KEY` is required to encrypt BYOK API keys in the database. Generate a random 32-character string (e.g., `openssl rand -hex 16`).
+   *Note: `ENCRYPTION_KEY` must be exactly 32 characters long. It is used to securely encrypt Bring-Your-Own-Key values in the database via AES-256-GCM.*
 
-4. **Run database migrations**:
+4. **Initialize the Database**:
+   Generate the Prisma client and push the schema to the database:
    ```bash
+   pnpm exec prisma generate
    pnpm exec prisma migrate dev
    ```
-   > Or if using Docker DB (see below), start the DB first, then run migrations.
 
-5. **(Optional) Download Tesseract OCR language data**:
-   Only required if you process scanned/image-heavy PDFs. Place in the project root:
+5. **Download OCR Tessdata (Optional)**:
+   If parsing scanned PDFs, download the English OCR training data into the root directory:
    ```bash
-   # PowerShell
-   Invoke-WebRequest https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -OutFile eng.traineddata
-
    # curl
    curl -L https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -o eng.traineddata
    ```
-   > Skip this if you only process digital (text-based) PDFs.
 
 ---
 
-## 💻 Developer Workflow
+## 💻 Developer Workflow & Local Development
 
-### Start the database (Docker)
+This section outlines standard developer workflows for developing, running, database management, and testing the EquiGen workspace.
+
+### 1. Database Operations & Management
+If you do not have a PostgreSQL server running natively, spin one up via Docker:
 ```bash
-docker compose up db
+docker compose up -d db
 ```
 
-### Run local development server
+#### Handy DB Commands:
+*   **Open Prisma Studio**: Inspect and modify database records (jobs, histories, keys) via a GUI:
+    ```bash
+    pnpm exec prisma studio
+    ```
+*   **Sync Database Schema**: If you modify `schema.prisma`, sync the changes directly without creating a migration:
+    ```bash
+    pnpm exec prisma db push
+    ```
+*   **Reset the Database**: Wipe all tables, run migrations, and start fresh:
+    ```bash
+    pnpm exec prisma migrate reset
+    ```
+
+### 2. Running the Local Server
+Start the Next.js development server:
 ```bash
 pnpm dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to view the interactive dashboard.
-
-### Type-check
-```bash
-npx tsc --noEmit
-```
-
-### Lint
-```bash
-pnpm lint
-```
-
----
-
-## 🐳 Docker Deployment
-
-EquiGen includes a multi-stage `Dockerfile` (based on `node:20-bullseye-slim`) and a `docker-compose.yml` that bundles the app with PostgreSQL.
-
-> ⚠️ **Note**: The PDF engine uses Puppeteer (headless browser) — chromium execution dependencies are required in the deployment environment.
-
-### Using Docker Compose
-
-1. **Set environment variables** in `.env` (copy from `.env.example`).
-
-2. **Build and start all services**:
-   ```bash
-   docker-compose up --build
-   ```
-
-3. **Run migrations** after the DB is up:
-   ```bash
-   docker-compose exec app pnpm exec prisma migrate deploy
-   ```
-
-4. The application will be live at [http://localhost:3000](http://localhost:3000).
-
-### Persistent Volumes
-
-Docker Compose mounts two volumes:
-- `postgres_data` → PostgreSQL data directory (reports, settings, history)
-- `reports_data` → `/app/public/temp` — generated PDF artifacts
-
----
-
-## 🔐 Security Notes
-
-- **API Keys**: User-supplied API keys (BYOK) are encrypted with AES-256-GCM using the server-side `ENCRYPTION_KEY` before being written to the database. Keys are never logged or returned to clients.
-- **`ENCRYPTION_KEY`**: Must be set in production. If omitted, the application will fall back to an insecure hardcoded key (this is a known issue — see below).
-- **Authentication**: There is currently **no authentication layer** on the API routes. It is strongly recommended to deploy EquiGen behind a VPN, reverse proxy with IP allowlist, or add Next.js Auth before exposing to the internet.
+Open [http://localhost:3000](http://localhost:3000) to view the application. The dev server features Hot Module Replacement (HMR) and prints detailed rate-limiting and model-routing telemetry directly to the console.
 
 ---
 

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { requireApiSecret } from '@/lib/utils/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/audit?reportId=...
@@ -11,22 +11,28 @@ export async function GET(req: NextRequest) {
   if (authError) return authError;
   try {
     const { searchParams } = new URL(req.url);
-    const reportId = searchParams.get('reportId');
+    const reportId = searchParams.get("reportId");
 
     if (!reportId) {
-      return NextResponse.json({ message: 'Missing reportId parameter.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing reportId parameter." },
+        { status: 400 },
+      );
     }
 
     const auditLogs = await prisma.auditLog.findMany({
       where: { reportId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json(auditLogs);
   } catch (error) {
-    console.error('Failed to fetch audit logs:', error);
-    return NextResponse.json({ message: 'Failed to fetch audit logs' }, { status: 500 });
+    console.error("Failed to fetch audit logs:", error);
+    return NextResponse.json(
+      { message: "Failed to fetch audit logs" },
+      { status: 500 },
+    );
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";

@@ -9,12 +9,12 @@
  * Persistence is best-effort: a DB failure must never fail the upload itself.
  */
 
-import { pdfExtractor } from './pdf-extractor';
-import { detectSections, TargetingResult } from './section-detector';
-import { parseLayoutTables } from './table-extractor';
-import { prisma } from '@/lib/db';
-import { computeSHA256 } from '@/lib/utils/hash';
-import type { Prisma } from '@prisma/client';
+import { pdfExtractor } from "./pdf-extractor";
+import { detectSections, TargetingResult } from "./section-detector";
+import { parseLayoutTables } from "./table-extractor";
+import { prisma } from "@/lib/db";
+import { computeSHA256 } from "@/lib/utils/hash";
+import type { Prisma } from "@prisma/client";
 
 export interface DocumentProcessResult {
   documentId: string | null;
@@ -23,17 +23,32 @@ export interface DocumentProcessResult {
   error?: string;
 }
 
-export async function processPdfDocument(buffer: Buffer, fileName: string): Promise<DocumentProcessResult> {
-  const cleanArrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+export async function processPdfDocument(
+  buffer: Buffer,
+  fileName: string,
+): Promise<DocumentProcessResult> {
+  const cleanArrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  );
   const uint8Array = new Uint8Array(cleanArrayBuffer);
 
   const pages = await pdfExtractor.extractPages(uint8Array);
   const targeting = detectSections(
-    pages.map((p) => ({ pageNo: p.pageNo, text: p.nativeText, isScanned: p.isScanned }))
+    pages.map((p) => ({
+      pageNo: p.pageNo,
+      text: p.nativeText,
+      isScanned: p.isScanned,
+    })),
   );
 
   if (!process.env.DATABASE_URL) {
-    return { documentId: null, targeting, persisted: false, error: 'No database configured — document pipeline skipped.' };
+    return {
+      documentId: null,
+      targeting,
+      persisted: false,
+      error: "No database configured — document pipeline skipped.",
+    };
   }
 
   try {
@@ -41,9 +56,9 @@ export async function processPdfDocument(buffer: Buffer, fileName: string): Prom
       data: {
         storageKey: fileName,
         fileName,
-        sha256: computeSHA256(buffer.toString('base64')),
+        sha256: computeSHA256(buffer.toString("base64")),
         totalPages: pages.length,
-        status: 'parsed',
+        status: "parsed",
         targetingJson: targeting as unknown as Prisma.InputJsonValue,
         targetingVerdict: targeting.verdict,
       },
@@ -66,15 +81,17 @@ export async function processPdfDocument(buffer: Buffer, fileName: string): Prom
     }));
 
     const tableRows = pages.flatMap((page) =>
-      (page.hasTables ? parseLayoutTables(page.nativeText) : []).map((rawJson, i) => ({
-        documentId: document.id,
-        pageNo: page.pageNo,
-        tableNo: i + 1,
-        detectedBy: 'layout' as const,
-        rawJson: rawJson as unknown as Prisma.InputJsonValue,
-        quality: null,
-        status: 'ok' as const,
-      }))
+      (page.hasTables ? parseLayoutTables(page.nativeText) : []).map(
+        (rawJson, i) => ({
+          documentId: document.id,
+          pageNo: page.pageNo,
+          tableNo: i + 1,
+          detectedBy: "layout" as const,
+          rawJson: rawJson as unknown as Prisma.InputJsonValue,
+          quality: null,
+          status: "ok" as const,
+        }),
+      ),
     );
 
     await prisma.$transaction(
@@ -84,12 +101,15 @@ export async function processPdfDocument(buffer: Buffer, fileName: string): Prom
           await tx.documentTable.createMany({ data: tableRows });
         }
       },
-      { timeout: 30000 }
+      { timeout: 30000 },
     );
 
     return { documentId: document.id, targeting, persisted: true };
   } catch (err) {
-    console.warn('[DocumentProcessor] Persistence failed (upload continues):', err);
+    console.warn(
+      "[DocumentProcessor] Persistence failed (upload continues):",
+      err,
+    );
     return {
       documentId: null,
       targeting,

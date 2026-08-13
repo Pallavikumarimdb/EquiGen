@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import { prisma } from '@/lib/db';
-import { pdfGenerationService } from '@/lib/pdf';
+import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
+import { prisma } from "@/lib/db";
+import { pdfGenerationService } from "@/lib/pdf";
 
 /**
  * GET /api/download?id=<reportId>
@@ -18,23 +18,32 @@ import { pdfGenerationService } from '@/lib/pdf';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
+    const id = searchParams.get("id");
 
     if (!id) {
-      return NextResponse.json({ message: 'Missing report id query parameter.' }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing report id query parameter." },
+        { status: 400 },
+      );
     }
 
     // 1. Try filesystem first (fast path for local/Docker with writable storage)
     const reportId = id.toUpperCase();
-    const pdfPath = path.join(process.cwd(), 'public', 'temp', 'reports', `${reportId}.pdf`);
+    const pdfPath = path.join(
+      process.cwd(),
+      "public",
+      "temp",
+      "reports",
+      `${reportId}.pdf`,
+    );
 
     if (fs.existsSync(pdfPath)) {
       const pdfBuffer = await fs.promises.readFile(pdfPath);
       return new NextResponse(new Uint8Array(pdfBuffer), {
         headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="equity-report-${reportId.toLowerCase()}.pdf"`
-        }
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="equity-report-${reportId.toLowerCase()}.pdf"`,
+        },
       });
     }
 
@@ -42,17 +51,25 @@ export async function GET(req: NextRequest) {
     if (process.env.DATABASE_URL) {
       const report = await prisma.reportHistory.findUnique({
         where: { id },
-        select: { id: true, companyName: true, status: true, reportData: true, pdfBase64: true }
+        select: {
+          id: true,
+          companyName: true,
+          status: true,
+          reportData: true,
+          pdfBase64: true,
+        },
       });
 
       if (report?.pdfBase64) {
-        const pdfBuffer = Buffer.from(report.pdfBase64, 'base64');
-        const safeName = report.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const pdfBuffer = Buffer.from(report.pdfBase64, "base64");
+        const safeName = report.companyName
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "-");
         return new NextResponse(new Uint8Array(pdfBuffer), {
           headers: {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="equity-report-${safeName}.pdf"`
-          }
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="equity-report-${safeName}.pdf"`,
+          },
         });
       }
 
@@ -60,39 +77,49 @@ export async function GET(req: NextRequest) {
       if (report && !report.pdfBase64) {
         // Pipeline-created reports have reportData but no compiled PDF — compile on demand
         if (report.reportData) {
-          const reportBuffer = await pdfGenerationService.generateReportPDF(report.reportData as unknown as Parameters<typeof pdfGenerationService.generateReportPDF>[0], report.status || 'draft');
+          const reportBuffer = await pdfGenerationService.generateReportPDF(
+            report.reportData as unknown as Parameters<
+              typeof pdfGenerationService.generateReportPDF
+            >[0],
+            report.status || "draft",
+          );
           await prisma.reportHistory.update({
             where: { id },
-            data: { pdfBase64: reportBuffer.toString('base64') }
+            data: { pdfBase64: reportBuffer.toString("base64") },
           });
-          const safeName = report.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          const safeName = report.companyName
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "-");
           return new NextResponse(new Uint8Array(reportBuffer), {
             headers: {
-              'Content-Type': 'application/pdf',
-              'Content-Disposition': `attachment; filename="equity-report-${safeName}.pdf"`
-            }
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="equity-report-${safeName}.pdf"`,
+            },
           });
         }
         return NextResponse.json(
-          { message: 'PDF not yet generated for this report. Please compile it first.' },
-          { status: 404 }
+          {
+            message:
+              "PDF not yet generated for this report. Please compile it first.",
+          },
+          { status: 404 },
         );
       }
     }
 
     return NextResponse.json(
-      { message: `Report PDF for ID "${id}" not found. Please generate the report first.` },
-      { status: 404 }
+      {
+        message: `Report PDF for ID "${id}" not found. Please generate the report first.`,
+      },
+      { status: 404 },
     );
   } catch (error: unknown) {
-    console.error('API Error: /api/download failed:', error);
-    const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
-    return NextResponse.json(
-      { message: errMsg },
-      { status: 500 }
-    );
+    console.error("API Error: /api/download failed:", error);
+    const errMsg =
+      error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ message: errMsg }, { status: 500 });
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;

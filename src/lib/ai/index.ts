@@ -1,8 +1,7 @@
-import { langchainAIService } from './langchain-service';
+import { langchainAIService } from "./langchain-service";
 
 export const aiService = langchainAIService;
 export { langchainAIService };
-export * from './schema';
+export * from "./schema";
 
-export * from './langchain-service';
-
+export * from "./langchain-service";

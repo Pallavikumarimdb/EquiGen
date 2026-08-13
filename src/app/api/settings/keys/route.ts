@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDecryptedApiKey, saveEncryptedApiKey } from '@/lib/utils/api-keys';
-import { requireApiSecret } from '@/lib/utils/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { getDecryptedApiKey, saveEncryptedApiKey } from "@/lib/utils/api-keys";
+import { requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/settings/keys?provider=groq
@@ -11,20 +11,28 @@ export async function GET(req: NextRequest) {
   if (authError) return authError;
   try {
     const { searchParams } = new URL(req.url);
-    const provider = searchParams.get('provider');
+    const provider = searchParams.get("provider");
 
-    if (!provider || (provider !== 'groq' && provider !== 'openai')) {
-      return NextResponse.json({ message: 'Invalid or missing provider parameter.' }, { status: 400 });
+    if (!provider || (provider !== "groq" && provider !== "openai")) {
+      return NextResponse.json(
+        { message: "Invalid or missing provider parameter." },
+        { status: 400 },
+      );
     }
 
-    const key = await getDecryptedApiKey('default-org', provider);
-    return NextResponse.json({
-      configured: !!key
-    }, { status: 200 });
-
+    const key = await getDecryptedApiKey("default-org", provider);
+    return NextResponse.json(
+      {
+        configured: !!key,
+      },
+      { status: 200 },
+    );
   } catch (error: unknown) {
-    console.error('API Error: GET /api/settings/keys failed:', error);
-    return NextResponse.json({ message: 'Failed to fetch key status.' }, { status: 500 });
+    console.error("API Error: GET /api/settings/keys failed:", error);
+    return NextResponse.json(
+      { message: "Failed to fetch key status." },
+      { status: 500 },
+    );
   }
 }
 
@@ -39,22 +47,28 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { provider, apiKey } = body;
 
-    if (!provider || (provider !== 'groq' && provider !== 'openai')) {
-      return NextResponse.json({ message: 'Invalid provider.' }, { status: 400 });
+    if (!provider || (provider !== "groq" && provider !== "openai")) {
+      return NextResponse.json(
+        { message: "Invalid provider." },
+        { status: 400 },
+      );
     }
 
-    await saveEncryptedApiKey('default-org', provider, apiKey || '');
+    await saveEncryptedApiKey("default-org", provider, apiKey || "");
 
-    return NextResponse.json({
-      success: true,
-      message: `${provider} key updated securely.`
-    }, { status: 200 });
-
+    return NextResponse.json(
+      {
+        success: true,
+        message: `${provider} key updated securely.`,
+      },
+      { status: 200 },
+    );
   } catch (error: unknown) {
-    console.error('API Error: POST /api/settings/keys failed:', error);
-    const errMsg = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("API Error: POST /api/settings/keys failed:", error);
+    const errMsg =
+      error instanceof Error ? error.message : "Internal Server Error";
     return NextResponse.json({ message: errMsg }, { status: 500 });
   }
 }
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";

@@ -1,14 +1,17 @@
-import Papa from 'papaparse';
-import { DocumentExtractor, ExtractedDocument } from './types';
+import Papa from "papaparse";
+import { DocumentExtractor, ExtractedDocument } from "./types";
 
 export class CSVExtractor implements DocumentExtractor {
-  public async extract(buffer: Buffer, fileName: string): Promise<ExtractedDocument> {
+  public async extract(
+    buffer: Buffer,
+    fileName: string,
+  ): Promise<ExtractedDocument> {
     try {
-      const csvString = buffer.toString('utf-8');
-      
+      const csvString = buffer.toString("utf-8");
+
       const parseResult = Papa.parse<string[]>(csvString, {
         skipEmptyLines: true,
-        header: false
+        header: false,
       });
 
       const rows = parseResult.data;
@@ -17,7 +20,7 @@ export class CSVExtractor implements DocumentExtractor {
       const tables: string[][][] = [rows];
 
       // Convert rows back to readable text format for LLM processing
-      const text = rows.map(row => row.join(' | ')).join('\n');
+      const text = rows.map((row) => row.join(" | ")).join("\n");
 
       return {
         text,
@@ -26,11 +29,11 @@ export class CSVExtractor implements DocumentExtractor {
           fileName,
           totalRows: rows.length,
           columnsCount: rows[0]?.length || 0,
-          errors: parseResult.errors
-        }
+          errors: parseResult.errors,
+        },
       };
     } catch (error) {
-      console.error('CSV parsing error:', error);
+      console.error("CSV parsing error:", error);
       throw new Error(`Failed to parse CSV document: ${fileName}`);
     }
   }
