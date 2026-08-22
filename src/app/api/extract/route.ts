@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { triggerBackgroundJob } from "@/lib/queue/worker";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { currentSchemaVersion } from "@/lib/ai/versions";
 
 const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
@@ -30,9 +30,13 @@ const ExtractPayloadSchema = z.object({
 export async function POST(req: NextRequest) {
   const authError = requireApiSecret(req);
   if (authError) return authError;
-  let activeJobId =
-    "job_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
+
+  let activeJobId = "";
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+    const userId = session?.userId || null;
+
     const body = await req.json();
     const parsedPayload = ExtractPayloadSchema.safeParse(body);
 
@@ -54,11 +58,8 @@ export async function POST(req: NextRequest) {
       documentId,
       targetingVerdict,
     } = parsedPayload.data;
-    if (jobId) {
-      // Resume / re-trigger of an EXISTING job — the raw text lives in the DB,
-      // so ignore any client-submitted text and keep the stored record authoritative.
-      activeJobId = jobId;
-    }
+
+    activeJobId = jobId || "job_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
 
     if (rawText.length > MAX_RAW_TEXT_BYTES) {
       return NextResponse.json(
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
     // Resolve API key: check database (BYOK) first, then fallback to request payload
     let resolvedApiKey = apiKey;
     if (!resolvedApiKey) {
-      const dbKey = await getDecryptedApiKey("default-org", provider);
+      const dbKey = await getDecryptedApiKey(orgId, provider);
       if (dbKey) resolvedApiKey = dbKey;
     }
 
@@ -89,6 +90,8 @@ export async function POST(req: NextRequest) {
     await prisma.extractionJob.upsert({
       where: { id: activeJobId },
       update: {
+        orgId,
+        createdById: userId,
         companyName: effectiveCompanyName,
         fileName: effectiveFileName,
         rawText: effectiveRawText,
@@ -104,6 +107,8 @@ export async function POST(req: NextRequest) {
       },
       create: {
         id: activeJobId,
+        orgId,
+        createdById: userId,
         companyName: effectiveCompanyName,
         fileName: effectiveFileName,
         rawText: effectiveRawText,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { resumeBackgroundJob } from "@/lib/queue/worker";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 const ResumePayloadSchema = z.object({
   jobId: z.string().min(1, "Job ID is required to resume"),
@@ -20,6 +20,9 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
   let activeJobId = "";
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
     const body = await req.json();
     const parsedPayload = ResumePayloadSchema.safeParse(body);
 
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest) {
     // Resolve API key: check database (BYOK) first, then fallback to request payload
     let resolvedApiKey = apiKey;
     if (!resolvedApiKey) {
-      const dbKey = await getDecryptedApiKey("default-org", provider);
+      const dbKey = await getDecryptedApiKey(orgId, provider);
       if (dbKey) resolvedApiKey = dbKey;
     }
 

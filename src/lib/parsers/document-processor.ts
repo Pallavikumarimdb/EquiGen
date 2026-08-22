@@ -26,6 +26,7 @@ export interface DocumentProcessResult {
 export async function processPdfDocument(
   buffer: Buffer,
   fileName: string,
+  orgId?: string,
 ): Promise<DocumentProcessResult> {
   const cleanArrayBuffer = buffer.buffer.slice(
     buffer.byteOffset,
@@ -54,6 +55,7 @@ export async function processPdfDocument(
   try {
     const document = await prisma.document.create({
       data: {
+        orgId,
         storageKey: fileName,
         fileName,
         sha256: computeSHA256(buffer.toString("base64")),

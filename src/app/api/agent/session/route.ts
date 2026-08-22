@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/agent/session?reportId=...
@@ -20,8 +20,31 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const sessionUser = getAuthSession(req);
+    const orgId = sessionUser?.orgId || "default-org";
+    const userId = sessionUser?.userId || "analyst";
+
+    // Enforce Tenant Isolation Check: Verify report ownership
+    const report = await prisma.reportHistory.findUnique({
+      where: { id: reportId },
+    });
+
+    if (!report) {
+      return NextResponse.json(
+        { message: "Report not found." },
+        { status: 404 },
+      );
+    }
+
+    if (report.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
+      );
+    }
+
     let session = await prisma.researchSession.findFirst({
-      where: { reportId },
+      where: { reportId, orgId },
       orderBy: { createdAt: "desc" },
       include: {
         messages: {
@@ -34,7 +57,8 @@ export async function GET(req: NextRequest) {
       session = await prisma.researchSession.create({
         data: {
           reportId,
-          orgId: "default-org",
+          orgId,
+          createdBy: userId,
         },
         include: {
           messages: true,

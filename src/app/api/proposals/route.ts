@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { applyFieldUpdates } from "@/lib/report/proposal-apply";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/proposals?reportId=...
@@ -13,6 +14,9 @@ import { applyFieldUpdates } from "@/lib/report/proposal-apply";
  * Approves or Rejects a proposal.
  */
 export async function GET(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
+
   try {
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get("reportId");
@@ -21,6 +25,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { message: "Missing reportId parameter." },
         { status: 400 },
+      );
+    }
+
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
+    // Enforce tenant check: verify the report belongs to this org
+    const report = await prisma.reportHistory.findUnique({
+      where: { id: reportId },
+    });
+
+    if (!report) {
+      return NextResponse.json(
+        { message: "Report not found." },
+        { status: 404 },
+      );
+    }
+
+    if (report.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
       );
     }
 
@@ -40,7 +66,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
+
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
     const body = await req.json();
     const { reportId, field, oldValue, newValue, reasoning, origin } = body;
 
@@ -48,6 +80,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { message: "Missing required parameters." },
         { status: 400 },
+      );
+    }
+
+    // Enforce tenant check: verify report ownership
+    const report = await prisma.reportHistory.findUnique({
+      where: { id: reportId },
+    });
+
+    if (!report) {
+      return NextResponse.json(
+        { message: "Report not found." },
+        { status: 404 },
+      );
+    }
+
+    if (report.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
       );
     }
 
@@ -66,8 +117,8 @@ export async function POST(req: NextRequest) {
     await prisma.auditLog.create({
       data: {
         reportId,
-        userId: "system",
-        actorType: "system",
+        userId: session?.userId || null,
+        actorType: session?.userId ? "human" : "system",
         action: "field_correction_proposed",
         metadata: {
           field,
@@ -89,9 +140,17 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const authError = requireApiSecret(req);
+  if (authError) return authError;
+
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+    const userId = session?.userId || null;
+    const userName = session?.name || "analyst";
+
     const body = await req.json();
-    const { proposalId, status, reviewerName } = body; // status = 'approved' | 'rejected'
+    const { proposalId, status } = body; // status = 'approved' | 'rejected'
 
     if (
       !proposalId ||
@@ -115,6 +174,25 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    // Enforce tenant check: verify the proposal's report belongs to this org
+    const report = await prisma.reportHistory.findUnique({
+      where: { id: existing.reportId },
+    });
+
+    if (!report) {
+      return NextResponse.json(
+        { message: "Report associated with proposal not found." },
+        { status: 404 },
+      );
+    }
+
+    if (report.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
+      );
+    }
+
     if (status === "approved") {
       await applyFieldUpdates(
         existing.reportId,
@@ -128,7 +206,7 @@ export async function PATCH(req: NextRequest) {
         ],
         {
           sessionId: existing.sessionId,
-          actorId: reviewerName || "analyst",
+          actorId: userId || "analyst",
           actorType: "human",
         },
       );
@@ -138,7 +216,7 @@ export async function PATCH(req: NextRequest) {
       where: { id: proposalId },
       data: {
         status,
-        reviewedBy: reviewerName || "analyst",
+        reviewedBy: userId,
         reviewedAt: new Date(),
       },
     });
@@ -147,7 +225,7 @@ export async function PATCH(req: NextRequest) {
     await prisma.auditLog.create({
       data: {
         reportId: existing.reportId,
-        userId: reviewerName || "analyst",
+        userId: userId,
         actorType: "human",
         action:
           status === "approved"
@@ -158,6 +236,7 @@ export async function PATCH(req: NextRequest) {
           field: existing.field,
           oldValue: existing.oldValue,
           newValue: existing.newValue,
+          reviewerName: userName,
         },
       },
     });

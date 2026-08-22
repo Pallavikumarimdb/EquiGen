@@ -67,6 +67,8 @@ export async function applyFieldUpdates(
         fileName: dbReport.fileName,
         reportData: dbReport.reportData as Prisma.InputJsonValue,
         pdfBase64: dbReport.pdfBase64,
+        orgId: dbReport.orgId,
+        createdById: dbReport.createdById,
         status: "changes_requested",
         reviewerName: dbReport.reviewerName,
         sebiRegNo: dbReport.sebiRegNo,
