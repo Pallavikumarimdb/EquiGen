@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parserService } from "@/lib/parsers";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { processPdfDocument } from "@/lib/parsers/document-processor";
 
 // Raised for large annual reports (500-page filings can exceed 50 MB)
@@ -14,6 +14,8 @@ export async function POST(req: NextRequest) {
   const authError = requireApiSecret(req);
   if (authError) return authError;
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
     let targeting = null;
     if (isPdf) {
       try {
-        const docResult = await processPdfDocument(buffer, file.name);
+        const docResult = await processPdfDocument(buffer, file.name, orgId);
         targeting = {
           documentId: docResult.documentId,
           verdict: docResult.targeting.verdict,

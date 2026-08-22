@@ -177,6 +177,33 @@ export function Dashboard() {
     }
   };
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [user, setUser] = useState<{ id: string; name: string; email: string; role: string; sebiRegNo: string | null; orgName: string } | null>(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
+          
+          // Map database "reviewer" to UI "research_analyst"
+          const mappedRole = data.user.role === "reviewer" ? "research_analyst" : data.user.role;
+          setUserRole(mappedRole as UserRole);
+
+          if (data.user.role === "reviewer") {
+            setReviewerName(data.user.name);
+            if (data.user.sebiRegNo) {
+              setSebiRegNo(data.user.sebiRegNo);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to retrieve user session details:", err);
+      }
+    };
+    fetchUser();
+  }, []);
 
   // Active Report Details for sign-off
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
@@ -1922,33 +1949,73 @@ export function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* User Role Indicator with Mock selector */}
-            <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-300">
-              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                Role:
-              </span>
-              <select
-                value={userRole}
-                onChange={(e) => {
-                  setUserRole(e.target.value as UserRole);
-                  showToast(
-                    `Switched active role to ${e.target.value}`,
-                    "info",
-                  );
-                }}
-                className="bg-transparent border-none text-xs font-bold text-white focus:outline-none cursor-pointer"
-              >
-                <option value="analyst" className="bg-[#111115]">
-                  Analyst
-                </option>
-                <option value="research_analyst" className="bg-[#111115]">
-                  Research Analyst (RA)
-                </option>
-                <option value="admin" className="bg-[#111115]">
-                  Admin
-                </option>
-              </select>
-            </div>
+            {/* User Role & Profile Indicator */}
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col text-right hidden sm:flex">
+                  <span className="text-xs font-bold text-white leading-none">{user.name}</span>
+                  <span className="text-[9px] text-slate-400 font-semibold mt-0.5 leading-none">{user.orgName}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border capitalize ${
+                  user.role === "admin"
+                    ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+                    : user.role === "reviewer"
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                    : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+                }`}>
+                  {user.role === "reviewer" ? "SEBI Analyst" : user.role}
+                </span>
+                {user.role === "admin" && (
+                  <a
+                    href="/settings/organization"
+                    className="p-1.5 hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-slate-400 hover:text-slate-200 transition-colors"
+                    title="Organization Settings"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </a>
+                )}
+                <button
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/auth/signout", { method: "POST" });
+                      window.location.href = "/auth/signin";
+                    } catch {
+                      showToast("Failed to sign out.", "error");
+                    }
+                  }}
+                  className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 text-rose-400 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-300">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                  Role:
+                </span>
+                <select
+                  value={userRole}
+                  onChange={(e) => {
+                    setUserRole(e.target.value as UserRole);
+                    showToast(
+                      `Switched active role to ${e.target.value}`,
+                      "info",
+                    );
+                  }}
+                  className="bg-transparent border-none text-xs font-bold text-white focus:outline-none cursor-pointer"
+                >
+                  <option value="analyst" className="bg-[#111115]">
+                    Analyst
+                  </option>
+                  <option value="research_analyst" className="bg-[#111115]">
+                    Research Analyst (RA)
+                  </option>
+                  <option value="admin" className="bg-[#111115]">
+                    Admin
+                  </option>
+                </select>
+              </div>
+            )}
 
             {/* Model badge */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg">

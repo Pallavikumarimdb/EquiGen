@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
 import { EquityResearchData } from "@/types";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { transitionReportStatus } from "@/lib/report/state-machine";
 import { computeSHA256 } from "@/lib/utils/hash";
 
 /**
  * POST /api/approve
- * Captures SEBI RA sign-off credentials, recalculates/records SHA-256 integrity hash,
+ * Captures SEBI RA sign-off credentials from the user session, recalculates/records SHA-256 integrity hash,
  * transitions state to approved & published, renders attested PDF, and writes audit trail.
  */
 export async function POST(req: NextRequest) {
@@ -21,12 +21,29 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const body = await req.json();
-    const { reportId, reviewerName, sebiRegNo } = body;
 
-    if (!reportId || !reviewerName || !sebiRegNo) {
+    const session = getAuthSession(req);
+    if (!session) {
       return NextResponse.json(
-        { message: "Missing required sign-off parameters." },
+        { message: "Unauthorized. Please log in." },
+        { status: 401 },
+      );
+    }
+
+    // Role-based Access Control (RBAC): Only Reviewers can sign off
+    if (session.role !== "reviewer") {
+      return NextResponse.json(
+        { message: "Forbidden. Only SEBI Registered Research Analysts (Reviewers) are authorized to perform report sign-offs." },
+        { status: 403 },
+      );
+    }
+
+    const body = await req.json();
+    const { reportId } = body;
+
+    if (!reportId) {
+      return NextResponse.json(
+        { message: "Missing required reportId parameter." },
         { status: 400 },
       );
     }
@@ -43,6 +60,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Tenant Isolation Check
+    const orgId = session.orgId || "default-org";
+    if (dbReport.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
+      );
+    }
+
+    const reviewerName = session.name;
+    const sebiRegNo = session.sebiRegNo;
+
+    if (!sebiRegNo) {
+      return NextResponse.json(
+        { message: "Bad request. Your user account does not have a configured SEBI Research Analyst registration number." },
+        { status: 400 },
+      );
+    }
+
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const contentHash = computeSHA256(reportData);
     const approvedAt = new Date();
@@ -55,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     // Transition state from current status (should be under_review/draft etc.) to approved
     await transitionReportStatus(reportId, "approved", {
-      actorId: reviewerName,
+      actorId: session.userId,
       actorType: "human",
       ipAddress,
       metadata: {
@@ -91,12 +127,16 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Update ReportHistory to save the generated PDF buffer
+    // Update ReportHistory to save the generated PDF buffer and reviewer info
     const finalReport = await prisma.reportHistory.update({
       where: { id: reportId },
       data: {
         pdfBase64: reportBuffer.toString("base64"),
         contentHash,
+        reviewerName,
+        sebiRegNo,
+        approvedAt,
+        approvedByIp: ipAddress,
       },
     });
 
@@ -104,7 +144,7 @@ export async function POST(req: NextRequest) {
     await prisma.auditLog.create({
       data: {
         reportId,
-        userId: reviewerName,
+        userId: session.userId,
         actorType: "human",
         action: "sign_off",
         metadata: {

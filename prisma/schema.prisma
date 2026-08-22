@@ -9,13 +9,75 @@ datasource db {
   provider = "postgresql"
 }
 
+model Organization {
+  id             String          @id @default(uuid())
+  name           String
+  logoUrl        String?         // Custom branding logo for PDFs/Excel
+  primaryColor   String          @default("#0f172a") // Branding primary color (default Tailwind Slate-900)
+  accentColor    String          @default("#10b981") // Branding accent color (default Tailwind Emerald-500)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  
+  // Relations
+  users          User[]
+  apiKeys        ApiKey[]
+  reports        ReportHistory[]
+  jobs           ExtractionJob[]
+  documents      Document[]
+  sessions       ResearchSession[]
+  notifications  Notification[]
+}
+
+model User {
+  id             String          @id @default(uuid())
+  email          String          @unique
+  passwordHash   String
+  name           String
+  role           String          @default("analyst") // "admin" | "analyst" | "reviewer"
+  sebiRegNo      String?         // Only applicable for "reviewer" role
+  orgId          String
+  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  
+  // Relations
+  userSessions   UserSession[]
+  auditLogs      AuditLog[]
+  proposals      CorrectionProposal[]
+  createdReports ReportHistory[]  @relation("CreatedReports")
+  reviewedReports ReportHistory[] @relation("ReviewedReports")
+  extractionJobs ExtractionJob[]
+  notifications  Notification[]
+
+  @@index([orgId])
+}
+
+model UserSession {
+  id             String          @id @default(uuid())
+  userId         String
+  token          String          @unique
+  expiresAt      DateTime
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+
+  @@index([userId])
+}
+
 model ReportHistory {
   id                    String    @id
+  orgId                 String?
+  org                   Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   companyName           String
   fileName              String
   reportData            Json
   pdfBase64             String?
   status                String    @default("draft") // "draft" | "pending_review" | "under_review" | "changes_requested" | "approved" | "published"
+  
+  // Compliance and reviews
+  createdById           String?
+  createdBy             User?        @relation("CreatedReports", fields: [createdById], references: [id], onDelete: SetNull)
+  reviewerId            String?
+  reviewer              User?        @relation("ReviewedReports", fields: [reviewerId], references: [id], onDelete: SetNull)
   reviewerName          String?
   sebiRegNo             String?
   approvedAt            DateTime?
@@ -27,10 +89,16 @@ model ReportHistory {
   /** Data quality flag from chunk extraction: "ok" | "degraded". "blocked_financials" never becomes a report. */
   dataQuality           String    @default("ok")
   createdAt             DateTime  @default(now())
+
+  @@index([orgId])
 }
 
 model ExtractionJob {
   id                String   @id
+  orgId             String?
+  org               Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdById       String?
+  createdBy         User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
   companyName       String
   fileName          String
   rawText           String
@@ -59,11 +127,15 @@ model ExtractionJob {
   degradedChunks    Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@index([orgId])
 }
 
 /** A parsed source document — one row per uploaded file, with per-page records below. */
 model Document {
   id               String        @id @default(uuid())
+  orgId            String?
+  org              Organization?  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   storageKey       String
   fileName         String
   sha256           String?
@@ -76,6 +148,8 @@ model Document {
   createdAt        DateTime      @default(now())
   pages            DocumentPage[]
   tables           DocumentTable[]
+
+  @@index([orgId])
 }
 
 /** Per-page record: native text, OCR text, raw table structures, targeting annotations. */
@@ -176,6 +250,10 @@ model ModelLimit {
 
 model Notification {
   id        String   @id @default(uuid())
+  orgId     String?
+  org       Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   reportId  String?
   jobId     String?
   /** "pending_review" | "blocked_financials" | "degraded" | "budget_warning" */
@@ -188,7 +266,8 @@ model Notification {
 
 model ApiKey {
   id           String   @id @default(uuid())
-  orgId        String   @default("default-org")
+  orgId        String?  @default("default-org")
+  org          Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   provider     String   // "groq" | "openai"
   encryptedKey String
   createdAt    DateTime @default(now())
@@ -200,7 +279,8 @@ model ApiKey {
 model AuditLog {
   id        String   @id @default(uuid())
   reportId  String
-  userId    String   @default("anonymous")
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   actorType String   @default("human") // "human" | "agent" | "system"
   action    String   // "state_change" | "sign_off" | "field_correction_proposed" | "field_correction_approved" | "field_correction_rejected" | "tool_call" | "recompute"
   fromState String?
@@ -220,6 +300,7 @@ model CorrectionProposal {
   origin      String   // "math_auditor" | "agent_tool" | "live_data_refresh"
   status      String   @default("pending") // "pending" | "approved" | "rejected"
   reviewedBy  String?
+  reviewer    User?    @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt  DateTime?
   createdAt   DateTime @default(now())
 }
@@ -227,11 +308,14 @@ model CorrectionProposal {
 model ResearchSession {
   id        String   @id @default(uuid())
   reportId  String
-  orgId     String   @default("default-org")
+  orgId     String?  @default("default-org")
+  org       Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy String   @default("analyst")
   createdAt DateTime @default(now())
   messages  ConversationMessage[]
   toolCalls ToolCall[]
+
+  @@index([orgId])
 }
 
 model ConversationMessage {
@@ -255,5 +339,3 @@ model ToolCall {
   createdAt    DateTime @default(now())
   session      ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
-
-
