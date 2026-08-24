@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (dbSession.orgId !== orgId) {
+    const hasAccess = dbSession.orgId === orgId || (orgId === "default-org" && !dbSession.orgId);
+    if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },

@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Tenant boundary check
-    if (report.orgId !== orgId) {
+    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },

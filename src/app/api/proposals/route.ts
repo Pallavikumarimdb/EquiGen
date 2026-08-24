@@ -43,7 +43,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (report.orgId !== orgId) {
+    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
@@ -95,7 +96,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (report.orgId !== orgId) {
+    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
@@ -186,7 +188,8 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (report.orgId !== orgId) {
+    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
