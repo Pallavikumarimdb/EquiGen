@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { computeSHA256 } from "@/lib/utils/hash";
 
 const ALLOWED_STATUSES = new Set([
@@ -16,12 +16,23 @@ export async function GET(req: NextRequest) {
   if (authError) return authError;
   try {
     if (!process.env.DATABASE_URL) {
-      // Gracefully return empty history if database is not configured
       return NextResponse.json([]);
     }
+
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
     const reports = await prisma.reportHistory.findMany({
+      where: orgId === "default-org"
+        ? {
+            OR: [
+              { orgId: "default-org" },
+              { orgId: null },
+            ],
+          }
+        : { orgId },
       orderBy: { createdAt: "desc" },
-      take: 100, // cap the list payload — full history is retrievable one report at a time
+      take: 100,
       select: {
         id: true,
         companyName: true,
@@ -58,6 +69,11 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+    const userId = session?.userId || null;
+
     const body = await req.json();
     const {
       id,
@@ -88,10 +104,17 @@ export async function POST(req: NextRequest) {
 
     const contentHash = computeSHA256(reportData);
 
-    // Fetch existing report to compute version number increment if changed
+    // Fetch existing report to compute version number increment and verify tenant ownership
     const existing = await prisma.reportHistory.findUnique({
       where: { id },
     });
+
+    if (existing && existing.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. You do not own this report." },
+        { status: 403 },
+      );
+    }
 
     let versionNo = 1;
     if (existing) {
@@ -107,6 +130,7 @@ export async function POST(req: NextRequest) {
     const report = await prisma.reportHistory.upsert({
       where: { id },
       update: {
+        orgId,
         companyName,
         fileName,
         reportData,
@@ -122,6 +146,8 @@ export async function POST(req: NextRequest) {
       },
       create: {
         id,
+        orgId,
+        createdById: userId,
         companyName,
         fileName,
         reportData,
@@ -140,7 +166,7 @@ export async function POST(req: NextRequest) {
     await prisma.auditLog.create({
       data: {
         reportId: id,
-        userId: reviewerName || "analyst",
+        userId: userId,
         actorType: "human",
         action: existing ? "EDIT" : "GENERATE",
         fromState: existing?.status || null,
@@ -175,6 +201,10 @@ export async function DELETE(req: Request) {
         { status: 400 },
       );
     }
+
+    const session = getAuthSession(req as unknown as NextRequest);
+    const orgId = session?.orgId || "default-org";
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -182,6 +212,24 @@ export async function DELETE(req: Request) {
       return NextResponse.json(
         { message: "Missing report ID" },
         { status: 400 },
+      );
+    }
+
+    const existing = await prisma.reportHistory.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { message: "Report not found" },
+        { status: 404 },
+      );
+    }
+
+    if (existing.orgId !== orgId) {
+      return NextResponse.json(
+        { message: "Forbidden. You do not own this report." },
+        { status: 403 },
       );
     }
 
@@ -198,3 +246,4 @@ export async function DELETE(req: Request) {
     );
   }
 }
+export const dynamic = "force-dynamic";

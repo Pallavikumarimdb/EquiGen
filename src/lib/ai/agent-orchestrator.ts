@@ -61,6 +61,29 @@ function normalizeIntent(text: string): string {
     .trim();
 }
 
+function isApprovalIntent(text: string): boolean {
+  const normalized = normalizeIntent(text);
+  if (APPROVAL_INTENTS.has(normalized)) return true;
+  
+  // Detect natural variations of approval
+  const words = normalized.split(/\s+/);
+  if (words.includes("approve") || words.includes("apply") || words.includes("accept")) {
+    return true;
+  }
+  
+  if (
+    normalized.startsWith("yes ") || 
+    normalized.startsWith("go ahead") || 
+    normalized.startsWith("yeah ") || 
+    normalized.startsWith("ok ") || 
+    normalized.startsWith("okay ")
+  ) {
+    return true;
+  }
+  
+  return false;
+}
+
 export class AgentOrchestrator {
   /**
    * Processes a conversation turn using a lightweight ReAct-like custom parser.
@@ -112,7 +135,7 @@ export class AgentOrchestrator {
     // --- INTENT INTERCEPT: "approved" / "add them to the report" etc. ---
     // Rather than trusting the LLM to replay a tool call, apply any pending
     // correction proposals deterministically and reply with a confirmation.
-    if (APPROVAL_INTENTS.has(normalizeIntent(userPrompt))) {
+    if (isApprovalIntent(userPrompt)) {
       const pendingProposals = await prisma.correctionProposal.findMany({
         where: { reportId, status: "pending" },
         orderBy: { createdAt: "asc" },
@@ -182,7 +205,7 @@ export class AgentOrchestrator {
     // 2. Build system instructions
     const reportData = dbReport.reportData as unknown as EquityResearchData;
 
-    const systemPrompt = `You are EquiGen's AI Co-Pilot. You have access to the current state of the equity research report.
+    const systemPrompt = `You are EquiGen's AI Co-Pilot, an elite, senior buy-side equity research analyst. Your responses should be professional, highly analytical, clear, and insightful—similar to top-tier financial research reports or a dialogue with a top analyst (e.g. ChatGPT).
 Current report data:
 ${JSON.stringify(reportData, null, 2)}
 
@@ -207,7 +230,7 @@ If the user wants to change a metric, recommendation, text, or add new sections 
 To run the RecomputeFieldTool, respond with exactly a JSON block matching this structure (and nothing else — no prose, no explanation, no markdown):
 {
   "tool": "RecomputeFieldTool",
-  "field": "recommendation.targetPrice", // dot-notated field path to update
+  "field": "recommendation.targetPrice", // dot-notated field path to update (e.g., "detailedFinancials.ratios.14.Q2FY26" to update the 15th ratios row's Q2FY26 column)
   "value": 450, // the new value (number, string, or array)
   "reasoning": "Updating target price per analyst request"
 }
@@ -215,12 +238,13 @@ CRITICAL RULES:
 1. You CANNOT modify the report yourself. Never claim "I have added/updated the report" — you only ever PROPOSE a change via the JSON above.
 2. The JSON block above must be your ENTIRE response when proposing a change.
 3. If the user confirms a proposal you already made (e.g. "approved", "add them to the report"), those pending proposals are applied automatically by the system — briefly confirm "Approved corrections have been applied." and do NOT emit another tool call for the same field.
-4. For questions or analysis, respond with normal conversation text. If you need live data you do not have (e.g. competitor equity analysis), answer from general knowledge and clearly label it as indicative, NOT as report data.
-5. Do not dump the entire report JSON back at the user — describe changes briefly in plain text.`;
+4. For questions or analysis, respond with normal conversation text. Do NOT add safety/moderation headers like "User Safety: safe" or "Response Safety: safe" to your output. If you need live data you do not have (e.g. competitor equity analysis), answer from general knowledge and clearly label it as indicative, NOT as report data.
+5. Speak in an expert, highly professional buy-side research analyst voice. Be articulate, detailed, and clear. Avoid robotic template-like language.
+6. Do not dump the entire report JSON back at the user — describe changes briefly in plain text.`;
 
     const preferredModel =
       options.modelName ||
-      (options.provider === "groq" ? "openai/gpt-oss-120b" : "gpt-4o-mini");
+      (options.provider === "groq" ? "openrouter/free" : "gpt-4o-mini");
 
     const messages: [string, string][] = [["system", systemPrompt]];
     session.messages.forEach((m) => {
@@ -269,17 +293,14 @@ CRITICAL RULES:
 
       const content = String(res.content).trim();
 
-      // Check if LLM requested the RecomputeFieldTool
-      if (
-        content.includes('"tool"') &&
-        content.includes('"RecomputeFieldTool"')
-      ) {
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const toolRequest = JSON.parse(jsonMatch[0]);
-            const { field, value, reasoning } = toolRequest;
-
+      const toolCall = this.parseToolCall(content);
+      if (toolCall) {
+        const tool = toolCall.tool;
+        if (tool === "RecomputeFieldTool") {
+          try {
+            const field = String(toolCall.field || "");
+            const value = toolCall.value as Prisma.InputJsonValue;
+            const reasoning = toolCall.reasoning ? String(toolCall.reasoning) : "No reasoning provided.";
             const toolResult = await this.executeRecomputeFieldTool(
               sessionId,
               reportId,
@@ -294,21 +315,16 @@ CRITICAL RULES:
               forkedReportId = toolResult.forkedReportId;
               responseText += `\n*Note: Since the report was approved/published, it has been forked to a new draft baseline (ID: ${forkedReportId}) in changes_requested status.*`;
             }
+          } catch (err) {
+            console.error("Failed to execute RecomputeFieldTool:", err);
+            responseText = `I attempted to propose a change but encountered an error. Please try again.`;
           }
-        } catch (err) {
-          console.error("Failed to parse RecomputeFieldTool JSON:", err);
-          responseText = `I attempted to propose a change but encountered a formatting error. Please try again.`;
+          break;
         }
-        break;
-      }
 
-      // Check if LLM requested search_pages tool
-      if (content.includes('"tool"') && content.includes('"search_pages"')) {
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const toolRequest = JSON.parse(jsonMatch[0]);
-            const { query } = toolRequest;
+        if (tool === "search_pages") {
+          try {
+            const query = String(toolCall.query || "");
             const searchResult = await this.executeSearchPagesTool(
               reportId,
               query,
@@ -316,22 +332,20 @@ CRITICAL RULES:
             messages.push(["assistant", content]);
             messages.push(["user", `[search_pages result]:\n${searchResult}`]);
             continue;
+          } catch (err) {
+            console.error("Failed to execute search_pages:", err);
+            messages.push(["assistant", content]);
+            messages.push(["user", `[search_pages failed]: Error executing search.`]);
+            continue;
           }
-        } catch (err) {
-          console.error("Failed to parse search_pages JSON:", err);
         }
-      }
 
-      // Check if LLM requested fetch_page tool
-      if (content.includes('"tool"') && content.includes('"fetch_page"')) {
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const toolRequest = JSON.parse(jsonMatch[0]);
-            const { pageNumber } = toolRequest;
+        if (tool === "fetch_page") {
+          try {
+            const pageNumber = Number(toolCall.pageNumber || 0);
             const pageResult = await this.executeFetchPageTool(
               reportId,
-              Number(pageNumber),
+              pageNumber,
             );
             messages.push(["assistant", content]);
             messages.push([
@@ -339,14 +353,22 @@ CRITICAL RULES:
               `[fetch_page result for page ${pageNumber}]:\n${pageResult}`,
             ]);
             continue;
+          } catch (err) {
+            console.error("Failed to execute fetch_page:", err);
+            messages.push(["assistant", content]);
+            messages.push(["user", `[fetch_page failed]: Error retrieving page ${toolCall.pageNumber ?? "unknown"}.`]);
+            continue;
           }
-        } catch (err) {
-          console.error("Failed to parse fetch_page JSON:", err);
         }
       }
 
       responseText = content;
       break;
+    }
+
+    // Safeguard: Ensure we never return raw tool-calling instructions as the final message
+    if (!responseText || responseText.includes("<|tool_call_start|>") || (responseText.trim().startsWith("{") && responseText.trim().endsWith("}") && responseText.includes('"tool"'))) {
+      responseText = "I performed the document lookup but was unable to resolve the requested metrics or propose updates. Please specify which exact page or numbers to change.";
     }
 
     // Save agent message to database
@@ -479,6 +501,7 @@ CRITICAL RULES:
     try {
       const job = await prisma.extractionJob.findFirst({
         where: { reportId },
+        orderBy: { createdAt: "desc" },
       });
       const documentId = job?.documentId;
       if (!documentId) return "No document source linked to this report.";
@@ -526,6 +549,7 @@ CRITICAL RULES:
     try {
       const job = await prisma.extractionJob.findFirst({
         where: { reportId },
+        orderBy: { createdAt: "desc" },
       });
       const documentId = job?.documentId;
       if (!documentId) return "No document source linked to this report.";
@@ -551,6 +575,48 @@ CRITICAL RULES:
       }
       return undefined;
     }, obj);
+  }
+
+  private parseToolCall(content: string): Record<string, unknown> | null {
+    // 1. Try Llama/OpenRouter native format: <|tool_call_start|>[tool_name(args)]<|tool_call_end|>
+    if (content.includes("<|tool_call_start|>")) {
+      const match = content.match(/<\|tool_call_start\|>\[(\w+)\(([\s\S]*?)\)\]<\|tool_call_end\|>/);
+      if (match) {
+        const tool = match[1];
+        const argsStr = match[2];
+        const result: Record<string, unknown> = { tool };
+        
+        const argRegex = /(\w+)\s*=\s*(?:'([\s\S]*?)'|"([\s\S]*?)"|(\d+)|(true|false))/g;
+        let argMatch;
+        while ((argMatch = argRegex.exec(argsStr)) !== null) {
+          const key = argMatch[1];
+          const val = argMatch[2] !== undefined 
+            ? argMatch[2] 
+            : (argMatch[3] !== undefined 
+                ? argMatch[3] 
+                : (argMatch[4] !== undefined 
+                    ? parseInt(argMatch[4], 10) 
+                    : argMatch[5] === "true"));
+          result[key] = val;
+        }
+        return result;
+      }
+    }
+
+    // 2. Try JSON block parsing
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed && parsed.tool) {
+          return parsed;
+        }
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+
+    return null;
   }
 }
 

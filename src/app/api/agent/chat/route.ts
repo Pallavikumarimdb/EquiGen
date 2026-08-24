@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 import { agentOrchestrator } from "@/lib/ai/agent-orchestrator";
 import { RateLimitError } from "@/lib/ai/retry-wrapper";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * POST /api/agent/chat
@@ -11,6 +12,9 @@ export async function POST(req: NextRequest) {
   const authError = requireApiSecret(req);
   if (authError) return authError;
   try {
+    const sessionUser = getAuthSession(req);
+    const orgId = sessionUser?.orgId || "default-org";
+
     const body = await req.json();
     const { sessionId, prompt, provider, apiKey, modelName } = body;
 
@@ -18,6 +22,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { message: "Missing required parameters." },
         { status: 400 },
+      );
+    }
+
+    // Tenant Isolation Check: Verify session ownership
+    const dbSession = await prisma.researchSession.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!dbSession) {
+      return NextResponse.json(
+        { message: "Research session not found." },
+        { status: 404 },
+      );
+    }
+
+    const hasAccess = dbSession.orgId === orgId || (orgId === "default-org" && !dbSession.orgId);
+    if (!hasAccess) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
       );
     }
 

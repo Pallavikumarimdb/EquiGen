@@ -76,7 +76,7 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
       modelName: "openrouter/free",
       temperature: 0.1,
       maxRetries: 3,
-      timeout: 20000, // 20s timeout to prevent hanging
+      timeout: 120000, // 120s timeout to prevent hanging on larger prompts
     });
   }
 
@@ -106,10 +106,31 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
-  preferredModel = "openai/gpt-oss-120b",
+  preferredModel = "openrouter/free",
   onWaitStart?: (waitMs: number) => void,
   forcePreferred = false,
 ): Promise<ModelChoice> {
+  const targetModel = (options.provider === "groq" && options.modelName) ? options.modelName : preferredModel;
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  const isOpenRouter = targetModel.includes("/") && !!openRouterKey;
+
+  if (isOpenRouter) {
+    return {
+      model: new ChatOpenAI({
+        apiKey: openRouterKey,
+        configuration: {
+          baseURL: "https://openrouter.ai/api/v1",
+        },
+        // modelName: targetModel,
+        model: 'openrouter/free',
+        temperature: 0.1,
+        maxRetries: 3,
+      }),
+      modelName: targetModel,
+      downgraded: false,
+    };
+  }
+
   const estimated = estimateTokens(promptText) + COMPLETION_TOKEN_BUFFER;
   const provider = options.provider;
   const apiKey =
@@ -124,8 +145,6 @@ export async function getModelForRequest(
   // Hydrate store limits + probe live ceilings BEFORE pre-flighting so constants never gate requests
   await ensureBudgetSystem(apiKey);
 
-  const targetModel = (provider === "groq" && options.modelName) ? options.modelName : preferredModel;
-
   // Determine the effective TPM limit for the target model
   const primaryLimit =
     provider === "groq" ? modelLimitRegistry.getTpm(targetModel) : 200000;
@@ -134,7 +153,7 @@ export async function getModelForRequest(
   if (estimated > primaryLimit && !forcePreferred) {
     console.warn(
       `[ModelRouter] Request (~${estimated} tokens) exceeds ${targetModel}'s ${primaryLimit} TPM ceiling. ` +
-        `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
+      `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
       model: getFallbackGroqModel(options),
@@ -151,8 +170,8 @@ export async function getModelForRequest(
   ) {
     console.warn(
       `[ModelRouter] ${targetModel} TPD budget nearly exhausted ` +
-        `(${tokenBudgetManager.dailyUsedToday(targetModel)} tokens used today). ` +
-        `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
+      `(${tokenBudgetManager.dailyUsedToday(targetModel)} tokens used today). ` +
+      `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
       model: getFallbackGroqModel(options),
@@ -205,6 +224,10 @@ export function recordActualUsage(
   inputText: string,
   outputText: string,
 ) {
+  if (modelName.includes("/")) {
+    // Skip budget tracking for OpenRouter models to prevent budget exhaustion
+    return;
+  }
   const total = estimateTokens(inputText) + estimateTokens(outputText);
   tokenBudgetManager.recordUsage(modelName, total);
   tokenBudgetManager.recordDailyUsage(modelName, total);

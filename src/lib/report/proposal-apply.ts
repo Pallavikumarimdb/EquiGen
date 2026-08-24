@@ -67,6 +67,8 @@ export async function applyFieldUpdates(
         fileName: dbReport.fileName,
         reportData: dbReport.reportData as Prisma.InputJsonValue,
         pdfBase64: dbReport.pdfBase64,
+        orgId: dbReport.orgId,
+        createdById: dbReport.createdById,
         status: "changes_requested",
         reviewerName: dbReport.reviewerName,
         sebiRegNo: dbReport.sebiRegNo,
@@ -148,24 +150,49 @@ export async function applyFieldUpdates(
   return { reportId: activeReportId, forkedReportId };
 }
 
-/** Writes a value into a nested object using a dot-notated path (creates missing keys). */
+/** Writes a value into a nested object using a dot-notated path (creates missing keys and supports array indices). */
 export function setNestedValue(
   obj: Record<string, unknown>,
   path: string,
   value: unknown,
 ): void {
   const parts = path.split(".");
-  let cursor: Record<string, unknown> = obj;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cursor: any = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
-    const next = cursor[key];
-    if (next === null || typeof next !== "object" || Array.isArray(next)) {
-      const created: Record<string, unknown> = {};
-      cursor[key] = created;
-      cursor = created;
-    } else {
-      cursor = next as Record<string, unknown>;
+    const nextKey = parts[i + 1];
+    
+    // Check if next key is an array index (a non-negative integer)
+    const isNextKeyIndex = /^\d+$/.test(nextKey);
+    
+    let next = cursor[key];
+    if (next === null || next === undefined) {
+      next = isNextKeyIndex ? [] : {};
+      cursor[key] = next;
+    } else if (isNextKeyIndex && !Array.isArray(next)) {
+      next = [];
+      cursor[key] = next;
+    } else if (!isNextKeyIndex && (typeof next !== "object" || Array.isArray(next))) {
+      next = {};
+      cursor[key] = next;
     }
+    
+    if (Array.isArray(next) && isNextKeyIndex) {
+      const idx = parseInt(nextKey, 10);
+      while (next.length <= idx) {
+        next.push({});
+      }
+    }
+    
+    cursor = next;
   }
-  cursor[parts[parts.length - 1]] = value;
+  
+  const lastKey = parts[parts.length - 1];
+  if (Array.isArray(cursor)) {
+    const idx = parseInt(lastKey, 10);
+    cursor[idx] = value;
+  } else {
+    cursor[lastKey] = value;
+  }
 }

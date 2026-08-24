@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDecryptedApiKey, saveEncryptedApiKey } from "@/lib/utils/api-keys";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/settings/keys?provider=groq
@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const key = await getDecryptedApiKey("default-org", provider);
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
+    const key = await getDecryptedApiKey(orgId, provider);
     return NextResponse.json(
       {
         configured: !!key,
@@ -54,7 +57,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await saveEncryptedApiKey("default-org", provider, apiKey || "");
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+
+    await saveEncryptedApiKey(orgId, provider, apiKey || "");
 
     return NextResponse.json(
       {

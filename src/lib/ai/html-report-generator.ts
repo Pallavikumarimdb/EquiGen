@@ -17,6 +17,14 @@ export interface HtmlReportOptions {
   reviewerName?: string;
   sebiRegNo?: string;
   approvedAt?: Date;
+  /** Organisation/firm name for disclaimer. Defaults to EquiGen Investments Limited. */
+  orgName?: string;
+  /** Compliance email for grievance escalation. Defaults to compliance@EquiGen.com. */
+  complianceEmail?: string;
+  /** Corporate Identity Number (CIN). */
+  cinNumber?: string;
+  /** Depository Participant SEBI Reg No. */
+  dpSebiRegNo?: string;
 }
 
 // ── Number helpers ────────────────────────────────────────────────────────────
@@ -31,9 +39,10 @@ function parseNum(v: number | string): number {
 function fmtK(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
+  // Indian number system: L = lakh (1,00,000), Cr = crore (1,00,00,000)
+  // For chart axis labels on crore-denominated data, show as k (thousands of crores when very large)
   if (abs >= 1_00_000) return `${sign}${(abs / 1_00_000).toFixed(1)}L`;
-  if (abs >= 1_000)
-    return `${sign}${(abs / 1_00_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+  if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   return `${sign}${abs.toFixed(0)}`;
 }
 
@@ -790,26 +799,26 @@ function postProcessNormalizedRows(
       const ltdRow = balRows[11]; // Long-term Debt
 
       periodKeys.forEach((p) => {
-        // Current Ratio (index 9) = Current Assets / Current Liabilities
+        // Current Ratio (index 12) = Current Assets / Current Liabilities
         const caVal = getVal(caRow, p);
         const clVal = getVal(clRow, p);
         if (caVal !== null && clVal !== null && clVal !== 0) {
-          if (rows[9][p] === "-" || rows[9][p] === null || rows[9][p] === "") {
-            rows[9][p] = (caVal / clVal).toFixed(2);
+          if (rows[12][p] === "-" || rows[12][p] === null || rows[12][p] === "") {
+            rows[12][p] = (caVal / clVal).toFixed(2);
           }
         }
 
-        // Debt/Equity (index 12) = (Short-term Debt + Long-term Debt) / Total Equity
+        // Debt/Equity (index 14) = (Short-term Debt + Long-term Debt) / Total Equity
         const stdVal = getVal(stdRow, p) ?? 0;
         const ltdVal = getVal(ltdRow, p) ?? 0;
         const equityVal = getVal(equityRow, p);
         if (equityVal !== null && equityVal !== 0) {
           if (
-            rows[12][p] === "-" ||
-            rows[12][p] === null ||
-            rows[12][p] === ""
+            rows[14][p] === "-" ||
+            rows[14][p] === null ||
+            rows[14][p] === ""
           ) {
-            rows[12][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
+            rows[14][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
           }
         }
       });
@@ -858,16 +867,20 @@ function buildHtml(
     },
   );
 
-  const periods = [
-    ...new Set([
-      ...inc.map((m) => m.period),
-      ...(rawIncStatement.length > 0
-        ? Object.keys(rawIncStatement[0]).filter(
-            (k) => k !== "metric" && k !== "Metric",
-          )
-        : []),
-    ]),
-  ].sort();
+  // Prefer detailedFinancials column keys (authoritative, match normalizedIncome keys);
+  // fall back to keyFinancials periods only when no detailedFinancials are available.
+  const detailedPeriodKeys =
+    rawIncStatement.length > 0
+      ? Object.keys(rawIncStatement[0]).filter(
+          (k) => k !== "metric" && k !== "Metric",
+        )
+      : [];
+
+  const periods = (
+    detailedPeriodKeys.length > 0
+      ? detailedPeriodKeys
+      : [...new Set(inc.map((m) => m.period))]
+  ).sort();
 
   const getValues = (metricName: string) => {
     const row = normalizedIncome.find((r) => r.metric === metricName);
@@ -889,16 +902,7 @@ function buildHtml(
     r > 0 ? parseFloat(((pat[i] / r) * 100).toFixed(1)) : 0,
   );
 
-  let quarterLabel = "Q1FY26";
-  if (data.quarterlyFinancials && data.quarterlyFinancials.length > 0) {
-    const qKeys = Object.keys(data.quarterlyFinancials[0]).filter(
-      (k) =>
-        k.startsWith("q") && !k.includes("growth") && !k.includes("Growth"),
-    );
-    if (qKeys.length > 0) {
-      quarterLabel = qKeys[0].toUpperCase();
-    }
-  }
+
 
   // Geojit Style: Primary Bars are Teal/Green (#008358), Trend Line is Orange (#d97706)
   const revChart = svgComboChart(
@@ -945,14 +949,47 @@ function buildHtml(
     }
   }
 
-  const cd = data.companyData ?? {};
+  // Guard: companyData must be a plain object. If an agent incorrectly set it to a string
+  // (e.g. "Quarterly financials available..."), fall back to null so the live-data note shows.
+  const rawCd = data.companyData;
+  const cd = (rawCd !== null && typeof rawCd === "object" && !Array.isArray(rawCd))
+    ? rawCd
+    : {};
   const sh = data.shareholding ?? [];
   const pp = data.pricePerformance ?? [];
   const est = data.estimates ?? [];
+  // qf must be declared before the quarter-label detection block below
   const qf = data.quarterlyFinancials ?? [];
   const recSum = data.recommendationSummary ?? [];
   const recHistoryChart = svgRecommendationChart(recSum);
   const fiveYear = data.fiveYearSummary ?? [];
+
+  // Derive the current quarter label from semantic fields (preferred) or legacy field keys.
+  // Uses the first row that has a currentQLabel; falls back to scanning legacy q* keys.
+  let quarterLabel = "Q1FY26";
+  let priorYearSameQLabel = "";
+  let priorQLabel = "";
+  const useSemanticQF = !!(qf[0]?.currentQLabel);
+
+  if (data.quarterlyFinancials && data.quarterlyFinancials.length > 0) {
+    const firstRow = data.quarterlyFinancials[0];
+    if (useSemanticQF && firstRow.currentQLabel) {
+      quarterLabel = firstRow.currentQLabel.toUpperCase();
+      priorYearSameQLabel = (firstRow.priorYearSameQLabel || "").toUpperCase();
+      priorQLabel = (firstRow.priorQLabel || "").toUpperCase();
+    } else {
+      // Legacy: scan object keys for q-prefixed keys not containing "growth"
+      const qKeys = Object.keys(firstRow).filter(
+        (k) =>
+          k.startsWith("q") && !k.includes("growth") && !k.includes("Growth"),
+      );
+      if (qKeys.length > 0) {
+        quarterLabel = qKeys[0].toUpperCase();
+        priorYearSameQLabel = qKeys.length > 1 ? qKeys[1].toUpperCase() : "";
+        priorQLabel = qKeys.length > 2 ? qKeys[2].toUpperCase() : "";
+      }
+    }
+  }
 
   let shHeaders = "<th>Category</th>";
   let shRows = "";
@@ -972,18 +1009,35 @@ function buildHtml(
       .join("");
   }
 
+  // Build quarterly rows with semantic field priority + legacy fallback
   const qfRows = qf
     .map(
-      (row) => `
+      (row) => {
+        // Cast via unknown to allow dynamic key access for legacy field names
+        const rowAny = row as unknown as Record<string, string | number | null | undefined>;
+        const legacyQKeys = Object.keys(rowAny).filter(
+          (k) => k.startsWith("q") && !k.includes("growth") && !k.includes("Growth"),
+        );
+        const curVal = useSemanticQF
+          ? row.currentQ
+          : rowAny[legacyQKeys[0] ?? ""];
+        const priorYrVal = useSemanticQF
+          ? row.priorYearSameQ
+          : rowAny[legacyQKeys[1] ?? ""];
+        const priorQVal = useSemanticQF
+          ? row.priorQ
+          : rowAny[legacyQKeys[2] ?? ""];
+        return `
     <tr>
       <td class="metric-label">${escape(row.metric)}</td>
-      <td>${row.q1fy26 != null ? escape(String(row.q1fy26)) : "-"}</td>
-      <td>${row.q1fy25 != null ? escape(String(row.q1fy25)) : "-"}</td>
+      <td>${curVal != null ? escape(String(curVal)) : "-"}</td>
+      <td>${priorYrVal != null ? escape(String(priorYrVal)) : "-"}</td>
       <td>${row.yoyGrowth != null ? escape(String(row.yoyGrowth)) : "-"}</td>
-      <td>${row.q4fy25 != null ? escape(String(row.q4fy25)) : "-"}</td>
+      <td>${priorQVal != null ? escape(String(priorQVal)) : "-"}</td>
       <td>${row.qoqGrowth != null ? escape(String(row.qoqGrowth)) : "-"}</td>
     </tr>
-  `,
+  `;
+      },
     )
     .join("");
 
@@ -1248,7 +1302,7 @@ ${watermark}
 
   <!-- Sector and Date metadata line -->
   <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #000; font-weight: 700; margin-bottom: 2mm; border-bottom: 1px solid #cbd5e1; padding-bottom: 1.5mm;">
-    <span>Sector: ${escape(data.company.sector || "General Corporate")}</span>
+    <span>Sector: ${escape(data.company.sector || "—")}${data.company.industry && data.company.industry !== data.company.sector ? ` &nbsp;|&nbsp; ${escape(data.company.industry)}` : ""}</span>
     <span>Date: ${escape(data.company.reportDate || "-")}</span>
   </div>
 
@@ -1316,6 +1370,12 @@ ${watermark}
             <td style="text-align: left; padding: 2px 0 2px 12px;">CMP</td>
             <td style="text-align: right; padding: 2px 12px 2px 0; font-weight: 800; font-size: 8.5pt;">${rec.currentPrice != null && rec.currentPrice > 0 ? `Rs. ${rec.currentPrice.toLocaleString("en-IN")}` : "-"}</td>
           </tr>
+          ${rec.currentPrice != null && rec.currentPrice > 0 ? `
+          <tr style="color: #64748b; font-size: 6pt;">
+            <td colspan="2" style="text-align: right; padding: 0 12px 2px 0; font-weight: 400; font-style: italic;">
+              Source: ${escape(rec.currentPriceSource === "document" ? "as stated in document" : rec.currentPriceSource === "calculated" ? "calculated (Mkt Cap ÷ Shares)" : rec.currentPriceSource === "live_feed" ? "live market feed" : "source unverified")} &nbsp;| As of ${escape(data.company.reportDate || new Date().toLocaleDateString("en-IN"))}
+            </td>
+          </tr>` : ""}
           <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
             <td style="text-align: left; padding: 2px 0 4px 12px;">Return</td>
             <td style="text-align: right; padding: 2px 12px 4px 0; font-weight: 800; font-size: 8.5pt; color: #000;">
@@ -1342,6 +1402,7 @@ ${watermark}
         <tr><td class="metric-label" style="font-size:7pt;">Beta</td><td>${cd.beta != null ? escape(String(cd.beta)) : "-"}</td></tr>
         <tr><td class="metric-label" style="font-size:7pt;">Face Value (Rs.)</td><td>${cd.faceValue != null ? escape(String(cd.faceValue)) : "-"}</td></tr>
       </table>
+      ${!cd || Object.values(cd).every((v) => v == null) ? `<p style="font-size:6.5pt; color:#94a3b8; font-style:italic; margin-top:1mm;">&#9432; Live market data not configured. Values sourced from document only.</p>` : ""}
 
       <div class="section-header">Shareholding (%)</div>
       ${
@@ -1423,17 +1484,17 @@ ${watermark}
       <table class="fin-table thin-border">
         <thead>
           <tr>
-            <th>Rs. cr</th>
+            <th>Rs. Cr</th>
             <th>${escape(quarterLabel)}</th>
-            <th>Q1FY25</th>
+            <th>${escape(priorYearSameQLabel || "Prior Yr Q")}</th>
             <th>YoY (%)</th>
-            <th>Q4FY25</th>
+            <th>${escape(priorQLabel || "Prior Q")}</th>
             <th>QoQ (%)</th>
           </tr>
         </thead>
         <tbody>${qfRows}</tbody>
       </table>`
-          : '<p style="font-size:7pt; color:#64748b;">No quarterly financials available.</p>'
+          : '<p style="font-size:7pt; color:#64748b;">No quarterly result update data available. See annual financial tables on page 3.</p>'
       }
     </div>
   </div>
@@ -1653,14 +1714,14 @@ ${watermark}
 
   <div class="disclaimer">
     <strong>DISCLAIMER &amp; DISCLOSURES</strong><br><br>
-    <strong>1. Certification:</strong> I, ${escape(options.reviewerName || "Research Analyst")}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of EquiGen Investments Limited (GIL).<br>
-    <strong>2. Crisil support:</strong> CRISIL has provided research support in preparation of this research report and the investment rationale contained herein along with financial forecast. The target price and recommendation provided in the report are strictly GIL's views and are NOT PROVIDED by CRISIL. Further, CRISIL expresses no opinion on valuation and the associated recommendations.<br>
-    <strong>3. Ownership &amp; connection:</strong> GIL or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither GIL, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
-    <strong>4. Compensation &amp; disclosures:</strong> GIL, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
-    <strong>5. Regulatory credentials:</strong> GIL is a SEBI registered Research Entity (INH000019567) under SEBI (Research Analysts) Regulations, 2014. Standard Warning: "Investment in securities market are subject to market risks. Read all the related documents carefully before investing."<br>
-    <strong>6. ESCALATION &amp; GRIEVANCES:</strong> In case of grievances, please contact: Compliance Officer: compliance@EquiGen.com. You can also write to SEBI SCORES portal at scores.gov.in or access the SEBI ODR portal.<br>
-    <strong>7. Corporate Identity:</strong> Corporate Identity Number (CIN): L67120KL1994PLC008403. Research Entity SEBI Reg No: INH000019567. Depository Participant SEBI Reg No: IN-DP-32-2015.
+    <strong>1. Certification:</strong> I, ${escape(options.reviewerName || "Research Analyst")}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(options.orgName || "EquiGen Investments Limited")}.<br>
+    <strong>2. Independence:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither the firm, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
+    <strong>3. Compensation &amp; disclosures:</strong> ${escape(options.orgName || "EquiGen Investments Limited")}, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
+    <strong>4. Regulatory credentials:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} is a SEBI registered Research Entity${options.sebiRegNo ? ` (${escape(options.sebiRegNo)})` : ""} under SEBI (Research Analysts) Regulations, 2014. Standard Warning: &ldquo;Investment in securities market are subject to market risks. Read all the related documents carefully before investing.&rdquo;<br>
+    <strong>5. ESCALATION &amp; GRIEVANCES:</strong> In case of grievances, please contact: Compliance Officer: ${escape(options.complianceEmail || "compliance@equigen.com")}. You can also write to SEBI SCORES portal at scores.gov.in or access the SEBI ODR portal.<br>
+    <strong>6. Corporate Identity:</strong>${options.cinNumber ? ` Corporate Identity Number (CIN): ${escape(options.cinNumber)}.` : ""}${options.sebiRegNo ? ` Research Entity SEBI Reg No: ${escape(options.sebiRegNo)}.` : ""}${options.dpSebiRegNo ? ` Depository Participant SEBI Reg No: ${escape(options.dpSebiRegNo)}.` : ""}
   </div>
+
 </div>
 
 </body>
