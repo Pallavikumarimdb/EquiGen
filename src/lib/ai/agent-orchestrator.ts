@@ -295,10 +295,12 @@ CRITICAL RULES:
 
       const toolCall = this.parseToolCall(content);
       if (toolCall) {
-        const { tool } = toolCall;
+        const tool = toolCall.tool;
         if (tool === "RecomputeFieldTool") {
           try {
-            const { field, value, reasoning } = toolCall;
+            const field = String(toolCall.field || "");
+            const value = toolCall.value as Prisma.InputJsonValue;
+            const reasoning = toolCall.reasoning ? String(toolCall.reasoning) : "No reasoning provided.";
             const toolResult = await this.executeRecomputeFieldTool(
               sessionId,
               reportId,
@@ -322,7 +324,7 @@ CRITICAL RULES:
 
         if (tool === "search_pages") {
           try {
-            const { query } = toolCall;
+            const query = String(toolCall.query || "");
             const searchResult = await this.executeSearchPagesTool(
               reportId,
               query,
@@ -340,10 +342,10 @@ CRITICAL RULES:
 
         if (tool === "fetch_page") {
           try {
-            const { pageNumber } = toolCall;
+            const pageNumber = Number(toolCall.pageNumber || 0);
             const pageResult = await this.executeFetchPageTool(
               reportId,
-              Number(pageNumber),
+              pageNumber,
             );
             messages.push(["assistant", content]);
             messages.push([
@@ -575,14 +577,14 @@ CRITICAL RULES:
     }, obj);
   }
 
-  private parseToolCall(content: string): Record<string, any> | null {
+  private parseToolCall(content: string): Record<string, unknown> | null {
     // 1. Try Llama/OpenRouter native format: <|tool_call_start|>[tool_name(args)]<|tool_call_end|>
     if (content.includes("<|tool_call_start|>")) {
       const match = content.match(/<\|tool_call_start\|>\[(\w+)\(([\s\S]*?)\)\]<\|tool_call_end\|>/);
       if (match) {
         const tool = match[1];
         const argsStr = match[2];
-        const result: Record<string, any> = { tool };
+        const result: Record<string, unknown> = { tool };
         
         const argRegex = /(\w+)\s*=\s*(?:'([\s\S]*?)'|"([\s\S]*?)"|(\d+)|(true|false))/g;
         let argMatch;

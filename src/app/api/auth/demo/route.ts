@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { signJWT } from "@/lib/utils/jwt";
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(

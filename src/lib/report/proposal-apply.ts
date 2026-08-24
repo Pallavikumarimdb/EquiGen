@@ -157,6 +157,7 @@ export function setNestedValue(
   value: unknown,
 ): void {
   const parts = path.split(".");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let cursor: any = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
