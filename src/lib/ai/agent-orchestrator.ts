@@ -220,7 +220,7 @@ CRITICAL RULES:
 
     const preferredModel =
       options.modelName ||
-      (options.provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini");
+      (options.provider === "groq" ? "openai/gpt-oss-120b" : "gpt-4o-mini");
 
     const messages: [string, string][] = [["system", systemPrompt]];
     session.messages.forEach((m) => {

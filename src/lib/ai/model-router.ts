@@ -106,7 +106,7 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
-  preferredModel = "llama-3.3-70b-versatile",
+  preferredModel = "openai/gpt-oss-120b",
   onWaitStart?: (waitMs: number) => void,
   forcePreferred = false,
 ): Promise<ModelChoice> {
@@ -124,14 +124,16 @@ export async function getModelForRequest(
   // Hydrate store limits + probe live ceilings BEFORE pre-flighting so constants never gate requests
   await ensureBudgetSystem(apiKey);
 
-  // Determine the effective TPM limit for the preferred model
+  const targetModel = (provider === "groq" && options.modelName) ? options.modelName : preferredModel;
+
+  // Determine the effective TPM limit for the target model
   const primaryLimit =
-    provider === "groq" ? modelLimitRegistry.getTpm(preferredModel) : 200000;
+    provider === "groq" ? modelLimitRegistry.getTpm(targetModel) : 200000;
 
   // --- Pre-flight: request itself too large for the model, no waiting will help ---
   if (estimated > primaryLimit && !forcePreferred) {
     console.warn(
-      `[ModelRouter] Request (~${estimated} tokens) exceeds ${preferredModel}'s ${primaryLimit} TPM ceiling. ` +
+      `[ModelRouter] Request (~${estimated} tokens) exceeds ${targetModel}'s ${primaryLimit} TPM ceiling. ` +
         `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
@@ -144,12 +146,12 @@ export async function getModelForRequest(
   // --- Pre-flight: primary model's daily quota exhausted → use the fallback's separate quota ---
   if (
     provider === "groq" &&
-    !tokenBudgetManager.hasDailyBudget(preferredModel, estimated) &&
+    !tokenBudgetManager.hasDailyBudget(targetModel, estimated) &&
     !forcePreferred
   ) {
     console.warn(
-      `[ModelRouter] ${preferredModel} TPD budget nearly exhausted ` +
-        `(${tokenBudgetManager.dailyUsedToday(preferredModel)} tokens used today). ` +
+      `[ModelRouter] ${targetModel} TPD budget nearly exhausted ` +
+        `(${tokenBudgetManager.dailyUsedToday(targetModel)} tokens used today). ` +
         `Rerouting to ${FALLBACK_GROQ_MODEL}.`,
     );
     return {
@@ -161,13 +163,13 @@ export async function getModelForRequest(
 
   // --- Normal path: wait for real budget, then return preferred model ---
   const waitedMs = await tokenBudgetManager.waitForBudget(
-    preferredModel,
+    targetModel,
     estimated,
     onWaitStart,
   );
   if (waitedMs > 0) {
     console.log(
-      `[ModelRouter] Waited ${waitedMs}ms for budget headroom on ${preferredModel}.`,
+      `[ModelRouter] Waited ${waitedMs}ms for budget headroom on ${targetModel}.`,
     );
   }
 
@@ -187,12 +189,12 @@ export async function getModelForRequest(
   return {
     model: new ChatGroq({
       apiKey,
-      model: preferredModel,
+      model: targetModel,
       temperature: 0.1,
       maxTokens: 4096,
       maxRetries: 3,
     }),
-    modelName: preferredModel,
+    modelName: targetModel,
     downgraded: false,
   };
 }

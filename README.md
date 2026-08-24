@@ -2,20 +2,20 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15.1.11-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Groq](https://img.shields.io/badge/LLM-Llama%203.3%2070B%20(Groq)-orange?style=flat-square)](https://groq.com/)
+[![Groq](https://img.shields.io/badge/LLM-GPT%20OSS%20120B%20(Groq)-orange?style=flat-square)](https://groq.com/)
 [![Puppeteer](https://img.shields.io/badge/PDF-Puppeteer%20(Headless)-green?style=flat-square)](https://pptr.dev/)
 [![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2016-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
 
-EquiGen is an enterprise-grade AI engine that automates the generation of publication-ready, Geojit-style equity research reports. By combining local document extraction, Groq Llama 3.3, server-side SVG charting, and Puppeteer headless rendering, EquiGen translates raw financial structures into institutional A4 PDFs.
+EquiGen is an enterprise-grade AI engine that automates the generation of publication-ready, Geojit-style equity research reports. By combining local document extraction, Groq GPT OSS 120B / Qwen 3.6, server-side SVG charting, and Puppeteer headless rendering, EquiGen translates raw financial structures into institutional A4 PDFs.
 
 ---
 
 ## 🚀 Key Features
 
 *   **Multiformat Ingestion**: Instantly parse `.pdf` and `.txt` files containing raw balance sheets, earnings call transcripts, or financial reports (with experimental `.csv` support built-in).
-*   **Self-Correcting LLM Extraction**: Queries `llama-3.3-70b-versatile` over Groq with strict JSON schemas enforced via LangChain `.withStructuredOutput()`. If extracted financials fail mathematical validation (e.g. EBITDA > Revenue), a **self-correction retry loop** feeds the errors back to the model.
+*   **Self-Correcting LLM Extraction**: Queries `openai/gpt-oss-120b` over Groq with strict JSON schemas enforced via LangChain `.withStructuredOutput()`. If extracted financials fail mathematical validation (e.g. EBITDA > Revenue), a **self-correction retry loop** feeds the errors back to the model.
 *   **Stateful Background Jobs**: Extraction runs as a background job stored in PostgreSQL (`ExtractionJob` table). The frontend polls `/api/extract/status`. If Groq rate-limits mid-job, the job saves its step checkpoint and auto-resumes from that exact point.
-*   **Multi-Provider AI Support**: Switch between **Groq** (Llama 3.3 70B) and **OpenAI** (GPT-4o Mini) from the settings panel. BYOK (bring-your-own-key) keys are AES-256-GCM encrypted before being stored in the database.
+*   **Multi-Provider AI Support**: Switch between **Groq** (GPT OSS 120B) and **OpenAI** (GPT-4o Mini) from the settings panel. BYOK (bring-your-own-key) keys are AES-256-GCM encrypted before being stored in the database.
 *   **Print-Ready HTML & SVG Charts**: Dynamically constructs publication-grade layouts with SVG combo charts (bars and line charts) embedded directly in HTML and rendered via Puppeteer.
 *   **AI Co-Pilot & Interactive Chat**: Multi-turn agentic chat session linked to the report where users can interactively ask questions, search original source pages, request recalculations, and approve/reject proposed corrections.
 *   **State-Gated Corrections & Audit Logs**: Detailed append-only audit trail logging state transitions, sign-off events, and field corrections. Proposes corrections that can be approved/applied to automatically fork draft baselines, ensuring compliance.
@@ -38,7 +38,7 @@ For full details on the system architecture, Map-Reduce chunking pipeline, visua
 
 *   **Node.js 20+** and **pnpm** (version 9 or 10) installed globally.
 *   **PostgreSQL** (version 15 or 16) running locally or via Docker.
-*   A **Groq API key** from [console.groq.com](https://console.groq.com) (for Llama extraction) or an **OpenAI API key** (for GPT fallback).
+*   A **Groq API key** from [console.groq.com](https://console.groq.com) (for GPT OSS / Qwen extraction) or an **OpenAI API key** (for GPT fallback).
 *   **OpenRouter API key** (optional, for free fallback model routing).
 
 ```bash

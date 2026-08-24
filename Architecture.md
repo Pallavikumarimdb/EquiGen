@@ -51,7 +51,7 @@ To handle mixed digital and scanned prospectuses, the PDF extractor uses a state
 ## 🤖 AI Orchestration (LangChain & LangGraph)
 
 ### 🔌 The Role of LangChain
-*   **Unified Model Switcher**: Provides a uniform interface over **Groq** (Llama 3.3 70B) and **OpenAI** (GPT-4o Mini) providers.
+*   **Unified Model Switcher**: Provides a uniform interface over **Groq** (GPT OSS 120B) and **OpenAI** (GPT-4o Mini) providers.
 *   **Dynamic API Keys**: Users can input their own custom API keys in the settings panel. Keys are encrypted AES-256-GCM and stored in the database — they are NOT stored in plaintext anywhere server-side.
 *   **Native Schema Enforcement**: Uses LangChain's `.withStructuredOutput(...)` API to enforce strict Zod schemas at the model-provider call level.
 
@@ -59,7 +59,7 @@ To handle mixed digital and scanned prospectuses, the PDF extractor uses a state
 
 LangGraph orchestrates a **sequential, stateful multi-step** research workflow with intermediate checkpointing to the database:
 
-1. **Step 0 — Map-Reduce Preprocessor**: If raw text exceeds 25,000 characters, the document is split into overlapping chunks (12,000 chars with 1,200-char overlap). Each chunk is processed by `llama-3.1-8b-instant` to extract localized SWOT signals and financials. The results are merged into a high-density condensed context, reducing prompt sizes by ~90%.
+1. **Step 0 — Map-Reduce Preprocessor**: If raw text exceeds 25,000 characters, the document is split into overlapping chunks (12,000 chars with 1,200-char overlap). Each chunk is processed by `openai/gpt-oss-20b` to extract localized SWOT signals and financials. The results are merged into a high-density condensed context, reducing prompt sizes by ~90%.
 2. **Step 1 — General Details Extraction**: `extract_general` extracts company name, ticker, industry overview, and business overview.
 3. **Step 2 — SWOT & Thesis Extraction**: `extract_swot` extracts highlights, risks, investment thesis, and future growth drivers.
 4. **Step 3 — Financials Extraction + Math Audit**: `extract_financials` extracts Revenue, EBITDA, PAT series plus current/target price and recommendation. A math auditor then validates (EBITDA ≤ Revenue, PAT ≤ EBITDA) and triggers a retry loop (max 1 retry) if inconsistencies are found.

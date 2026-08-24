@@ -31,7 +31,7 @@ export class LangChainAIService {
       case "groq":
         return new ChatGroq({
           apiKey,
-          model: options.modelName || "llama-3.3-70b-versatile",
+          model: options.modelName || "openai/gpt-oss-120b",
           temperature: 0.1,
         });
       case "openai":

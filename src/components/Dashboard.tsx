@@ -194,7 +194,7 @@ export function Dashboard() {
   const [aiProvider, setAiProvider] = useState<"groq" | "openai">("groq");
   const [groqApiKey, setGroqApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
-  const [groqModel, setGroqModel] = useState("llama-3.3-70b-versatile");
+  const [groqModel, setGroqModel] = useState("openai/gpt-oss-120b");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -203,8 +203,26 @@ export function Dashboard() {
   const [tempProvider, setTempProvider] = useState<"groq" | "openai">("groq");
   const [tempGroqApiKey, setTempGroqApiKey] = useState("");
   const [tempOpenaiApiKey, setTempOpenaiApiKey] = useState("");
-  const [tempGroqModel, setTempGroqModel] = useState("llama-3.3-70b-versatile");
+  const [tempGroqModel, setTempGroqModel] = useState("openai/gpt-oss-120b");
   const [tempOpenaiModel, setTempOpenaiModel] = useState("gpt-4o-mini");
+
+  const getModelLabel = (model: string | null): string => {
+    if (!model) return "None";
+    switch (model) {
+      case "openai/gpt-oss-120b":
+        return "GPT OSS 120B";
+      case "qwen/qwen3.6-27b":
+        return "Qwen 3.6 27B";
+      case "openai/gpt-oss-20b":
+        return "GPT OSS 20B";
+      case "llama-3.3-70b-versatile":
+        return "Llama 3.3 70B";
+      case "llama-3.1-8b-instant":
+        return "Llama 3.1 8B";
+      default:
+        return model;
+    }
+  };
 
   // Throttle countdown state for live UI tracking
   const [throttleCountdown, setThrottleCountdown] = useState<string | null>(
@@ -1937,7 +1955,7 @@ export function Dashboard() {
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[10px] font-bold text-slate-400">
                 {aiProvider === "groq"
-                  ? "Freemium AI · auto-fallback"
+                  ? `Groq · ${getModelLabel(groqModel)}`
                   : `OpenAI · ${openaiModel === "gpt-4o-mini" ? "GPT-4o Mini" : "GPT-4o"}`}
               </span>
             </div>
@@ -3034,11 +3052,14 @@ export function Dashboard() {
                     onChange={(e) => setTempGroqModel(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-all"
                   >
-                    <option value="llama-3.3-70b-versatile">
-                      Freemium AI (Default, auto-fallback)
+                    <option value="openai/gpt-oss-120b">
+                      GPT OSS 120B (Default, auto-fallback)
                     </option>
-                    <option value="llama-3.1-8b-instant">
-                      Freemium AI (Fast tier)
+                    <option value="qwen/qwen3.6-27b">
+                      Qwen 3.6 27B (Alternative)
+                    </option>
+                    <option value="openai/gpt-oss-20b">
+                      GPT OSS 20B (Fast tier)
                     </option>
                   </select>
                 ) : (
@@ -3147,7 +3168,7 @@ export function Dashboard() {
             </div>
 
             <div className="space-y-4">
-              {activeModelUsedForFinancials === "llama-3.1-8b-instant" && (
+              {(activeModelUsedForFinancials === "openai/gpt-oss-20b" || activeModelUsedForFinancials === "llama-3.1-8b-instant") && (
                 <div className="flex items-start gap-3 p-3.5 bg-amber-950/40 border border-amber-800/40 rounded-xl">
                   <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                   <div>
@@ -3157,7 +3178,7 @@ export function Dashboard() {
                     <p className="text-[10px] text-amber-500 leading-relaxed">
                       Revenue, EBITDA and PAT were extracted by the{" "}
                       <span className="font-bold text-amber-300">
-                        Freemium fallback tier
+                        {getModelLabel(activeModelUsedForFinancials)} fallback tier
                       </span>
                       . Verify all numbers carefully before signing.
                     </p>

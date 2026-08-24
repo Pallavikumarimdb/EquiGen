@@ -175,7 +175,7 @@ export const AIExtractionSchema = z.object({
   sensexValue: z.union([z.string(), z.number()]).nullable().optional(),
   fiveYearSummary: z.array(AIFiveYearSummarySchema).nullable().optional(),
 
-  /** Which model extracted the financials. 'llama-3.1-8b-instant' = fallback used. */
+  /** Which model extracted the financials. 'openai/gpt-oss-20b' = fallback used. */
   modelUsedForFinancials: z.string().nullable().optional(),
 });
 

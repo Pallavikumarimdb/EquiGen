@@ -19,7 +19,7 @@ export class ExtractorService {
         throw new Error("Company name is required for extraction.");
       }
 
-      // Perform AI extraction using Groq Llama 3.3 70B
+      // Perform AI extraction using Groq GPT OSS 120B / Qwen 3.6
       const result = await aiService.extractFinancialData(
         companyName,
         parsedData.text,

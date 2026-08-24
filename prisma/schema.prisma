@@ -22,7 +22,7 @@ model ReportHistory {
   approvedByIp          String?
   contentHash           String?
   versionNo             Int       @default(1)
-  /** Which model ran financials extraction — null = 70B (standard), 'llama-3.1-8b-instant' = fallback */
+  /** Which model ran financials extraction — null = primary (standard), 'openai/gpt-oss-20b' = fallback */
   modelUsedForFinancials String?
   /** Data quality flag from chunk extraction: "ok" | "degraded". "blocked_financials" never becomes a report. */
   dataQuality           String    @default("ok")

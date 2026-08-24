@@ -11,8 +11,8 @@
 import { ModelLimitRecord } from "./types";
 
 export const MODEL_IDS = {
-  PRIMARY_70B: "llama-3.3-70b-versatile",
-  BULK_8B: "llama-3.1-8b-instant",
+  PRIMARY_70B: "openai/gpt-oss-120b",
+  BULK_8B: "openai/gpt-oss-20b",
   VISION_11B: "llama-3.2-11b-vision-preview",
 } as const;
 
@@ -23,6 +23,12 @@ export const VISION_MODEL =
 const CONFIGURED_DEFAULTS: Record<string, ModelLimitRecord> = {
   [MODEL_IDS.PRIMARY_70B]: {
     model: MODEL_IDS.PRIMARY_70B,
+    tpm: 6000,
+    tpd: 97000,
+    source: "configured",
+  },
+  "qwen/qwen3.6-27b": {
+    model: "qwen/qwen3.6-27b",
     tpm: 6000,
     tpd: 97000,
     source: "configured",

@@ -327,7 +327,7 @@ function getPreprocessorModel(options: AIServiceOptions): ChatGroq {
     throw new Error("Groq API key not configured for preprocessor model.");
   return new ChatGroq({
     apiKey,
-    model: "llama-3.1-8b-instant", // 500,000 TPM — safe for bulk chunking
+    model: "openai/gpt-oss-20b", // 250,000 TPM — safe for bulk chunking
     temperature: 0.1,
     maxRetries: 5,
   });
@@ -457,7 +457,7 @@ Read the provided document text and extract the following:
   const { model, modelName, downgraded } = await getModelForRequest(
     state.modelOptions,
     fullPrompt,
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
     (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);
@@ -561,7 +561,7 @@ async function extractSwotNode(
   const { model, modelName, downgraded } = await getModelForRequest(
     state.modelOptions,
     fullPrompt,
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
     (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);
@@ -695,7 +695,7 @@ async function extractFinancialsNode(
   const { model, modelName, downgraded } = await getModelForRequest(
     state.modelOptions,
     fullPrompt,
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
     (waitMs) => notifyBudgetWait(state, waitMs),
   );
   clearJobWait(state);

@@ -144,6 +144,7 @@ export async function ensureLimitsDiscovered(apiKey?: string): Promise<void> {
   await modelLimitRegistry.hydrateFromStore().catch(() => {});
   await Promise.allSettled([
     probeModel(apiKey, MODEL_IDS.PRIMARY_70B),
+    probeModel(apiKey, "qwen/qwen3.6-27b"),
     probeModel(apiKey, MODEL_IDS.BULK_8B),
     probeModel(apiKey, VISION_MODEL),
   ]);
