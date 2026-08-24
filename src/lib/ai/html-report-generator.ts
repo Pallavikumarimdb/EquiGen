@@ -790,26 +790,26 @@ function postProcessNormalizedRows(
       const ltdRow = balRows[11]; // Long-term Debt
 
       periodKeys.forEach((p) => {
-        // Current Ratio (index 9) = Current Assets / Current Liabilities
+        // Current Ratio (index 12) = Current Assets / Current Liabilities
         const caVal = getVal(caRow, p);
         const clVal = getVal(clRow, p);
         if (caVal !== null && clVal !== null && clVal !== 0) {
-          if (rows[9][p] === "-" || rows[9][p] === null || rows[9][p] === "") {
-            rows[9][p] = (caVal / clVal).toFixed(2);
+          if (rows[12][p] === "-" || rows[12][p] === null || rows[12][p] === "") {
+            rows[12][p] = (caVal / clVal).toFixed(2);
           }
         }
 
-        // Debt/Equity (index 12) = (Short-term Debt + Long-term Debt) / Total Equity
+        // Debt/Equity (index 14) = (Short-term Debt + Long-term Debt) / Total Equity
         const stdVal = getVal(stdRow, p) ?? 0;
         const ltdVal = getVal(ltdRow, p) ?? 0;
         const equityVal = getVal(equityRow, p);
         if (equityVal !== null && equityVal !== 0) {
           if (
-            rows[12][p] === "-" ||
-            rows[12][p] === null ||
-            rows[12][p] === ""
+            rows[14][p] === "-" ||
+            rows[14][p] === null ||
+            rows[14][p] === ""
           ) {
-            rows[12][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
+            rows[14][p] = ((stdVal + ltdVal) / equityVal).toFixed(2);
           }
         }
       });
