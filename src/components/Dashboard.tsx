@@ -1978,7 +1978,7 @@ export function Dashboard() {
                   onClick={async () => {
                     try {
                       await fetch("/api/auth/signout", { method: "POST" });
-                      window.location.href = "/auth/signin";
+                      window.location.href = "/signin";
                     } catch {
                       showToast("Failed to sign out.", "error");
                     }
