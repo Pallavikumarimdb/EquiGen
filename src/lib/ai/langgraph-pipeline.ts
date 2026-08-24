@@ -80,6 +80,18 @@ export const CompanyGeneralSchema = z.object({
     .describe(
       'A punchy, editorial-style headline under 12 words summarizing the thesis. E.g. "Blinkit propels growth; valuation limits upside"',
     ),
+  /** Classified sector, e.g. "Pharmaceuticals", "Banking & NBFC", "IT Services", "Auto & Ancillaries", "FMCG", "Specialty Chemicals" */
+  sector: z
+    .string()
+    .describe(
+      "Primary sector classification of the company, e.g. 'Pharmaceuticals', 'IT Services', 'Banking & NBFC', 'Auto & Ancillaries', 'FMCG', 'Specialty Chemicals', 'Infrastructure', 'Real Estate'. Use the most specific applicable sector label from common Indian equity research classifications.",
+    ),
+  /** Sub-industry or sub-sector, e.g. "Specialty APIs", "Private Sector Banks" */
+  industry: z
+    .string()
+    .describe(
+      "Sub-industry or sub-sector label, e.g. 'Specialty APIs', 'Private Sector Banks', 'Passenger Vehicles', 'Agrochemicals'. If unsure, use the same value as sector.",
+    ),
 });
 
 export const SwotAndThesisSchema = z.object({
@@ -126,6 +138,8 @@ export const FinancialsSchema = z.object({
   recommendation: z.enum(["BUY", "ACCUMULATE", "HOLD", "REDUCE", "SELL"]),
   currentPrice: z.number().nullable().optional(),
   targetPrice: z.number().nullable().optional(),
+  /** How the CMP was sourced: from the document, calculated, or a live feed */
+  currentPriceSource: z.enum(["document", "calculated", "live_feed"]).nullable().optional(),
   nseCode: z.string().nullable().optional(),
   bseCode: z.string().nullable().optional(),
   bloombergCode: z.string().nullable().optional(),
@@ -202,11 +216,28 @@ export const FinancialsSchema = z.object({
     .array(
       z.object({
         metric: z.string(),
+        // Semantic names — set values for the actual quarters present in the document
+        currentQ: z.union([z.string(), z.number()]).nullable().optional()
+          .describe("Value for the most recent reported quarter (e.g. Q2FY26)"),
+        priorYearSameQ: z.union([z.string(), z.number()]).nullable().optional()
+          .describe("Value for the same quarter in the prior year (e.g. Q2FY25 for YoY comparison)"),
+        priorQ: z.union([z.string(), z.number()]).nullable().optional()
+          .describe("Value for the immediately preceding quarter (e.g. Q1FY26 for QoQ comparison)"),
+        yoyGrowth: z.union([z.string(), z.number()]).nullable().optional()
+          .describe("Year-over-year growth percentage"),
+        qoqGrowth: z.union([z.string(), z.number()]).nullable().optional()
+          .describe("Quarter-over-quarter growth percentage"),
+        // Column labels — always populate these with the actual quarter names
+        currentQLabel: z.string().nullable().optional()
+          .describe("Label for currentQ, e.g. 'Q2FY26'"),
+        priorYearSameQLabel: z.string().nullable().optional()
+          .describe("Label for priorYearSameQ, e.g. 'Q2FY25'"),
+        priorQLabel: z.string().nullable().optional()
+          .describe("Label for priorQ, e.g. 'Q1FY26'"),
+        // Legacy field names — kept for backward compat with stored reports
         q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
         q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
-        yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
         q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
-        qoqGrowth: z.union([z.string(), z.number()]).nullable().optional(),
       }),
     )
     .nullable()
@@ -445,11 +476,13 @@ async function extractCompanyGeneralNode(
 Read the provided document text and extract the following:
 1. companyName (exact full official name)
 2. ticker (ticker symbol)
-3. businessOverview (A detailed paragraph of EXACTLY 4-5 lines describing core divisions, revenue mix, and operational focus)
+3. businessOverview (A detailed paragraph of EXACTLY 4-5 lines describing core divisions, revenue mix, and operational focus. IMPORTANT: Express all monetary values in Indian Rupee crore (Cr). E.g. write "₹2,979 Cr" not "₹29,795 million".)
 4. industryOverview (high-level sector outlook)
-5. narrativeSummary (An outlook and valuation summary paragraph of EXACTLY 5-7 lines highlighting key points, margins, and management stance)
+5. narrativeSummary (An outlook and valuation summary paragraph of EXACTLY 5-7 lines highlighting key points, margins, and management stance. Express all monetary values in crore (Cr).)
 6. headlineTakeaway: a single short editorial line (under 12 words) formatted exactly as:
-   "<growth driver clause>; <constraint/risk clause>" (joined by a semicolon). First clause names the strongest positive driver, second clause names the main constraint (e.g. valuation, margin pressures).`;
+   "<growth driver clause>; <constraint/risk clause>" (joined by a semicolon). First clause names the strongest positive driver, second clause names the main constraint (e.g. valuation, margin pressures).
+7. sector: Classify into one of the standard Indian equity research sector labels: Pharmaceuticals, IT Services, Banking & NBFC, Auto & Ancillaries, FMCG, Specialty Chemicals, Infrastructure, Real Estate, Power & Utilities, Telecom, Metals & Mining, Oil & Gas, Consumer Discretionary, Agri & Fertilisers, Capital Goods, Logistics, Healthcare Services, Retail, Quick Commerce. Choose the most specific applicable sector.
+8. industry: Sub-industry label within the sector (e.g. 'Specialty APIs', 'Private Sector Banks', 'Passenger Vehicles'). If unsure, use the same value as sector.`;
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
 
@@ -674,20 +707,28 @@ async function extractFinancialsNode(
   }
 
   const systemPrompt = `You are a chartered financial analyst. Carefully read the text and tables to extract:
-1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods. These MUST be arrays of objects (e.g. [{"period": "Q2FY26", "unit": "INR million", "value": 29795}]). Never return them as single objects.
-2. CurrentPrice (CMP), targetPrice, and recommendation. Note: The recommendation field is mandatory and MUST be one of the enum values: 'BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL'. If not explicitly mentioned in the text, you MUST NOT return null; calculate and suggest a default value (e.g., 'HOLD') based on the financial performance metrics:
+1. Revenue, EBITDA, and PAT/Net Profit series across fiscal periods. These MUST be arrays of objects (e.g. [{"period": "Q2FY26", "unit": "Cr", "value": 2979.5}]). CRITICAL: Always express monetary values in Indian Rupee CRORE (Cr). If the source document uses millions, convert: 1 Crore = 10 million (divide millions by 10). Never return them as single objects.
+2. CurrentPrice (CMP), targetPrice, and recommendation. The recommendation field is mandatory and MUST be one of: 'BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL'.
+   - currentPriceSource: set to 'document' if CMP is explicitly stated in the document, 'calculated' if you derived it from Market Cap / Outstanding Shares, or omit if unknown.
    - Suggest CurrentPrice (CMP) using outstanding shares and market cap if available (CMP = Market Cap / Outstanding Shares).
    - Suggest a Target Price by applying a reasonable forward P/E multiple (e.g. 25-35x depending on growth) to the current/projected annualized earnings, or a standard premium (e.g. 15-25% upside).
    - Set Recommendation to 'BUY' if upside is >15%, 'ACCUMULATE' if 10-15%, 'HOLD' if 0-10%, and 'REDUCE' or 'SELL' if downside exists.
 3. nseCode, bseCode, bloombergCode, timeFrame (default "12 Months"), stockType (e.g. Large Cap, Mid Cap, Small Cap)
 4. sensexValue: The current value of the Sensex benchmark index if mentioned in the document.
-5. fiveYearSummary: Look for a compact historical + estimates 5-year valuation-multiples summary table in the document and extract: period (e.g. FY25A, FY26E, FY27E), sales, salesGrowth, ebitda, ebitdaMargin, patAdjusted, patGrowth, adjEps, epsGrowth, pe, pb, evEbitda, roe, deRatio.
-6. Detailed tables if present in the document. Try to normalize and align the "metric" field keys using these standard row titles:
+5. fiveYearSummary: Look for a compact historical + estimates 5-year valuation-multiples summary table in the document and extract: period (e.g. FY25A, FY26E, FY27E), sales, salesGrowth, ebitda, ebitdaMargin, patAdjusted, patGrowth, adjEps, epsGrowth, pe, pb, evEbitda, roe, deRatio. All monetary values in Crore.
+6. Detailed tables if present in the document. All monetary values MUST be in Crore. Try to normalize and align the "metric" field keys using these standard row titles:
    - For detailedFinancials.incomeStatement: Map metrics to: Sales, EBITDA, Depreciation, EBIT, Interest, Other Income, PBT, Tax, Reported PAT, Adjusted PAT, No. of shares (cr), Adjusted EPS, DPS.
    - For detailedFinancials.balanceSheet: Map metrics to: Current Assets, Cash & Equivalents, Receivables, Inventories, Fixed Assets, Intangible Assets, Total Assets, Current Liabilities, Payables, Short-term Debt, Long-term Debt, Total Liabilities, Share Capital, Reserves & Surplus, Total Equity.
    - For detailedFinancials.cashFlow: Map metrics to: Net inc. + Depn., Non-cash adj., Changes in W.C, C.F. Operation, Capital exp., C.F - Investment, C.F - Finance, Closing Cash.
    - For detailedFinancials.ratios: Map metrics to: EBITDA margin (%), ROCE (%), Receivables (days), Current Ratio (x), Debt/Equity (x), P/E (x), EV/EBITDA (x).
-   - Keep empty if not present. Do not invent values.${feedback}`;
+   - Keep empty if not present. Do not invent values.
+7. quarterlyFinancials: For the quarterly result update table, extract the most recent quarter's data. IMPORTANT for column ordering:
+   - currentQ / currentQLabel: Most recent quarter (e.g. Q2FY26)
+   - priorYearSameQ / priorYearSameQLabel: Same quarter prior year (e.g. Q2FY25) — for YoY comparison
+   - priorQ / priorQLabel: Immediately preceding quarter (e.g. Q1FY26) — for QoQ comparison
+   - yoyGrowth: Year-over-year % change (currentQ vs priorYearSameQ)
+   - qoqGrowth: Quarter-over-quarter % change (currentQ vs priorQ)
+   - All monetary values in Crore.${feedback}`;
 
   const userPrompt = `Company: ${state.companyName}\n\nDocument Text:\n${contextText}`;
   const fullPrompt = systemPrompt + userPrompt;
@@ -797,7 +838,7 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
     );
     const annualSalesVal = parseNum(rev[rev.length - 1]?.value || 0);
     if (q1SalesRow && annualSalesVal > 0) {
-      const q1Val = parseNum(q1SalesRow.q1fy26 || q1SalesRow.q1fy25 || 0);
+      const q1Val = parseNum(q1SalesRow.currentQ ?? q1SalesRow.q1fy26 ?? q1SalesRow.q1fy25 ?? 0);
       if (q1Val > annualSalesVal) {
         errors.push(
           `YoY Quarterly Q1 sales (${q1Val}) cannot exceed projected full year annual sales (${annualSalesVal}). Possible scale/unit mismatch.`,
@@ -932,7 +973,10 @@ export async function runResearchPipeline(
   return {
     companyName: result.companyGeneral.companyName,
     ticker: result.companyGeneral.ticker,
+    sector: result.companyGeneral.sector,
+    industry: result.companyGeneral.industry,
     recommendation: result.financials.recommendation || "HOLD",
+    currentPriceSource: result.financials.currentPriceSource,
     investmentThesis: result.swotAndThesis.investmentThesis,
     outlook: result.companyGeneral.narrativeSummary,
     risks: result.swotAndThesis.risks,
@@ -1185,7 +1229,10 @@ export async function runOrResumeResearchPipeline(
     return {
       companyName: state.companyGeneral.companyName,
       ticker: state.companyGeneral.ticker,
+      sector: state.companyGeneral.sector,
+      industry: state.companyGeneral.industry,
       recommendation: state.financials.recommendation || "HOLD",
+      currentPriceSource: state.financials.currentPriceSource,
       investmentThesis: state.swotAndThesis.investmentThesis,
       outlook: state.companyGeneral.narrativeSummary,
       risks: state.swotAndThesis.risks,

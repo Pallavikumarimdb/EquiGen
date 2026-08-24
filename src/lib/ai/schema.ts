@@ -74,11 +74,20 @@ export const AIFiveYearSummarySchema = z.object({
 
 export const AIQuarterlyFinancialSchema = z.object({
   metric: z.string(),
+  // Semantic names (preferred) — LLM fills these with the actual quarter data
+  currentQ: z.union([z.string(), z.number()]).nullable().optional(),
+  priorYearSameQ: z.union([z.string(), z.number()]).nullable().optional(),
+  priorQ: z.union([z.string(), z.number()]).nullable().optional(),
+  yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+  qoqGrowth: z.union([z.string(), z.number()]).nullable().optional(),
+  // Labels for the columns (e.g. "Q2FY26", "Q2FY25", "Q1FY26")
+  currentQLabel: z.string().nullable().optional(),
+  priorYearSameQLabel: z.string().nullable().optional(),
+  priorQLabel: z.string().nullable().optional(),
+  // Legacy fallback fields — kept for backward compat with stored reports
   q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
   q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
-  yoyGrowth: z.union([z.string(), z.number()]).nullable().optional(),
   q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
-  qoqGrowth: z.union([z.string(), z.number()]).nullable().optional(),
 });
 
 export const AIDetailedFinancialsSchema = z.object({
@@ -119,9 +128,15 @@ export const AIRecommendationSummarySchema = z.object({
 export const AIExtractionSchema = z.object({
   companyName: z.string(),
   ticker: z.string().nullable().optional(),
+  /** Classified sector, e.g. "Pharmaceuticals", "Banking & NBFC", "IT Services", "Auto", "FMCG" */
+  sector: z.string().nullable().optional(),
+  /** Sub-industry within the sector, e.g. "Specialty Chemicals" */
+  industry: z.string().nullable().optional(),
   recommendation: AIRecommendationSchema,
   currentPrice: z.number().nullable(),
   targetPrice: z.number().nullable(),
+  /** How the CMP was sourced: from the document, calculated, or a live feed */
+  currentPriceSource: z.enum(["document", "calculated", "live_feed"]).nullable().optional(),
   revenue: z.array(AIFinancialMetricSchema).nullable(),
   ebitda: z.array(AIFinancialMetricSchema).nullable(),
   pat: z.array(AIFinancialMetricSchema).nullable(),

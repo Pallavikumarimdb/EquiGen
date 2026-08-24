@@ -11,6 +11,25 @@ export interface AIServiceOptions {
   apiKey?: string;
 }
 
+/**
+ * Normalizes a financial metric series to crore (Cr).
+ * If the unit is million/mn/m, converts by dividing value by 10 (10 million = 1 crore).
+ * Returns the series with values in crore and unit set to "Cr".
+ */
+function normalizeUnitToCrore(
+  series: { period: string; value: string | number; unit?: string }[] | null | undefined,
+): { period: string; value: number; unit: string }[] {
+  if (!series) return [];
+  return series.map((item) => {
+    const rawVal = typeof item.value === "number" ? item.value : parseFloat(String(item.value).replace(/[^\d.-]/g, "")) || 0;
+    const unit = (item.unit || "Cr").toLowerCase().trim();
+    // Common million indicators: million, mn, m, inr mn, inr million, rs mn, rs million
+    const isMillion = /^(million|mn|m|inr\s*mn|inr\s*million|rs\.?\s*mn|rs\.?\s*million|₹\s*mn|₹\s*million)$/i.test(unit);
+    const valueCr = isMillion ? rawVal / 10 : rawVal;
+    return { period: item.period, value: parseFloat(valueCr.toFixed(2)), unit: "Cr" };
+  });
+}
+
 export class LangChainAIService {
   /**
    * Instantiates the correct LangChain model wrapper based on the selected provider.
@@ -62,19 +81,19 @@ export class LangChainAIService {
     }
 
     const incomeStatement = [
-      ...(aiResult.revenue || []).map((r) => ({
+      ...normalizeUnitToCrore(aiResult.revenue).map((r) => ({
         label: "Revenue",
         value: r.value,
         period: r.period,
         unit: r.unit,
       })),
-      ...(aiResult.ebitda || []).map((e) => ({
+      ...normalizeUnitToCrore(aiResult.ebitda).map((e) => ({
         label: "EBITDA",
         value: e.value,
         period: e.period,
         unit: e.unit,
       })),
-      ...(aiResult.pat || []).map((p) => ({
+      ...normalizeUnitToCrore(aiResult.pat).map((p) => ({
         label: "PAT",
         value: p.value,
         period: p.period,
@@ -85,14 +104,33 @@ export class LangChainAIService {
     const p1h = aiResult.pageOneHighlights || [];
     const p2h = aiResult.pageTwoHighlights || [];
 
+    // Coalesce companyData from nested object + root-level fallbacks
+    // (LLM sometimes emits these at the root level instead of nesting them)
+    const resolvedCompanyData = {
+      marketCap: aiResult.companyData?.marketCap ?? aiResult.marketCap ?? null,
+      highLow52W: aiResult.companyData?.highLow52W ?? aiResult.highLow52W ?? null,
+      enterpriseValue: aiResult.companyData?.enterpriseValue ?? aiResult.companyData?.ev ?? aiResult.enterpriseValue ?? aiResult.ev ?? null,
+      ev: aiResult.companyData?.ev ?? aiResult.ev ?? null,
+      outstandingShares: aiResult.companyData?.outstandingShares ?? aiResult.outstandingShares ?? null,
+      freeFloat: aiResult.companyData?.freeFloat ?? aiResult.freeFloat ?? null,
+      dividendYield: aiResult.companyData?.dividendYield ?? aiResult.dividendYield ?? null,
+      avgVolume6m: aiResult.companyData?.avgVolume6m ?? aiResult.companyData?.avgVolume ?? aiResult.avgVolume6m ?? aiResult.avgVolume ?? null,
+      avgVolume: aiResult.companyData?.avgVolume ?? aiResult.avgVolume ?? null,
+      beta: aiResult.companyData?.beta ?? aiResult.beta ?? null,
+      faceValue: aiResult.companyData?.faceValue ?? aiResult.faceValue ?? null,
+    };
+    // Only set companyData if at least one field has a real value
+    const hasAnyCompanyData = Object.values(resolvedCompanyData).some((v) => v != null);
+    const companyData = hasAnyCompanyData ? resolvedCompanyData : null;
+
     return {
       company: {
         name: aiResult.companyName || "Unknown Company",
         ticker:
           aiResult.ticker ||
           (aiResult.companyName || "UNKN").substring(0, 4).toUpperCase(),
-        sector: "General Corporate",
-        industry: "Unclassified Industry",
+        sector: aiResult.sector || undefined,
+        industry: aiResult.industry || undefined,
         reportDate: new Date().toLocaleDateString("en-IN", {
           day: "numeric",
           month: "long",
@@ -105,6 +143,7 @@ export class LangChainAIService {
         targetPrice,
         upsidePotential,
         rationale: p1h.slice(0, 3),
+        currentPriceSource: aiResult.currentPriceSource ?? null,
       },
       executiveSummary:
         aiResult.investmentThesis || "No investment thesis provided.",
@@ -132,16 +171,7 @@ export class LangChainAIService {
       bloombergCode: aiResult.bloombergCode,
       timeFrame: aiResult.timeFrame || "12 Months",
       stockType: aiResult.stockType || "Large Cap",
-      companyData: aiResult.companyData
-        ? {
-            ...aiResult.companyData,
-            enterpriseValue:
-              aiResult.companyData.enterpriseValue ?? aiResult.companyData.ev,
-            avgVolume6m:
-              aiResult.companyData.avgVolume6m ??
-              aiResult.companyData.avgVolume,
-          }
-        : null,
+      companyData,
       shareholding: aiResult.shareholding,
       promoterPledge: aiResult.promoterPledge,
       pricePerformance: aiResult.pricePerformance,

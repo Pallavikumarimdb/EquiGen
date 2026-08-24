@@ -354,7 +354,7 @@ CRITICAL RULES:
           } catch (err) {
             console.error("Failed to execute fetch_page:", err);
             messages.push(["assistant", content]);
-            messages.push(["user", `[fetch_page failed]: Error retrieving page ${toolCall.pageNumber || pageNumber}.`]);
+            messages.push(["user", `[fetch_page failed]: Error retrieving page ${toolCall.pageNumber ?? "unknown"}.`]);
             continue;
           }
         }

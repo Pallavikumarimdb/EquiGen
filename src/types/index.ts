@@ -25,6 +25,8 @@ export interface AnalystRecommendation {
   targetPrice: number | null;
   upsidePotential: number | null;
   rationale: string[];
+  /** Indicates how the CMP was sourced for transparency in the report */
+  currentPriceSource?: "document" | "calculated" | "live_feed" | null;
 }
 
 export interface CompetitorInfo {
@@ -92,11 +94,19 @@ export interface FiveYearSummaryData {
 
 export interface QuarterlyFinancialData {
   metric: string;
+  // Semantic fields (preferred, used for new reports)
+  currentQ?: string | number | null;
+  priorYearSameQ?: string | number | null;
+  priorQ?: string | number | null;
+  yoyGrowth?: string | number | null;
+  qoqGrowth?: string | number | null;
+  currentQLabel?: string | null;
+  priorYearSameQLabel?: string | null;
+  priorQLabel?: string | null;
+  // Legacy fields (backward compat with stored reports)
   q1fy26?: string | number | null;
   q1fy25?: string | number | null;
-  yoyGrowth?: string | number | null;
   q4fy25?: string | number | null;
-  qoqGrowth?: string | number | null;
 }
 
 export interface DetailedFinancialsData {

@@ -61,7 +61,60 @@ export async function GET(req: NextRequest) {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-");
 
-    // 2. Try filesystem cache first (fast path for local/Docker with writable storage)
+    // Cache priority after an edit (proposal-apply.ts sets pdfBase64 = null):
+    //   pdfBase64 = null → skip ALL caches, compile fresh from reportData
+    //   pdfBase64 = <value> → serve DB blob (authoritative, fastest)
+    //   No pdfBase64 column → try disk, then compile on-demand (cold start)
+
+    // 2. If pdfBase64 is explicitly null, it means reportData was edited and the
+    //    PDF must be regenerated. Clear the disk cache too if it exists.
+    if (report.pdfBase64 === null) {
+      const reportId = id.toUpperCase();
+      const pdfPath = path.join(
+        process.cwd(),
+        "public",
+        "temp",
+        "reports",
+        `${reportId}.pdf`,
+      );
+      if (fs.existsSync(pdfPath)) {
+        try { fs.unlinkSync(pdfPath); } catch { /* best-effort */ }
+      }
+
+      if (report.reportData) {
+        const reportBuffer = await pdfGenerationService.generateReportPDF(
+          report.reportData as unknown as Parameters<
+            typeof pdfGenerationService.generateReportPDF
+          >[0],
+          report.status || "draft",
+        );
+
+        await prisma.reportHistory.update({
+          where: { id },
+          data: { pdfBase64: reportBuffer.toString("base64") },
+        });
+
+        return new NextResponse(new Uint8Array(reportBuffer), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="equity-report-${safeName}.pdf"`,
+          },
+        });
+      }
+    }
+
+    // 3. Serve from DB blob (fast path — present on first generation and approved reports)
+    if (report.pdfBase64) {
+      const pdfBuffer = Buffer.from(report.pdfBase64, "base64");
+      return new NextResponse(new Uint8Array(pdfBuffer), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="equity-report-${safeName}.pdf"`,
+        },
+      });
+    }
+
+    // 4. Try filesystem cache (cold start for drafts that were compiled externally)
     const reportId = id.toUpperCase();
     const pdfPath = path.join(
       process.cwd(),
@@ -81,18 +134,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 3. Fall back to database PDF column
-    if (report.pdfBase64) {
-      const pdfBuffer = Buffer.from(report.pdfBase64, "base64");
-      return new NextResponse(new Uint8Array(pdfBuffer), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="equity-report-${safeName}.pdf"`,
-        },
-      });
-    }
-
-    // 4. Compile on-demand if no PDF exists (e.g. draft before first compile)
+    // 5. Final fallback: compile on-demand
     if (report.reportData) {
       const reportBuffer = await pdfGenerationService.generateReportPDF(
         report.reportData as unknown as Parameters<
@@ -100,7 +142,7 @@ export async function GET(req: NextRequest) {
         >[0],
         report.status || "draft",
       );
-      
+
       await prisma.reportHistory.update({
         where: { id },
         data: { pdfBase64: reportBuffer.toString("base64") },
@@ -113,6 +155,7 @@ export async function GET(req: NextRequest) {
         },
       });
     }
+
 
     return NextResponse.json(
       {
