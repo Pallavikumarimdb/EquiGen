@@ -17,7 +17,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isAuthPage = pathname.startsWith("/auth/signin") || pathname.startsWith("/auth/signup");
+  const isAuthPage = pathname.startsWith("/signin") || pathname.startsWith("/signup");
 
   // 2. Retrieve token from cookies
   const token = request.cookies.get("session_token")?.value;
@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
       );
     }
     // Redirect web requests to login page
-    return NextResponse.redirect(new URL("/auth/signin", request.url));
+    return NextResponse.redirect(new URL("/signin", request.url));
   }
 
   // 5. User is authenticated, clone request headers and append user session information
