@@ -96,6 +96,12 @@ async function finalizeExtractionJob(
     return;
   }
 
+  const job = await prisma.extractionJob.findUnique({
+    where: { id: jobId },
+    select: { orgId: true },
+  });
+  const orgId = job?.orgId || null;
+
   const reportId =
     "report_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
   const contentHash = computeSHA256(extractedData);
@@ -104,6 +110,7 @@ async function finalizeExtractionJob(
   await prisma.reportHistory.create({
     data: {
       id: reportId,
+      orgId,
       companyName,
       fileName,
       status: degraded ? "pending_review" : "draft",

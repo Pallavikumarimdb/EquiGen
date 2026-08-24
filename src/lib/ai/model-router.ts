@@ -76,7 +76,7 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
       modelName: "openrouter/free",
       temperature: 0.1,
       maxRetries: 3,
-      timeout: 20000, // 20s timeout to prevent hanging
+      timeout: 120000, // 120s timeout to prevent hanging on larger prompts
     });
   }
 
