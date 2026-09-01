@@ -9,6 +9,9 @@ import {
 } from "./model-router";
 import { withRateLimitRetry, RateLimitError } from "./retry-wrapper";
 import { EquityResearchData } from "@/types";
+import { fetchMarketData } from "./tools/market-data-tool";
+import { fetchPeerComparison } from "./tools/peer-comparison-tool";
+import { fetchNewsAndFilings } from "./tools/news-search-tool";
 
 export interface AgentChatMessage {
   role: "user" | "agent";
@@ -210,19 +213,41 @@ Current report data:
 ${JSON.stringify(reportData, null, 2)}
 
 You can answer questions or propose field updates.
-If you need to search or view the original PDF document source text to answer the user's question, you MUST use one of the search tools.
-Available Search Tools:
-1. To search pages for specific keywords or text, respond with exactly this JSON block (and nothing else):
+If you need to search source PDF text, fetch live quotes, compare sector peers, or check recent news, you MUST use one of the read-only tools below.
+
+Available Read-Only Tools:
+1. To search source PDF pages for specific keywords or text:
 {
   "tool": "search_pages",
   "query": "search query here",
   "reasoning": "reasoning here"
 }
 
-2. To fetch the full verbatim text of a specific page, respond with exactly this JSON block (and nothing else):
+2. To fetch full verbatim text of a specific PDF page:
 {
   "tool": "fetch_page",
   "pageNumber": 12,
+  "reasoning": "reasoning here"
+}
+
+3. To fetch live stock price, 52-week high/low, and market data quotes:
+{
+  "tool": "market_data",
+  "ticker": "RELIANCE", // stock ticker or company name
+  "reasoning": "reasoning here"
+}
+
+4. To fetch sector peer comparison metrics and valuation multiples:
+{
+  "tool": "peer_comparison",
+  "ticker": "TCS", // stock ticker or sector name
+  "reasoning": "reasoning here"
+}
+
+5. To search recent market news, earnings releases, and BSE/NSE exchange filings:
+{
+  "tool": "news_search",
+  "query": "Tata Motors quarterly results",
   "reasoning": "reasoning here"
 }
 
@@ -238,7 +263,7 @@ CRITICAL RULES:
 1. You CANNOT modify the report yourself. Never claim "I have added/updated the report" — you only ever PROPOSE a change via the JSON above.
 2. The JSON block above must be your ENTIRE response when proposing a change.
 3. If the user confirms a proposal you already made (e.g. "approved", "add them to the report"), those pending proposals are applied automatically by the system — briefly confirm "Approved corrections have been applied." and do NOT emit another tool call for the same field.
-4. For questions or analysis, respond with normal conversation text. Do NOT add safety/moderation headers like "User Safety: safe" or "Response Safety: safe" to your output. If you need live data you do not have (e.g. competitor equity analysis), answer from general knowledge and clearly label it as indicative, NOT as report data.
+4. For questions or analysis, respond with normal conversation text. Do NOT add safety/moderation headers like "User Safety: safe" or "Response Safety: safe" to your output. Always timestamp live data updates.
 5. Speak in an expert, highly professional buy-side research analyst voice. Be articulate, detailed, and clear. Avoid robotic template-like language.
 6. Do not dump the entire report JSON back at the user — describe changes briefly in plain text.`;
 
@@ -358,6 +383,75 @@ CRITICAL RULES:
             messages.push(["assistant", content]);
             messages.push(["user", `[fetch_page failed]: Error retrieving page ${toolCall.pageNumber ?? "unknown"}.`]);
             continue;
+          }
+        }
+
+        if (tool === "market_data") {
+          try {
+            const targetTicker = String(toolCall.ticker || reportData.company?.ticker || reportData.company?.name || "NSE");
+            const marketResult = await fetchMarketData(targetTicker);
+            await prisma.toolCall.create({
+              data: {
+                sessionId,
+                toolName: "market_data",
+                inputJson: { ticker: targetTicker },
+                outputJson: { asOf: marketResult.asOf, source: marketResult.source },
+                latencyMs: Date.now() - startTime,
+                status: "success",
+              },
+            });
+            responseText = marketResult.rawSummary;
+            break;
+          } catch (err) {
+            console.error("Failed to execute market_data:", err);
+            responseText = `Unable to fetch live market quote at this time.`;
+            break;
+          }
+        }
+
+        if (tool === "peer_comparison") {
+          try {
+            const targetSector = String(toolCall.ticker || reportData.company?.sector || reportData.company?.name || "IT");
+            const peerResult = await fetchPeerComparison(targetSector);
+            await prisma.toolCall.create({
+              data: {
+                sessionId,
+                toolName: "peer_comparison",
+                inputJson: { ticker: targetSector },
+                outputJson: { asOf: peerResult.asOf, count: peerResult.peers.length },
+                latencyMs: Date.now() - startTime,
+                status: "success",
+              },
+            });
+            responseText = peerResult.rawSummary;
+            break;
+          } catch (err) {
+            console.error("Failed to execute peer_comparison:", err);
+            responseText = `Unable to generate peer comparison table at this time.`;
+            break;
+          }
+        }
+
+        if (tool === "news_search") {
+          try {
+            const searchQuery = String(toolCall.query || reportData.company?.name || "stocks");
+            const newsResult = await fetchNewsAndFilings(searchQuery);
+            await prisma.toolCall.create({
+              data: {
+                sessionId,
+                toolName: "news_search",
+                inputJson: { query: searchQuery },
+                outputJson: { asOf: newsResult.asOf, articles: newsResult.articles.length },
+                latencyMs: Date.now() - startTime,
+                status: "success",
+              },
+            });
+            responseText = newsResult.rawSummary;
+            break;
+          } catch (err) {
+            console.error("Failed to execute news_search:", err);
+            responseText = `Unable to search news filings at this time.`;
+            break;
           }
         }
       }

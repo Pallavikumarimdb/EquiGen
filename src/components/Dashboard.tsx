@@ -2981,9 +2981,11 @@ export function Dashboard() {
                     {/* Quick suggestions */}
                     <div className="w-full space-y-2">
                       {[
+                        "Fetch live stock quote & 52W range",
+                        "Compare metrics against sector peers",
+                        "Show recent market news and filings",
                         "Change target price to 650",
                         "Recalculate EBITDA margin for FY24",
-                        "Verify debt-to-equity ratio errors",
                       ].map((suggest) => (
                         <button
                           key={suggest}
