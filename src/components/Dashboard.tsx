@@ -1745,6 +1745,46 @@ export function Dashboard() {
     }
   };
 
+  const triggerExcelDownload = async (reportId: string) => {
+    if (!reportId) return;
+    setIsDownloading(true);
+    showToast("Preparing Excel workbook export...", "info");
+    try {
+      const res = await fetch(
+        `/api/excel/export?reportId=${encodeURIComponent(reportId)}`
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.message || `Excel export failed (HTTP ${res.status}).`
+        );
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      let filename = `EquiGen_Research_${reportId.substring(0, 8)}.xlsx`;
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      if (match && match[1]) filename = match[1];
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      showToast("Excel workbook downloaded successfully!", "success");
+    } catch (err: unknown) {
+      const errMessage =
+        err instanceof Error ? err.message : "Failed to export Excel workbook.";
+      console.error("Excel download failed:", errMessage);
+      showToast(errMessage, "error");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex bg-[#0c0c0f] text-slate-100 antialiased font-sans overflow-hidden">
       {/* ── Left Sidebar ─────────────────────────────────────────────── */}
@@ -2516,6 +2556,18 @@ export function Dashboard() {
                           Download PDF
                         </>
                       )}
+                    </button>
+                    <button
+                      onClick={() =>
+                        triggerExcelDownload(
+                          activeReportId || reportData.company.ticker || "",
+                        )
+                      }
+                      disabled={isDownloading}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-700/80 hover:bg-emerald-600 border border-emerald-500/30 disabled:opacity-50 text-emerald-100 font-bold text-xs rounded-xl transition-all shadow-lg shadow-emerald-900/20 active:scale-95"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export Excel (.xlsx)
                     </button>
                   </div>
                 </div>

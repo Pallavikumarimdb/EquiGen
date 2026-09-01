@@ -12,6 +12,7 @@ import { EquityResearchData } from "@/types";
 import { fetchMarketData } from "./tools/market-data-tool";
 import { fetchPeerComparison } from "./tools/peer-comparison-tool";
 import { fetchNewsAndFilings } from "./tools/news-search-tool";
+import { executeExcelWriteTool } from "./tools/excel-write-tool";
 
 export interface AgentChatMessage {
   role: "user" | "agent";
@@ -251,6 +252,12 @@ Available Read-Only Tools:
   "reasoning": "reasoning here"
 }
 
+6. To generate or export a compliance-gated Excel financial model workbook (.xlsx):
+{
+  "tool": "excel_export",
+  "reasoning": "reasoning here"
+}
+
 If the user wants to change a metric, recommendation, text, or add new sections (e.g. target price, rating, swot, outlook, competitors), output a special command to invoke the RecomputeFieldTool.
 To run the RecomputeFieldTool, respond with exactly a JSON block matching this structure (and nothing else — no prose, no explanation, no markdown):
 {
@@ -451,6 +458,28 @@ CRITICAL RULES:
           } catch (err) {
             console.error("Failed to execute news_search:", err);
             responseText = `Unable to search news filings at this time.`;
+            break;
+          }
+        }
+
+        if (tool === "excel_export") {
+          try {
+            const excelResult = await executeExcelWriteTool(reportId);
+            await prisma.toolCall.create({
+              data: {
+                sessionId,
+                toolName: "excel_export",
+                inputJson: { reportId },
+                outputJson: { status: excelResult.status, hasDraftBanner: excelResult.hasDraftBanner },
+                latencyMs: Date.now() - startTime,
+                status: "success",
+              },
+            });
+            responseText = excelResult.rawSummary;
+            break;
+          } catch (err) {
+            console.error("Failed to execute excel_export:", err);
+            responseText = `Unable to generate Excel model workbook at this time.`;
             break;
           }
         }
