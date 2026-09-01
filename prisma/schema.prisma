@@ -339,3 +339,12 @@ model ToolCall {
   createdAt    DateTime @default(now())
   session      ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
+
+model GoldenExample {
+  id              String   @id @default(uuid())
+  companyName     String
+  sourceDocRef    String
+  groundTruthJson Json
+  difficultyTag   String   @default("medium") // "easy" | "medium" | "hard" | "edge_case"
+  createdAt       DateTime @default(now())
+}
