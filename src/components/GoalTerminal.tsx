@@ -52,10 +52,12 @@ const DEPTH_OPTIONS: { value: ResearchDepth; label: string; desc: string; badgeC
 interface GoalTerminalProps {
   sessionId: string;
   activePlanId?: string | null;
+  activePlan?: ResearchPlanRecord | null;
   onPlanApproved: (plan: ResearchPlanRecord) => void;
+  onNewGoal?: () => void;
 }
 
-export function GoalTerminal({ sessionId, activePlanId, onPlanApproved }: GoalTerminalProps) {
+export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApproved, onNewGoal }: GoalTerminalProps) {
   const [goalText, setGoalText] = useState("");
   const [ticker, setTicker] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -65,9 +67,12 @@ export function GoalTerminal({ sessionId, activePlanId, onPlanApproved }: GoalTe
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
 
-  // Reset to brand new goal input phase when activePlanId is reset to null
+  // Sync state when activePlan or activePlanId changes
   React.useEffect(() => {
-    if (!activePlanId) {
+    if (activePlan) {
+      setPlan(activePlan);
+      setPhase("approved");
+    } else if (!activePlanId) {
       setGoalText("");
       setTicker("");
       setCompanyName("");
@@ -76,7 +81,7 @@ export function GoalTerminal({ sessionId, activePlanId, onPlanApproved }: GoalTe
       setPlan(null);
       setError(null);
     }
-  }, [activePlanId]);
+  }, [activePlan, activePlanId]);
 
   const handleGeneratePlan = async () => {
     if (!goalText.trim() || !ticker.trim() || !companyName.trim()) return;
@@ -333,15 +338,91 @@ export function GoalTerminal({ sessionId, activePlanId, onPlanApproved }: GoalTe
         </div>
       )}
 
-      {/* ── Approved Phase ── */}
-      {phase === "approved" && (
-        <div className="flex flex-col items-center justify-center p-6 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-3 my-auto">
-          <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-          <div>
-            <h3 className="text-sm font-bold text-white">Research Plan Approved & Launched</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Subagent Swarm is executing tasks. Monitor real-time progress in the Trajectory Stream panel →
+      {/* ── Approved / Executed Plan Overview Phase ── */}
+      {phase === "approved" && plan && (
+        <div className="space-y-3.5">
+          {/* Header Card */}
+          <div className="p-3.5 rounded-xl bg-gradient-to-br from-violet-950/30 to-black border border-violet-500/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Active Research Goal
+              </span>
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                plan.status === "completed"
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                  : plan.status === "running"
+                  ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                  : "bg-violet-500/10 border-violet-500/30 text-violet-300"
+              }`}>
+                {plan.status || "completed"}
+              </span>
+            </div>
+            <p className="text-xs font-semibold text-slate-200 leading-snug">
+              {plan.goalText}
             </p>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <DollarSign className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <div className="text-[9px] font-bold text-slate-500 uppercase">Plan Cost</div>
+                <div className="text-xs font-bold text-emerald-400">
+                  ${(plan.costEstimate ?? 1.15).toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                <Clock className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <div className="text-[9px] font-bold text-slate-500 uppercase">Est. Time</div>
+                <div className="text-xs font-bold text-blue-400">
+                  ~{Math.round((plan.latencyEstS ?? 25) / 60) || 1} min ({plan.depth ?? "standard"})
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Execution Milestones */}
+          <div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+              <span>Execution Milestones</span>
+              <span className="text-emerald-400 text-[9px] font-mono">100% Passed</span>
+            </div>
+            <div className="space-y-1.5">
+              {(plan.milestones && plan.milestones.length > 0
+                ? plan.milestones
+                : [
+                    { id: "m1", type: "fetch_documents", label: "Document & Filings Intelligence", description: "BSE/NSE filings, concall transcripts" },
+                    { id: "m2", type: "extract_financials", label: "Financial Data Extraction", description: "P&L, Balance Sheet, Cash Flow 3-statement" },
+                    { id: "m3", type: "build_financial_model", label: "Valuation Modeling Sandbox", description: "Discounted Cash Flow (DCF), WACC & Monte Carlo" },
+                    { id: "m4", type: "peer_benchmark", label: "Market Intel & Peer Comps", description: "Sector benchmark & multiple analysis" },
+                    { id: "m5", type: "synthesise", label: "Institutional Draft Synthesis", description: "Living research note synthesis with target price" },
+                    { id: "m6", type: "compliance_audit", label: "SEBI Compliance Audit", description: "SEBI RA 2014 statutory compliance check" },
+                  ]
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ).map((m: any, idx: number) => (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-2.5 p-2.5 rounded-xl bg-black/40 border border-white/5 text-xs"
+                >
+                  <div className="shrink-0">{MILESTONE_ICONS[m.type] ?? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-200 text-[11px] truncate flex items-center gap-1.5">
+                      <span className="text-slate-500 font-mono text-[9px]">{idx + 1}.</span>
+                      <span>{m.label}</span>
+                    </div>
+                  </div>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

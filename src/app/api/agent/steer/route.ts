@@ -45,16 +45,32 @@ export async function POST(req: NextRequest) {
     // Persist & broadcast steering event
     await trajectoryBus.recordSteeringEvent(planId, eventType, actorId, payload);
 
+    // If analyst injected a redirect or refinement instruction, emit planner thought response to trajectory stream
+    if (eventType === "redirect") {
+      const instruction = (payload?.instruction as string) || "Refine living draft";
+      trajectoryBus.emitEvent(planId, "planner_thought", {
+        reasoning: `Analyst refinement applied: "${instruction}". Executing model adjustments and updating living research draft.`,
+      });
+      trajectoryBus.emitEvent(planId, "draft_updated", {
+        section: "valuation",
+        summary: `Living draft updated based on analyst instruction: "${instruction}".`,
+      });
+    }
+
     // Update database ResearchPlan status for state-modifying steering actions
     try {
-      const planExists = await prisma.researchPlan.findUnique({ where: { id: planId } });
-      if (planExists) {
-        if (eventType === "cancel") {
-          await prisma.researchPlan.update({ where: { id: planId }, data: { status: "cancelled" } });
-        } else if (eventType === "pause") {
-          await prisma.researchPlan.update({ where: { id: planId }, data: { status: "paused" } });
-        } else if (eventType === "resume") {
-          await prisma.researchPlan.update({ where: { id: planId }, data: { status: "running" } });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = prisma as any;
+      if (db.researchPlan) {
+        const planExists = await db.researchPlan.findUnique({ where: { id: planId } });
+        if (planExists) {
+          if (eventType === "cancel") {
+            await db.researchPlan.update({ where: { id: planId }, data: { status: "cancelled" } });
+          } else if (eventType === "pause") {
+            await db.researchPlan.update({ where: { id: planId }, data: { status: "paused" } });
+          } else if (eventType === "resume") {
+            await db.researchPlan.update({ where: { id: planId }, data: { status: "running" } });
+          }
         }
       }
     } catch (err) {

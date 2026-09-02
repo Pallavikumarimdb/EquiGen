@@ -646,8 +646,9 @@ const RATING_COLOR: Record<string, string> = {
   SELL: "#b91c1c",
 };
 
-function escape(s: string | undefined | null): string {
-  return (s ?? "")
+function escape(s: unknown): string {
+  if (s == null) return "";
+  return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

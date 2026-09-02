@@ -149,6 +149,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
         <GoalTerminal
           sessionId={sessionId}
           activePlanId={activePlanId}
+          activePlan={activePlan}
           onPlanApproved={handlePlanApproved}
         />
       </div>

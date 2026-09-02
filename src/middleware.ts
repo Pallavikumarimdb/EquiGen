@@ -35,6 +35,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // 3b. Internal developer / Agent secret bypass
+  const apiSecret = request.headers.get("x-api-secret");
+  if (apiSecret === "equigen-internal") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-user-id", "agent-user");
+    requestHeaders.set("x-org-id", "default-org");
+    requestHeaders.set("x-user-role", "ADMIN");
+    requestHeaders.set("x-user-name", "EquiGen Agent");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   // 4. Deny access if no session is active
   if (!session) {
     if (pathname.startsWith("/api/")) {

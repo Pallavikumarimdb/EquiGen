@@ -110,40 +110,42 @@ export function SteeringPanel({
 
   const submitRedirect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!redirectInput.trim() || !hasActivePlan || planStatus === "CANCELLED" || planStatus === "COMPLETED") return;
+    if (!redirectInput.trim() || !hasActivePlan || planStatus === "CANCELLED") return;
     handleSteerAction("redirect", { instruction: redirectInput.trim() });
   };
 
-  const isDisabled = !hasActivePlan || planStatus === "CANCELLED" || planStatus === "COMPLETED" || loadingAction !== null;
+  const isCompleted = planStatus === "COMPLETED";
+  const isInputDisabled = !hasActivePlan || planStatus === "CANCELLED" || loadingAction !== null;
+  const isButtonDisabled = !hasActivePlan || planStatus === "CANCELLED" || isCompleted || loadingAction !== null;
 
   return (
-    <div className="bg-[#121217] border border-white/[0.08] rounded-2xl p-3.5 space-y-3 font-sans shadow-xl">
+    <div className="bg-[#121217] border border-white/[0.08] rounded-2xl p-3 space-y-2.5 font-sans shadow-xl">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+        <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
           <span
-            className={`w-2 h-2 rounded-full ${
+            className={`w-2 h-2 rounded-full shrink-0 ${
               hasActivePlan && planStatus === "RUNNING"
                 ? "bg-emerald-400 animate-ping"
                 : hasActivePlan && planStatus === "PAUSED"
                 ? "bg-amber-400"
                 : hasActivePlan && planStatus === "COMPLETED"
-                ? "bg-indigo-400"
+                ? "bg-indigo-400 ring-2 ring-indigo-500/30"
                 : hasActivePlan && planStatus === "CANCELLED"
                 ? "bg-rose-500"
                 : "bg-slate-500"
             }`}
           />
-          Analyst Steering Controls
+          {isCompleted ? "Agent Copilot" : "Analyst Steering"}
         </span>
         <span
-          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest border ${
+          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider whitespace-nowrap border ${
             planStatus === "RUNNING"
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
               : planStatus === "PAUSED"
               ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
               : planStatus === "COMPLETED"
-              ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400"
+              ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-300"
               : planStatus === "CANCELLED"
               ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
               : "bg-slate-500/10 border-slate-500/30 text-slate-400"
@@ -153,70 +155,96 @@ export function SteeringPanel({
         </span>
       </div>
 
-      {/* Button Controls Bar */}
-      <div className="grid grid-cols-4 gap-2">
-        {planStatus === "PAUSED" ? (
+      {/* Button Controls Bar / Refinement Chips */}
+      {isCompleted ? (
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { label: "⚡ 12% WACC", prompt: "Stress-test valuation model with 12% WACC and 3.5% terminal growth rate" },
+            { label: "📊 Recalc DCF", prompt: "Recalculate DCF target price and update sensitivity matrix" },
+            { label: "🛡️ SEBI Audit", prompt: "Re-run full SEBI RA 2014 statutory compliance audit on all report sections" },
+            { label: "📝 Refine Summary", prompt: "Synthesize living executive summary to highlight EV market share gains and margins" },
+          ].map((chip) => (
+            <button
+              key={chip.label}
+              onClick={() => handleSteerAction("redirect", { instruction: chip.prompt })}
+              disabled={isInputDisabled}
+              className="text-[10px] font-medium py-1 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition-all active:scale-95 disabled:opacity-40 truncate text-left"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {planStatus === "PAUSED" ? (
+            <button
+              onClick={() => handleSteerAction("resume")}
+              disabled={isButtonDisabled}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm"
+            >
+              {loadingAction === "resume" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              Resume
+            </button>
+          ) : (
+            <button
+              onClick={() => handleSteerAction("pause")}
+              disabled={isButtonDisabled || planStatus !== "RUNNING"}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 disabled:opacity-40 text-amber-300 rounded-xl text-xs font-semibold transition-all"
+            >
+              {loadingAction === "pause" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
+              Pause
+            </button>
+          )}
+
           <button
-            onClick={() => handleSteerAction("resume")}
-            disabled={isDisabled}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm"
+            onClick={() => handleSteerAction("skip_milestone")}
+            disabled={isButtonDisabled || planStatus !== "RUNNING"}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
           >
-            {loadingAction === "resume" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            Resume
+            {loadingAction === "skip_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FastForward className="w-3.5 h-3.5" />}
+            Skip
           </button>
-        ) : (
+
           <button
-            onClick={() => handleSteerAction("pause")}
-            disabled={isDisabled || planStatus !== "RUNNING"}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 disabled:opacity-40 text-amber-300 rounded-xl text-xs font-semibold transition-all"
+            onClick={() => handleSteerAction("approve_milestone")}
+            disabled={isButtonDisabled || planStatus !== "PAUSED"}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
           >
-            {loadingAction === "pause" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
-            Pause
+            {loadingAction === "approve_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            Approve
           </button>
-        )}
 
-        <button
-          onClick={() => handleSteerAction("skip_milestone")}
-          disabled={isDisabled || planStatus !== "RUNNING"}
-          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
-        >
-          {loadingAction === "skip_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FastForward className="w-3.5 h-3.5" />}
-          Skip
-        </button>
+          <button
+            onClick={() => handleSteerAction("cancel")}
+            disabled={isButtonDisabled || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 disabled:opacity-40 text-rose-400 rounded-xl text-xs font-semibold transition-all"
+          >
+            {loadingAction === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+            Cancel
+          </button>
+        </div>
+      )}
 
-        <button
-          onClick={() => handleSteerAction("approve_milestone")}
-          disabled={isDisabled || planStatus !== "PAUSED"}
-          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
-        >
-          {loadingAction === "approve_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-          Approve
-        </button>
-
-        <button
-          onClick={() => handleSteerAction("cancel")}
-          disabled={isDisabled || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
-          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 disabled:opacity-40 text-rose-400 rounded-xl text-xs font-semibold transition-all"
-        >
-          {loadingAction === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
-          Cancel
-        </button>
-      </div>
-
-      {/* Mid-Flight Analyst Redirect Bar */}
+      {/* Analyst Instruction & Refinement Prompt Bar */}
       <form onSubmit={submitRedirect} className="flex gap-2">
         <input
           type="text"
           value={redirectInput}
           onChange={(e) => setRedirectInput(e.target.value)}
-          disabled={isDisabled || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
-          placeholder={hasActivePlan ? "Inject analyst instruction (e.g. 'Use 12% WACC')..." : "No active research run..."}
-          className="flex-1 px-3 py-1.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 disabled:opacity-40 transition-all font-mono"
+          disabled={isInputDisabled}
+          placeholder={
+            hasActivePlan
+              ? isCompleted
+                ? "Refine report or stress-test assumptions..."
+                : "Inject analyst instruction (e.g. 'Use 12% WACC')..."
+              : "No active research run..."
+          }
+          className="flex-1 px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 disabled:opacity-40 transition-all font-sans"
         />
         <button
           type="submit"
-          disabled={isDisabled || !redirectInput.trim() || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
-          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center justify-center"
+          disabled={isInputDisabled || !redirectInput.trim()}
+          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center justify-center shrink-0"
         >
           {loadingAction === "redirect" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CornerDownLeft className="w-3.5 h-3.5" />}
         </button>

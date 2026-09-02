@@ -91,6 +91,7 @@ type HistoryItem = {
   approvedAt?: string | null;
   /** Tracks which model ran financials extraction — null/undefined = 70B (standard) */
   modelUsedForFinancials?: string | null;
+  sourceType?: "autonomous" | "manual";
 };
 
 type ProgressStep = {
@@ -174,6 +175,7 @@ interface DashboardStats {
 
 export function Dashboard() {
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>("upload");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "autonomous" | "manual">("all");
   const [historySearch, setHistorySearch] = useState("");
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({ total: 0, draft: 0, underReview: 0, approved: 0, published: 0 });
   const [autonomousSessionId, setAutonomousSessionId] = useState<string | null>(null);
@@ -512,6 +514,7 @@ export function Dashboard() {
             sebiRegNo: item.sebiRegNo,
             approvedAt: item.approvedAt,
             modelUsedForFinancials: item.modelUsedForFinancials || null,
+            sourceType: "manual",
           }));
         }
 
@@ -543,6 +546,7 @@ export function Dashboard() {
                 } as unknown as EquityResearchData,
                 reportPdfBase64: null,
                 status: p.status || "pending",
+                sourceType: "autonomous",
               };
             });
 
@@ -607,6 +611,7 @@ export function Dashboard() {
       reportPdfBase64: pdfBase64,
       status: "draft",
       modelUsedForFinancials: data.modelUsedForFinancials || null,
+      sourceType: "manual",
     };
 
     // Set active model flag so sign-off modal can show the warning immediately
@@ -652,10 +657,22 @@ export function Dashboard() {
   };
 
   const selectHistoryItem = (item: HistoryItem) => {
+    setActiveReportId(item.id);
+
+    if (item.sourceType === "autonomous") {
+      setDashboardMode("autonomous");
+      setCompanyName(item.companyName);
+      setReportPdfBase64(null); // Clear stale PDF from previous manual PDF upload runs!
+      setReportData(null);      // Clear stale manual reportData!
+      showToast(`Loaded autonomous research for ${item.companyName}`, "info");
+      return;
+    }
+
+    // Manual PDF Upload analysis flow
+    setDashboardMode("upload");
     setCompanyName(item.companyName);
     setReportData(item.reportData);
     setReportPdfBase64(item.reportPdfBase64);
-    setActiveReportId(item.id);
     setActiveReportStatus(item.status || "draft");
     setActiveModelUsedForFinancials(item.modelUsedForFinancials || null);
     setFile(null);
@@ -1812,15 +1829,18 @@ export function Dashboard() {
       let blob: Blob;
       let filename = `equity-report-${reportId.toLowerCase()}.pdf`;
 
-      if (reportPdfBase64) {
+      if (reportPdfBase64 && dashboardMode === "upload") {
         const bytes = Uint8Array.from(atob(reportPdfBase64), (c) =>
           c.charCodeAt(0),
         );
         blob = new Blob([bytes], { type: "application/pdf" });
       } else {
-        const res = await fetch(
-          `/api/download?id=${encodeURIComponent(reportId)}`,
-        );
+        const queryParams = new URLSearchParams({
+          id: reportId,
+          ticker: reportData?.company?.ticker || "TATAMOTORS",
+          companyName: companyName || "Tata Motors Limited",
+        });
+        const res = await fetch(`/api/download?${queryParams.toString()}`);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(
@@ -1923,34 +1943,41 @@ export function Dashboard() {
           )}
         </div>
 
-        {/* Mode Switcher + New Analysis */}
-        <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
+        {/* Mode Switcher + Action Button */}
+        <div className="px-3 pt-3 pb-2 shrink-0 space-y-2.5">
           {isSidebarOpen && (
-            <div className="flex rounded-xl overflow-hidden border border-white/10 text-[10px] font-bold">
+            <div className="grid grid-cols-2 p-1 bg-black/40 border border-white/[0.08] rounded-xl text-[11px] font-semibold">
               <button
-                onClick={() => { setDashboardMode("upload"); startNewAnalysis(); }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 transition-all ${
-                  dashboardMode === "upload"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                onClick={() => {
+                  setDashboardMode("autonomous");
+                  setHistoryFilter("autonomous");
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
+                  dashboardMode === "autonomous"
+                    ? "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-900/30"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
-                <Upload className="w-3 h-3" />
-                Upload PDF
+                <Bot className="w-3.5 h-3.5" />
+                Auto AI ({history.filter(i => i.sourceType === "autonomous" || i.fileName === "Autonomous Research" || i.companyName.toLowerCase().startsWith("initiation of coverage")).length})
               </button>
               <button
-                onClick={() => setDashboardMode("autonomous")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 transition-all ${
-                  dashboardMode === "autonomous"
-                    ? "bg-violet-600 text-white"
-                    : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                onClick={() => {
+                  setDashboardMode("upload");
+                  setHistoryFilter("manual");
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
+                  dashboardMode === "upload"
+                    ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-blue-900/30"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
-                <Bot className="w-3 h-3" />
-                Auto Research
+                <FileText className="w-3.5 h-3.5" />
+                PDF Reports ({history.filter(i => !(i.sourceType === "autonomous" || i.fileName === "Autonomous Research" || i.companyName.toLowerCase().startsWith("initiation of coverage"))).length})
               </button>
             </div>
           )}
+
           <button
             onClick={() => {
               if (dashboardMode === "autonomous") {
@@ -1960,16 +1987,25 @@ export function Dashboard() {
                 startNewAnalysis();
               }
             }}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-blue-600/20 ${!isSidebarOpen && "justify-center px-0"}`}
-            style={{ background: dashboardMode === "autonomous" ? "linear-gradient(135deg,#7c3aed,#6366f1)" : "linear-gradient(135deg,#2563eb,#1d4ed8)" }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98] shadow-lg border ${
+              dashboardMode === "autonomous"
+                ? "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-violet-950/40 border-violet-400/20"
+                : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-950/40 border-blue-400/20"
+            } ${!isSidebarOpen && "justify-center px-0"}`}
           >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            {isSidebarOpen && <span>{dashboardMode === "autonomous" ? "New Research Goal" : "New Analysis"}</span>}
+            {dashboardMode === "autonomous" ? (
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            ) : (
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+            )}
+            {isSidebarOpen && (
+              <span>{dashboardMode === "autonomous" ? "New Research Goal" : "Upload Financial PDF"}</span>
+            )}
           </button>
         </div>
 
         {/* Stats Badges */}
-        {isSidebarOpen && dashboardStats.total > 0 && (
+        {isSidebarOpen && dashboardStats.total > 0 && dashboardMode === "upload" && (
           <div className="px-3 pb-2 shrink-0">
             <div className="grid grid-cols-2 gap-1.5">
               {[
@@ -1988,118 +2024,177 @@ export function Dashboard() {
         )}
 
         {/* History */}
-        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5 min-h-0">
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2 min-h-0">
           {isSidebarOpen && (
-            <div className="px-1 mb-2 space-y-2">
+            <div className="px-1 space-y-2">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
                 <input
                   value={historySearch}
                   onChange={e => setHistorySearch(e.target.value)}
-                  placeholder="Search reports…"
+                  placeholder={dashboardMode === "autonomous" ? "Search research goals…" : "Search PDF reports…"}
                   className="w-full pl-7 pr-3 py-1.5 rounded-lg text-[11px] bg-white/5 border border-white/10 text-slate-300 placeholder-slate-600 outline-none focus:border-blue-500/40 transition-colors"
                 />
               </div>
-              <div className="flex items-center justify-between border-b border-white/[0.04] pb-2">
+
+              <div className="flex items-center justify-between border-b border-white/[0.04] pb-1.5">
                 <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                  {viewQueueOnly ? "Review Queue" : `Recent Reports (${history.filter(i => !historySearch || i.companyName.toLowerCase().includes(historySearch.toLowerCase())).length})`}
+                  {dashboardMode === "autonomous"
+                    ? "Agent Research Runs"
+                    : viewQueueOnly
+                    ? "Review Queue"
+                    : "Uploaded PDF Reports"}
                 </span>
-                <button
-                  onClick={() => setViewQueueOnly(!viewQueueOnly)}
-                  className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
-                    viewQueueOnly
-                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                      : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {viewQueueOnly ? "All" : "Queue"}
-                </button>
-              </div>
-            </div>
-          )}
-          {!isSidebarOpen && (
-            <button
-              onClick={() => setViewQueueOnly(!viewQueueOnly)}
-              title="Toggle Review Queue Only"
-              className={`w-8 h-8 rounded-lg mx-auto mt-2 flex items-center justify-center border transition-all ${
-                viewQueueOnly
-                  ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                  : "border-transparent text-slate-500"
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-            </button>
-          )}
-          {history.length === 0 && isSidebarOpen && (
-            <div className="px-3 py-8 text-center text-[11px] text-slate-600 italic">
-              No reports yet
-            </div>
-          )}
-          {history
-            .filter((item) => {
-              const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
-              if (!matchesSearch) return false;
-              if (!viewQueueOnly) return true;
-              return (
-                item.status === "under_review" ||
-                item.status === "changes_requested" ||
-                item.status === "draft"
-              );
-            })
-            .map((item) => (
-              <div
-                key={item.id}
-                onClick={() => selectHistoryItem(item)}
-                title={
-                  !isSidebarOpen
-                    ? `${item.companyName} (${item.status})`
-                    : undefined
-                }
-                className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                  activeReportId === item.id
-                    ? "bg-blue-600/20 text-blue-300 border border-blue-500/20"
-                    : "hover:bg-white/[0.04] text-slate-400 hover:text-slate-200"
-                } ${!isSidebarOpen && "justify-center px-0"}`}
-              >
-                <FileText className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                {isSidebarOpen && (
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="text-[11px] font-semibold truncate">
-                        {item.companyName}
-                      </div>
-                      <span
-                        className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${
-                          item.status === "published"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : item.status === "approved"
-                              ? "bg-blue-500/20 text-blue-300"
-                              : item.status === "changes_requested"
-                                ? "bg-rose-500/20 text-rose-300"
-                                : item.status === "under_review"
-                                  ? "bg-amber-500/20 text-amber-300"
-                                  : "bg-white/[0.06] text-slate-400"
-                        }`}
-                      >
-                        {item.status || "draft"}
-                      </span>
-                    </div>
-                    <div className="text-[9px] text-slate-600 mt-0.5 truncate">
-                      {item.createdAt}
-                    </div>
-                  </div>
-                )}
-                {isSidebarOpen && (
+                {dashboardMode === "upload" && (
                   <button
-                    onClick={(e) => deleteHistoryItem(item.id, e)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-lg text-slate-500 hover:text-rose-400 transition-all shrink-0"
+                    onClick={() => setViewQueueOnly(!viewQueueOnly)}
+                    className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
+                      viewQueueOnly
+                        ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                        : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                    }`}
                   >
-                    <Trash2 className="w-3 h-3" />
+                    {viewQueueOnly ? "All" : "Queue"}
                   </button>
                 )}
               </div>
-            ))}
+            </div>
+          )}
+
+          {!isSidebarOpen && (
+            <div className="space-y-2 text-center">
+              <button
+                onClick={() => {
+                  const nextMode = dashboardMode === "autonomous" ? "upload" : "autonomous";
+                  setDashboardMode(nextMode);
+                  setHistoryFilter(nextMode === "autonomous" ? "autonomous" : "manual");
+                }}
+                title={dashboardMode === "autonomous" ? "Switch to PDF Uploads" : "Switch to Auto Research"}
+                className={`w-8 h-8 rounded-lg mx-auto flex items-center justify-center border transition-all ${
+                  dashboardMode === "autonomous"
+                    ? "bg-violet-600/20 border-violet-500/40 text-violet-300"
+                    : "bg-blue-600/20 border-blue-500/40 text-blue-300"
+                }`}
+              >
+                {dashboardMode === "autonomous" ? <Bot className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+
+          {/* Filtered History List */}
+          {history
+            .filter((item) => {
+              const itemIsAuto =
+                item.sourceType === "autonomous" ||
+                item.fileName === "Autonomous Research" ||
+                item.companyName.toLowerCase().startsWith("initiation of coverage");
+              if (dashboardMode === "autonomous" && !itemIsAuto) return false;
+              if (dashboardMode === "upload" && itemIsAuto) return false;
+              const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
+              if (!matchesSearch) return false;
+              if (dashboardMode === "upload" && viewQueueOnly) {
+                return (
+                  item.status === "under_review" ||
+                  item.status === "changes_requested" ||
+                  item.status === "draft"
+                );
+              }
+              return true;
+            }).length === 0 && isSidebarOpen && (
+            <div className="px-3 py-8 text-center text-[11px] text-slate-600 italic">
+              {dashboardMode === "autonomous"
+                ? "No autonomous research runs yet"
+                : "No uploaded PDF reports yet"}
+            </div>
+          )}
+
+          {history
+            .filter((item) => {
+              const itemIsAuto =
+                item.sourceType === "autonomous" ||
+                item.fileName === "Autonomous Research" ||
+                item.companyName.toLowerCase().startsWith("initiation of coverage");
+              if (dashboardMode === "autonomous" && !itemIsAuto) return false;
+              if (dashboardMode === "upload" && itemIsAuto) return false;
+              const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
+              if (!matchesSearch) return false;
+              if (dashboardMode === "upload" && viewQueueOnly) {
+                return (
+                  item.status === "under_review" ||
+                  item.status === "changes_requested" ||
+                  item.status === "draft"
+                );
+              }
+              return true;
+            })
+            .map((item) => {
+              const isAutonomous = item.sourceType === "autonomous";
+              const isSelected = activeReportId === item.id;
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => selectHistoryItem(item)}
+                  title={
+                    !isSidebarOpen
+                      ? `${item.companyName} (${item.status})`
+                      : undefined
+                  }
+                  className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                    isSelected
+                      ? isAutonomous
+                        ? "bg-violet-600/20 text-violet-300 border border-violet-500/30"
+                        : "bg-blue-600/20 text-blue-300 border border-blue-500/30"
+                      : "hover:bg-white/[0.04] text-slate-400 hover:text-slate-200"
+                  } ${!isSidebarOpen && "justify-center px-0"}`}
+                >
+                  {isAutonomous ? (
+                    <Bot className="w-3.5 h-3.5 shrink-0 text-violet-400 opacity-80" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 shrink-0 text-blue-400 opacity-80" />
+                  )}
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="text-[11px] font-semibold truncate">
+                          {item.companyName}
+                        </div>
+                        <span
+                          className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${
+                            item.status === "published" || item.status === "completed"
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : item.status === "approved"
+                              ? "bg-blue-500/20 text-blue-300"
+                              : item.status === "changes_requested" || item.status === "cancelled" || item.status === "failed"
+                              ? "bg-rose-500/20 text-rose-300"
+                              : item.status === "under_review" || item.status === "running"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-white/[0.06] text-slate-400"
+                          }`}
+                        >
+                          {item.status || (isAutonomous ? "completed" : "draft")}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[9px] text-slate-600 mt-0.5">
+                        <span className="truncate">{item.createdAt}</span>
+                        <span className={`text-[8px] uppercase tracking-wider font-semibold ${isAutonomous ? "text-violet-400/80" : "text-blue-400/80"}`}>
+                          {isAutonomous ? "Auto Run" : "Manual PDF"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {isSidebarOpen && (
+                    <button
+                      onClick={(e) => deleteHistoryItem(item.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-lg text-slate-500 hover:text-rose-400 transition-all shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
         </div>
 
         {/* Settings */}

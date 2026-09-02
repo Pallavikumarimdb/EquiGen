@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
+  Loader2,
 } from "lucide-react";
 import { ReportSection, ReportSectionName } from "@/types/plan4";
 import { SectionStore } from "@/lib/report/section-store";
@@ -42,6 +43,42 @@ export function LivingDraftPanel({
   const [editedText, setEditedText] = useState("");
   const [showHistory, setShowHistory] = useState(false);
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    if (onExportPdf) {
+      onExportPdf();
+      return;
+    }
+    if (!planId) return;
+    setIsExporting(true);
+    try {
+      const queryParams = new URLSearchParams({
+        id: planId,
+        ticker: ticker || "TATAMOTORS",
+        companyName: companyName || "Tata Motors Limited",
+      });
+      const res = await fetch(`/api/download?${queryParams.toString()}`);
+      if (!res.ok) {
+        window.print();
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `equigen-${(ticker || "research").toLowerCase()}-report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      window.print();
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const currentSection = sections.find((s) => s.name === activeSection) ?? sections[0];
 
   const handleStartEdit = () => {
@@ -68,10 +105,10 @@ export function LivingDraftPanel({
           <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
           <div className="min-w-0 flex-1">
             <h3 className="text-xs font-bold text-slate-200 truncate">
-              {hasActivePlan && companyName ? `${companyName} (${ticker ?? "EQUITY"})` : "Living Research Report Draft"}
+              {companyName ? `${companyName} (${ticker})` : "Living Research Draft"}
             </h3>
-            <p className="text-[10px] text-slate-500 font-medium">
-              {hasActivePlan ? "Real-time AI Synthesis & Analyst Review" : "No active research run"}
+            <p className="text-[10px] text-slate-500 truncate">
+              Real-time AI Synthesis & Analyst Review
             </p>
           </div>
         </div>
@@ -93,10 +130,19 @@ export function LivingDraftPanel({
 
           {hasActivePlan && (
             <button
-              onClick={onExportPdf}
-              className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all flex items-center gap-1"
+              onClick={handleExport}
+              disabled={isExporting}
+              className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-sm transition-all flex items-center gap-1"
             >
-              <Download className="w-3 h-3" /> Export PDF
+              {isExporting ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" /> Compiling…
+                </>
+              ) : (
+                <>
+                  <Download className="w-3 h-3" /> Export PDF
+                </>
+              )}
             </button>
           )}
         </div>
