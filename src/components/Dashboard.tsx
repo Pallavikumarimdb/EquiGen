@@ -20,7 +20,17 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Bot,
+  Search,
+  Target,
+  TrendingUp,
+  Clock,
+  Shield,
+  Zap,
+  ChevronRight,
 } from "lucide-react";
+import { GoalTerminal } from "./GoalTerminal";
+import { ResearchPlanRecord } from "@/types/plan4";
 import { EquityResearchData, CompetitorInfo } from "@/types";
 import { PanelResizer } from "./PanelResizer";
 
@@ -151,7 +161,22 @@ function formatDuration(totalSecs: number): string {
   return `${totalSecs}s`;
 }
 
+type DashboardMode = "upload" | "autonomous";
+
+interface DashboardStats {
+  total: number;
+  draft: number;
+  underReview: number;
+  approved: number;
+  published: number;
+}
+
 export function Dashboard() {
+  const [dashboardMode, setDashboardMode] = useState<DashboardMode>("upload");
+  const [historySearch, setHistorySearch] = useState("");
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({ total: 0, draft: 0, underReview: 0, approved: 0, published: 0 });
+  const [autonomousSessionId, setAutonomousSessionId] = useState<string | null>(null);
+  const [approvedPlan, setApprovedPlan] = useState<ResearchPlanRecord | null>(null);
   const [companyName, setCompanyName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -424,6 +449,18 @@ export function Dashboard() {
       showToast("Failed to save configurations.", "error");
     }
   };
+
+  // Compute dashboard stats whenever history changes
+  useEffect(() => {
+    const stats: DashboardStats = { total: history.length, draft: 0, underReview: 0, approved: 0, published: 0 };
+    for (const item of history) {
+      if (item.status === "draft" || !item.status) stats.draft++;
+      else if (item.status === "under_review" || item.status === "changes_requested") stats.underReview++;
+      else if (item.status === "approved") stats.approved++;
+      else if (item.status === "published") stats.published++;
+    }
+    setDashboardStats(stats);
+  }, [history]);
 
   // Load history from API on mount, with localStorage as fallback
   useEffect(() => {
@@ -1786,7 +1823,7 @@ export function Dashboard() {
   };
 
   return (
-    <div className="h-screen w-screen flex bg-[#0c0c0f] text-slate-100 antialiased font-sans overflow-hidden">
+    <div className="h-screen w-screen flex bg-[#0c0c0f] text-slate-100 antialiased font-sans overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
       {/* ── Left Sidebar ─────────────────────────────────────────────── */}
       <aside
         className={`h-screen bg-[#111115] border-r border-white/[0.06] flex flex-col shrink-0 z-20 ${
@@ -1800,46 +1837,103 @@ export function Dashboard() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-white/[0.06] shrink-0">
-          <div className="p-1.5 bg-blue-600 rounded-lg shrink-0">
+          <div className="p-1.5 shrink-0 rounded-lg" style={{ background: "linear-gradient(135deg, #6366f1, #3b82f6)" }}>
             <BarChart3 className="w-4 h-4 text-white" />
           </div>
           {isSidebarOpen && (
-            <span className="text-sm font-black tracking-widest uppercase text-white">
-              EquiGen
-            </span>
+            <div>
+              <span className="text-sm font-black tracking-widest uppercase text-white">EquiGen</span>
+              <div className="text-[9px] text-slate-500 font-medium tracking-wider">AI Equity Research</div>
+            </div>
           )}
         </div>
 
-        {/* New Analysis Button */}
-        <div className="px-3 pt-3 pb-2 shrink-0">
+        {/* Mode Switcher + New Analysis */}
+        <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
+          {isSidebarOpen && (
+            <div className="flex rounded-xl overflow-hidden border border-white/10 text-[10px] font-bold">
+              <button
+                onClick={() => { setDashboardMode("upload"); startNewAnalysis(); }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 transition-all ${
+                  dashboardMode === "upload"
+                    ? "bg-blue-600 text-white"
+                    : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <Upload className="w-3 h-3" />
+                Upload PDF
+              </button>
+              <button
+                onClick={() => setDashboardMode("autonomous")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 transition-all ${
+                  dashboardMode === "autonomous"
+                    ? "bg-violet-600 text-white"
+                    : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <Bot className="w-3 h-3" />
+                Auto Research
+              </button>
+            </div>
+          )}
           <button
-            onClick={startNewAnalysis}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-blue-600/20 ${!isSidebarOpen && "justify-center px-0"}`}
+            onClick={() => { setDashboardMode("upload"); startNewAnalysis(); }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-blue-600/20 ${!isSidebarOpen && "justify-center px-0"}`}
+            style={{ background: dashboardMode === "autonomous" ? "linear-gradient(135deg,#7c3aed,#6366f1)" : "linear-gradient(135deg,#2563eb,#1d4ed8)" }}
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
-            {isSidebarOpen && <span>New Analysis</span>}
+            {isSidebarOpen && <span>{dashboardMode === "autonomous" ? "New Research Goal" : "New Analysis"}</span>}
           </button>
         </div>
+
+        {/* Stats Badges */}
+        {isSidebarOpen && dashboardStats.total > 0 && (
+          <div className="px-3 pb-2 shrink-0">
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { label: "Draft", value: dashboardStats.draft, color: "#64748b" },
+                { label: "In Review", value: dashboardStats.underReview, color: "#f59e0b" },
+                { label: "Approved", value: dashboardStats.approved, color: "#3b82f6" },
+                { label: "Published", value: dashboardStats.published, color: "#22c55e" },
+              ].filter(s => s.value > 0).map(stat => (
+                <div key={stat.label} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: `${stat.color}15`, border: `1px solid ${stat.color}30` }}>
+                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: stat.color }} />
+                  <span className="text-[9px] font-bold" style={{ color: stat.color }}>{stat.value} {stat.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* History */}
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5 min-h-0">
           {isSidebarOpen && (
-            <div className="px-3 py-1 flex items-center justify-between border-b border-white/[0.04] mb-2 pb-2">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                {viewQueueOnly
-                  ? "Review Queue"
-                  : `Recent Reports (${history.length})`}
-              </span>
-              <button
-                onClick={() => setViewQueueOnly(!viewQueueOnly)}
-                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
-                  viewQueueOnly
-                    ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                    : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
-                }`}
-              >
-                {viewQueueOnly ? "Show All" : "Show Review Queue"}
-              </button>
+            <div className="px-1 mb-2 space-y-2">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                <input
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Search reports…"
+                  className="w-full pl-7 pr-3 py-1.5 rounded-lg text-[11px] bg-white/5 border border-white/10 text-slate-300 placeholder-slate-600 outline-none focus:border-blue-500/40 transition-colors"
+                />
+              </div>
+              <div className="flex items-center justify-between border-b border-white/[0.04] pb-2">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                  {viewQueueOnly ? "Review Queue" : `Recent Reports (${history.filter(i => !historySearch || i.companyName.toLowerCase().includes(historySearch.toLowerCase())).length})`}
+                </span>
+                <button
+                  onClick={() => setViewQueueOnly(!viewQueueOnly)}
+                  className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
+                    viewQueueOnly
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                      : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {viewQueueOnly ? "All" : "Queue"}
+                </button>
+              </div>
             </div>
           )}
           {!isSidebarOpen && (
@@ -1862,6 +1956,8 @@ export function Dashboard() {
           )}
           {history
             .filter((item) => {
+              const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
+              if (!matchesSearch) return false;
               if (!viewQueueOnly) return true;
               return (
                 item.status === "under_review" ||
@@ -2145,13 +2241,26 @@ export function Dashboard() {
 
         {/* ── Main content layout */}
         <div className="flex-1 flex bg-[#0a0a0d] overflow-hidden relative">
-          {/* ─── Column 1 — Configuration ─────────────────────── */}
-          {showConfig && (
-            <div
-              className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
-              style={
-                {
-                  "--config-w": `${panelWidths.config}px`,
+          {/* Autonomous Research Goal Terminal Mode */}
+          {dashboardMode === "autonomous" ? (
+            <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto bg-gradient-to-br from-[#0c0c12] via-[#09090e] to-[#0f0f18]">
+              <GoalTerminal
+                sessionId={activeSessionId || "session-" + Date.now()}
+                onPlanApproved={(plan) => {
+                  setApprovedPlan(plan);
+                  showToast(`Research Plan approved for ${plan.goalText.slice(0, 35)}...`, "success");
+                }}
+              />
+            </div>
+          ) : (
+            <>
+              {/* ─── Column 1 — Configuration ─────────────────────── */}
+              {showConfig && (
+                <div
+                  className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
+                  style={
+                    {
+                      "--config-w": `${panelWidths.config}px`,
                 } as React.CSSProperties
               }
             >
@@ -3126,6 +3235,8 @@ export function Dashboard() {
               </form>
             </div>
           )}
+        </>
+      )}
         </div>
       </div>
 
