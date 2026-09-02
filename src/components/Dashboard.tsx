@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import {
   Upload,
   FileText,
@@ -28,6 +29,11 @@ import {
   Shield,
   Zap,
   ChevronRight,
+  ChevronDown,
+  Key,
+  Building2,
+  LogOut,
+  User as UserIcon,
 } from "lucide-react";
 import { GoalTerminal } from "./GoalTerminal";
 import { AgentWorkspace } from "./AgentWorkspace";
@@ -253,6 +259,8 @@ export function Dashboard() {
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Temporary form states for settings modal
   const [tempProvider, setTempProvider] = useState<"groq" | "openai">("groq");
@@ -336,6 +344,17 @@ export function Dashboard() {
     } catch {
       // Storage unavailable
     }
+  }, []);
+
+  // Close user dropdown menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -2263,123 +2282,120 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* User Role & Profile Indicator */}
-            {user ? (
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col text-right hidden sm:flex">
-                  <span className="text-xs font-bold text-white leading-none">{user.name}</span>
-                  <span className="text-[9px] text-slate-400 font-semibold mt-0.5 leading-none">{user.orgName}</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border capitalize ${
-                  user.role === "admin"
-                    ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
-                    : user.role === "reviewer"
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    : "bg-slate-500/10 border-slate-500/20 text-slate-400"
-                }`}>
-                  {user.role === "reviewer" ? "SEBI Analyst" : user.role}
-                </span>
-                {user.role === "admin" && (
-                  <a
-                    href="/settings/organization"
-                    className="p-1.5 hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-slate-400 hover:text-slate-200 transition-colors"
-                    title="Organization Settings"
-                  >
-                    <Settings className="w-4 h-4" />
-                  </a>
-                )}
-                <button
-                  onClick={async () => {
-                    try {
-                      await fetch("/api/auth/signout", { method: "POST" });
-                      window.location.href = "/signin";
-                    } catch {
-                      showToast("Failed to sign out.", "error");
-                    }
-                  }}
-                  className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 text-rose-400 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all"
-                >
-                  Sign Out
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-300">
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                  Role:
-                </span>
-                <select
-                  value={userRole}
-                  onChange={(e) => {
-                    setUserRole(e.target.value as UserRole);
-                    showToast(
-                      `Switched active role to ${e.target.value}`,
-                      "info",
-                    );
-                  }}
-                  className="bg-transparent border-none text-xs font-bold text-white focus:outline-none cursor-pointer"
-                >
-                  <option value="analyst" className="bg-[#111115]">
-                    Analyst
-                  </option>
-                  <option value="research_analyst" className="bg-[#111115]">
-                    Research Analyst (RA)
-                  </option>
-                  <option value="admin" className="bg-[#111115]">
-                    Admin
-                  </option>
-                </select>
-              </div>
-            )}
-
-            {/* Model badge */}
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg">
+          <div className="flex items-center gap-2.5">
+            {/* Model indicator — links directly to /settings */}
+            <Link
+              href="/settings"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl transition-all"
+              title="Configure AI Inference Engines & API Keys"
+            >
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-slate-400">
+              <span className="text-[10px] font-bold text-slate-300 font-sans">
                 {aiProvider === "groq"
                   ? `Groq · ${getModelLabel(groqModel)}`
                   : `OpenAI · ${openaiModel === "gpt-4o-mini" ? "GPT-4o Mini" : "GPT-4o"}`}
               </span>
-            </div>
-            <button
-              onClick={() => setShowConfig(!showConfig)}
-              className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                showConfig
-                  ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
-                  : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
-              }`}
-              title="Toggle Report Configuration Panel"
-            >
-              <Layers className="w-4 h-4" />
-              <span className="hidden md:inline">Configuration</span>
-            </button>
-            {reportData && (
-              <button
-                onClick={() => setIsChatOpen(!isChatOpen)}
-                className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                  isChatOpen
-                    ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
-                    : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>AI Co-Pilot</span>
-              </button>
+              <Key className="w-3 h-3 text-slate-500" />
+            </Link>
+
+            {/* Manual PDF Mode controls only */}
+            {dashboardMode !== "autonomous" && (
+              <>
+                <button
+                  onClick={() => setShowConfig(!showConfig)}
+                  className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                    showConfig
+                      ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
+                      : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
+                  }`}
+                  title="Toggle Report Configuration Panel"
+                >
+                  <Layers className="w-4 h-4" />
+                  <span className="hidden md:inline">Configuration</span>
+                </button>
+                {reportData && (
+                  <button
+                    onClick={() => setIsChatOpen(!isChatOpen)}
+                    className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                      isChatOpen
+                        ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
+                        : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>AI Co-Pilot</span>
+                  </button>
+                )}
+              </>
             )}
-            <button
-              onClick={() => {
-                setTempProvider(aiProvider);
-                setTempGroqApiKey(groqApiKey);
-                setTempOpenaiApiKey(openaiApiKey);
-                setTempGroqModel(groqModel);
-                setTempOpenaiModel(openaiModel);
-                setIsSettingsOpen(true);
-              }}
-              className="p-2 hover:bg-white/[0.06] rounded-lg text-slate-500 hover:text-slate-200 transition-colors"
-              title="AI Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+
+            {/* Clean User Profile Dropdown Pill */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-all cursor-pointer select-none"
+              >
+                <div className="w-6 h-6 rounded-lg bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center font-bold text-[10px] text-indigo-300 shadow-inner">
+                  {user?.name ? user.name.substring(0, 2).toUpperCase() : "PK"}
+                </div>
+                <div className="flex flex-col text-left hidden md:flex">
+                  <span className="text-xs font-bold text-white leading-none">{user?.name || "Analyst"}</span>
+                  <span className="text-[9px] text-slate-400 font-medium mt-0.5 leading-none">{user?.orgName || "EquiGen"}</span>
+                </div>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold border capitalize bg-indigo-500/10 border-indigo-500/20 text-indigo-400">
+                  {user?.role === "reviewer" ? "SEBI Analyst" : user?.role || "analyst"}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* Floating User Menu */}
+              {isUserMenuOpen && (
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#14141a] border border-white/10 shadow-2xl p-2 z-50 space-y-1 font-sans animate-in fade-in slide-in-from-top-2">
+                  <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 mb-1.5">
+                    <div className="text-xs font-bold text-white">{user?.name || "Analyst"}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{user?.email || "analyst@equigen.ai"}</div>
+                    <div className="text-[9px] text-indigo-400 mt-1 font-mono">{user?.sebiRegNo || "INH000012345"}</div>
+                  </div>
+
+                  <Link
+                    href="/settings"
+                    onClick={() => setIsUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  >
+                    <Key className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>User Profile & API Keys</span>
+                  </Link>
+
+                  {user?.role === "admin" && (
+                    <Link
+                      href="/settings/organization"
+                      onClick={() => setIsUserMenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Organization Settings</span>
+                    </Link>
+                  )}
+
+                  <div className="h-[1px] bg-white/[0.06] my-1" />
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch("/api/auth/signout", { method: "POST" });
+                        window.location.href = "/signin";
+                      } catch {
+                        showToast("Failed to sign out.", "error");
+                      }
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors text-left cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

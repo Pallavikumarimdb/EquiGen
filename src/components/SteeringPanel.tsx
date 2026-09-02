@@ -238,9 +238,9 @@ export function SteeringPanel({
   const isButtonDisabled = !hasActivePlan || planStatus === "CANCELLED" || isCompleted || loadingAction !== null;
 
   return (
-    <div className="bg-[#121217] border border-white/[0.08] rounded-2xl p-3 space-y-2.5 font-sans shadow-xl flex flex-col">
+    <div className="bg-[#121217] border border-white/[0.08] rounded-2xl p-3.5 space-y-3 font-sans shadow-xl flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span
             className={`w-2 h-2 rounded-full shrink-0 ${
@@ -260,7 +260,7 @@ export function SteeringPanel({
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           {isCompleted && messages.length > 1 && (
             <button
               onClick={clearChatHistory}
@@ -290,7 +290,7 @@ export function SteeringPanel({
 
       {/* When COMPLETED: Render Interactive Chat Conversation Stream */}
       {isCompleted && messages.length > 0 && (
-        <div className="max-h-48 overflow-y-auto space-y-2 p-2 rounded-xl bg-black/40 border border-white/5 scrollbar-thin text-xs">
+        <div className="flex-1 overflow-y-auto space-y-2.5 p-2.5 rounded-xl bg-black/40 border border-white/5 scrollbar-thin text-xs min-h-0">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -337,7 +337,7 @@ export function SteeringPanel({
 
       {/* Button Controls Bar / Refinement Chips */}
       {isCompleted ? (
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5 shrink-0">
           {[
             { label: "⚡ 12% WACC", prompt: "Stress-test valuation model with 12% WACC and 3.5% terminal growth rate" },
             { label: "📊 Recalc DCF", prompt: "Recalculate DCF target price and update sensitivity matrix" },
@@ -406,7 +406,7 @@ export function SteeringPanel({
       )}
 
       {/* Analyst Instruction & Refinement Prompt Bar */}
-      <form onSubmit={submitRedirect} className="flex gap-2">
+      <form onSubmit={submitRedirect} className="flex gap-2 shrink-0">
         <input
           type="text"
           value={redirectInput}
