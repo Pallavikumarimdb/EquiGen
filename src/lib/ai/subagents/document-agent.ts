@@ -55,7 +55,9 @@ export class DocumentAgent {
    */
   async run(input: DocumentAgentInput): Promise<DocumentAgentOutput> {
     const { planId, runId, ticker, companyName, milestone, apiKey } = input;
-    const { sourceTypes, yearsBack } = milestone.config;
+    const startTime = Date.now();
+    const sourceTypes = milestone?.config?.sourceTypes ?? ["annual_report", "quarterly_results", "concall_transcript"];
+    const yearsBack = milestone?.config?.yearsBack ?? 3;
 
     const allDocuments: FetchedDocument[] = [];
     let bseResult: BseFilingsResult = { scripCode: "", companyName, filings: [], fetchedAt: new Date().toISOString() };
@@ -79,7 +81,7 @@ export class DocumentAgent {
           url: filing.url,
           sourceExchange: "BSE",
           date: filing.date,
-          scripCode: bseResult.scripCode,
+          scripCode: filing.scripCode,
         });
 
         // Record in ScrapeJob audit table
@@ -94,10 +96,7 @@ export class DocumentAgent {
     // ── Step 2: NSE Filings ─────────────────────────────────────────────────
     try {
       console.log(`[DocumentAgent] Fetching NSE filings for ${ticker}...`);
-      nseResult = await fetchNseFilings(ticker, {
-        yearsBack,
-        maxResults: 40,
-      });
+      nseResult = await fetchNseFilings(ticker, { yearsBack });
 
       for (const filing of nseResult.filings) {
         if (!filing.url) continue;
@@ -121,7 +120,7 @@ export class DocumentAgent {
     }
 
     // ── Step 3: Concall Transcripts ─────────────────────────────────────────
-    if (sourceTypes.includes("concall_transcript")) {
+    if (Array.isArray(sourceTypes) && sourceTypes.includes("concall_transcript")) {
       try {
         console.log(`[DocumentAgent] Fetching concall transcript for ${ticker}...`);
         const concall = await fetchConcallTranscript(ticker, { apiKey });
@@ -156,14 +155,21 @@ export class DocumentAgent {
       summary: this.buildSummary(ticker, allDocuments, concallTranscripts),
     };
 
-    await prisma.subagentRun.update({
-      where: { id: runId },
-      data: {
-        status: output.milestoneCompleted ? "completed" : "failed",
-        outputJson: output as unknown as import("@prisma/client").Prisma.JsonObject,
-        latencyMs: Date.now(), // caller computes elapsed
-      },
-    }).catch((e) => console.warn("[DocumentAgent] Failed to update SubagentRun:", e));
+    try {
+      const runExists = await prisma.subagentRun.findUnique({ where: { id: runId } }).catch(() => null);
+      if (runExists) {
+        await prisma.subagentRun.update({
+          where: { id: runId },
+          data: {
+            status: output.milestoneCompleted ? "completed" : "failed",
+            outputJson: output as unknown as import("@prisma/client").Prisma.JsonObject,
+            latencyMs: Date.now() - startTime,
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     return output;
   }
@@ -172,6 +178,7 @@ export class DocumentAgent {
 
   private getBseCategories(sourceTypes: FetchDocumentsMilestone["config"]["sourceTypes"]): string[] {
     const cats: string[] = [];
+    if (!Array.isArray(sourceTypes)) return cats;
     if (sourceTypes.includes("annual_report")) cats.push("Annual Report");
     if (sourceTypes.includes("quarterly_results")) cats.push("Results");
     if (sourceTypes.includes("drhp")) cats.push("Prospectus");

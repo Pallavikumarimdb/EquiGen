@@ -27,13 +27,25 @@ export async function GET(req: NextRequest) {
     // Enforce Tenant Isolation Check: Verify report ownership
     const report = await prisma.reportHistory.findUnique({
       where: { id: reportId },
-    });
+    }).catch(() => null);
 
     if (!report) {
-      return NextResponse.json(
-        { message: "Report not found." },
-        { status: 404 },
-      );
+      // Check if this is an autonomous ResearchPlan ID
+      const plan = await prisma.researchPlan.findUnique({
+        where: { id: reportId },
+      }).catch(() => null);
+
+      if (plan) {
+        return NextResponse.json({
+          id: plan.id,
+          reportId: plan.id,
+          status: plan.status,
+          goalText: plan.goalText,
+          createdAt: plan.createdAt,
+        });
+      }
+
+      return NextResponse.json({ success: true, session: null }, { status: 200 });
     }
 
     const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);

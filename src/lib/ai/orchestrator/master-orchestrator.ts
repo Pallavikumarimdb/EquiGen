@@ -116,7 +116,20 @@ export class MasterOrchestrator {
         };
       }
 
-      // 3. Execute milestone based on type
+      // 3. Create SubagentRun in DB if plan exists
+      if (plan) {
+        await prisma.subagentRun.create({
+          data: {
+            id: milestoneRunId,
+            planId,
+            agentType: milestone.agentType ?? "document",
+            milestoneRef: milestone.id,
+            status: "running",
+          },
+        }).catch(() => {});
+      }
+
+      // 4. Execute milestone based on type
       trajectoryBus.emitEvent(planId, "planner_thought", {
         reasoning: `Step ${i + 1}/${milestones.length}: Executing milestone '${milestone.label}' [${milestone.type}]...`,
       }, milestone.id);

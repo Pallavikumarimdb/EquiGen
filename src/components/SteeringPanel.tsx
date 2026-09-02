@@ -16,6 +16,7 @@ interface SteeringPanelProps {
   planId: string;
   isPaused?: boolean;
   hasActivePlan?: boolean;
+  planStatusProp?: string;
   onSteer?: (eventType: SteeringEventType, payload?: Record<string, unknown>) => void;
 }
 
@@ -23,26 +24,40 @@ export function SteeringPanel({
   planId,
   isPaused = false,
   hasActivePlan = false,
+  planStatusProp,
   onSteer,
 }: SteeringPanelProps) {
   const [redirectInput, setRedirectInput] = useState("");
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
-  const [planStatus, setPlanStatus] = useState<"RUNNING" | "PAUSED" | "CANCELLED" | "STANDBY">(
-    hasActivePlan ? (isPaused ? "PAUSED" : "RUNNING") : "STANDBY"
+  const [planStatus, setPlanStatus] = useState<"RUNNING" | "PAUSED" | "CANCELLED" | "COMPLETED" | "STANDBY">(
+    hasActivePlan
+      ? planStatusProp?.toUpperCase() === "COMPLETED"
+        ? "COMPLETED"
+        : planStatusProp?.toUpperCase() === "CANCELLED"
+        ? "CANCELLED"
+        : isPaused
+        ? "PAUSED"
+        : "RUNNING"
+      : "STANDBY"
   );
 
-  // Sync state when props change
+  // Sync state when active plan or status props change
   useEffect(() => {
+    const statusUpper = planStatusProp?.toUpperCase();
     if (!hasActivePlan) {
       setPlanStatus("STANDBY");
-    } else if (isPaused) {
+    } else if (statusUpper === "COMPLETED") {
+      setPlanStatus("COMPLETED");
+    } else if (statusUpper === "CANCELLED") {
+      setPlanStatus("CANCELLED");
+    } else if (statusUpper === "PAUSED" || isPaused) {
       setPlanStatus("PAUSED");
     } else {
       setPlanStatus("RUNNING");
     }
-  }, [hasActivePlan, isPaused]);
+  }, [hasActivePlan, isPaused, planId, planStatusProp]);
 
-  // Subscribe to SSE trajectory events for persistent status sync
+  // Subscribe to SSE trajectory events for real-time status updates
   useEffect(() => {
     if (!planId || !hasActivePlan) return;
 
@@ -61,7 +76,7 @@ export function SteeringPanel({
     });
 
     eventSource.addEventListener("plan_complete", () => {
-      setPlanStatus("CANCELLED");
+      setPlanStatus("COMPLETED");
     });
 
     return () => {
@@ -95,11 +110,11 @@ export function SteeringPanel({
 
   const submitRedirect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!redirectInput.trim() || !hasActivePlan || planStatus === "CANCELLED") return;
+    if (!redirectInput.trim() || !hasActivePlan || planStatus === "CANCELLED" || planStatus === "COMPLETED") return;
     handleSteerAction("redirect", { instruction: redirectInput.trim() });
   };
 
-  const isDisabled = !hasActivePlan || planStatus === "CANCELLED" || loadingAction !== null;
+  const isDisabled = !hasActivePlan || planStatus === "CANCELLED" || planStatus === "COMPLETED" || loadingAction !== null;
 
   return (
     <div className="bg-[#121217] border border-white/[0.08] rounded-2xl p-3.5 space-y-3 font-sans shadow-xl">
@@ -112,6 +127,8 @@ export function SteeringPanel({
                 ? "bg-emerald-400 animate-ping"
                 : hasActivePlan && planStatus === "PAUSED"
                 ? "bg-amber-400"
+                : hasActivePlan && planStatus === "COMPLETED"
+                ? "bg-indigo-400"
                 : hasActivePlan && planStatus === "CANCELLED"
                 ? "bg-rose-500"
                 : "bg-slate-500"
@@ -120,96 +137,88 @@ export function SteeringPanel({
           Analyst Steering Controls
         </span>
         <span
-          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-            hasActivePlan && planStatus === "RUNNING"
-              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-              : hasActivePlan && planStatus === "PAUSED"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-              : hasActivePlan && planStatus === "CANCELLED"
-              ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-              : "bg-white/5 text-slate-500 border border-white/10"
+          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest border ${
+            planStatus === "RUNNING"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              : planStatus === "PAUSED"
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+              : planStatus === "COMPLETED"
+              ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400"
+              : planStatus === "CANCELLED"
+              ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+              : "bg-slate-500/10 border-slate-500/30 text-slate-400"
           }`}
         >
-          {hasActivePlan ? planStatus : "STANDBY"}
+          {planStatus}
         </span>
       </div>
 
-      {/* Action Buttons Grid */}
+      {/* Button Controls Bar */}
       <div className="grid grid-cols-4 gap-2">
-        {/* Pause / Resume Button */}
-        <button
-          onClick={() => handleSteerAction(planStatus === "PAUSED" ? "resume" : "pause")}
-          disabled={isDisabled}
-          className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap disabled:opacity-30 ${
-            planStatus === "PAUSED"
-              ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30"
-              : "bg-amber-600/20 border-amber-500/40 text-amber-300 hover:bg-amber-600/30"
-          }`}
-        >
-          {loadingAction === "pause" || loadingAction === "resume" ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-          ) : planStatus === "PAUSED" ? (
-            <><Play className="w-3.5 h-3.5 shrink-0" /> Resume</>
-          ) : (
-            <><Pause className="w-3.5 h-3.5 shrink-0" /> Pause</>
-          )}
-        </button>
+        {planStatus === "PAUSED" ? (
+          <button
+            onClick={() => handleSteerAction("resume")}
+            disabled={isDisabled}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm"
+          >
+            {loadingAction === "resume" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+            Resume
+          </button>
+        ) : (
+          <button
+            onClick={() => handleSteerAction("pause")}
+            disabled={isDisabled || planStatus !== "RUNNING"}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 disabled:opacity-40 text-amber-300 rounded-xl text-xs font-semibold transition-all"
+          >
+            {loadingAction === "pause" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
+            Pause
+          </button>
+        )}
 
-        {/* Skip Step */}
         <button
           onClick={() => handleSteerAction("skip_milestone")}
-          disabled={isDisabled}
-          className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 transition-all whitespace-nowrap disabled:opacity-30"
+          disabled={isDisabled || planStatus !== "RUNNING"}
+          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
         >
-          {loadingAction === "skip_milestone" ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-          ) : (
-            <><FastForward className="w-3.5 h-3.5 shrink-0" /> Skip</>
-          )}
+          {loadingAction === "skip_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FastForward className="w-3.5 h-3.5" />}
+          Skip
         </button>
 
-        {/* Approve Step Gate */}
         <button
           onClick={() => handleSteerAction("approve_milestone")}
-          disabled={isDisabled}
-          className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 transition-all whitespace-nowrap disabled:opacity-30"
+          disabled={isDisabled || planStatus !== "PAUSED"}
+          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-semibold transition-all"
         >
-          {loadingAction === "approve_milestone" ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-          ) : (
-            <><CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Approve</>
-          )}
+          {loadingAction === "approve_milestone" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+          Approve
         </button>
 
-        {/* Cancel Plan */}
         <button
           onClick={() => handleSteerAction("cancel")}
-          disabled={isDisabled}
-          className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold bg-rose-600/20 border border-rose-500/30 text-rose-300 hover:bg-rose-600/30 transition-all whitespace-nowrap disabled:opacity-30"
+          disabled={isDisabled || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
+          className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 disabled:opacity-40 text-rose-400 rounded-xl text-xs font-semibold transition-all"
         >
-          {loadingAction === "cancel" ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-          ) : (
-            <><XCircle className="w-3.5 h-3.5 shrink-0" /> {planStatus === "CANCELLED" ? "Cancelled" : "Cancel"}</>
-          )}
+          {loadingAction === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+          Cancel
         </button>
       </div>
 
-      {/* Redirect Input Field */}
-      <form onSubmit={submitRedirect} className="relative flex items-center">
+      {/* Mid-Flight Analyst Redirect Bar */}
+      <form onSubmit={submitRedirect} className="flex gap-2">
         <input
+          type="text"
           value={redirectInput}
           onChange={(e) => setRedirectInput(e.target.value)}
-          disabled={isDisabled}
-          placeholder={hasActivePlan ? "Redirect agent mid-flight (e.g. 'Focus on EV margins')..." : "Launch a plan to enable steering..."}
-          className="w-full pl-3 pr-9 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all disabled:opacity-30"
+          disabled={isDisabled || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
+          placeholder={hasActivePlan ? "Inject analyst instruction (e.g. 'Use 12% WACC')..." : "No active research run..."}
+          className="flex-1 px-3 py-1.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 disabled:opacity-40 transition-all font-mono"
         />
         <button
           type="submit"
-          disabled={!redirectInput.trim() || isDisabled}
-          className="absolute right-1.5 p-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-lg transition-all"
+          disabled={isDisabled || !redirectInput.trim() || (planStatus !== "RUNNING" && planStatus !== "PAUSED")}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center justify-center"
         >
-          <CornerDownLeft className="w-3.5 h-3.5" />
+          {loadingAction === "redirect" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CornerDownLeft className="w-3.5 h-3.5" />}
         </button>
       </form>
     </div>

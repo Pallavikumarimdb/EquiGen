@@ -51,10 +51,11 @@ const DEPTH_OPTIONS: { value: ResearchDepth; label: string; desc: string; badgeC
 
 interface GoalTerminalProps {
   sessionId: string;
+  activePlanId?: string | null;
   onPlanApproved: (plan: ResearchPlanRecord) => void;
 }
 
-export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
+export function GoalTerminal({ sessionId, activePlanId, onPlanApproved }: GoalTerminalProps) {
   const [goalText, setGoalText] = useState("");
   const [ticker, setTicker] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -63,6 +64,19 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
   const [plan, setPlan] = useState<ResearchPlanRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+
+  // Reset to brand new goal input phase when activePlanId is reset to null
+  React.useEffect(() => {
+    if (!activePlanId) {
+      setGoalText("");
+      setTicker("");
+      setCompanyName("");
+      setDepth("standard");
+      setPhase("input");
+      setPlan(null);
+      setError(null);
+    }
+  }, [activePlanId]);
 
   const handleGeneratePlan = async () => {
     if (!goalText.trim() || !ticker.trim() || !companyName.trim()) return;
@@ -132,7 +146,7 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
           <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
             Autonomous Research Goal
             <span className="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono font-semibold">
-              Devin Agent
+              EquiGen Agent
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">

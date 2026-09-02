@@ -79,15 +79,22 @@ export class ModelingAgent {
       summary: this.buildSummary(ticker, companyName, modelOutput),
     };
 
-    // Update SubagentRun record in DB
-    await prisma.subagentRun.update({
-      where: { id: runId },
-      data: {
-        status: "completed",
-        outputJson: output as unknown as import("@prisma/client").Prisma.JsonObject,
-        latencyMs: Date.now() - startTime,
-      },
-    }).catch((err) => console.warn("[ModelingAgent] Failed to update SubagentRun:", err));
+    // Update SubagentRun record in DB (if record exists)
+    try {
+      const runExists = await prisma.subagentRun.findUnique({ where: { id: runId } }).catch(() => null);
+      if (runExists) {
+        await prisma.subagentRun.update({
+          where: { id: runId },
+          data: {
+            status: "completed",
+            outputJson: output as unknown as import("@prisma/client").Prisma.JsonObject,
+            latencyMs: Date.now() - startTime,
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     return output;
   }

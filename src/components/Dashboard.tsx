@@ -316,14 +316,31 @@ export function Dashboard() {
 
   // Resizable panel widths (sidebar, config, chat) with localStorage persistence
   const [panelWidths, setPanelWidths] =
-    useState<Record<PanelKey, number>>(loadPanelWidths);
+    useState<Record<PanelKey, number>>(DEFAULT_PANEL_WIDTHS);
   const [activeResizer, setActiveResizer] = useState<PanelKey | null>(null);
+
+  // Restore panel widths from localStorage on client mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("equigen_panel_widths");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPanelWidths({
+          sidebar: clampPanelWidth(Number(parsed.sidebar) || DEFAULT_PANEL_WIDTHS.sidebar, "sidebar"),
+          config: clampPanelWidth(Number(parsed.config) || DEFAULT_PANEL_WIDTHS.config, "config"),
+          chat: clampPanelWidth(Number(parsed.chat) || DEFAULT_PANEL_WIDTHS.chat, "chat"),
+        });
+      }
+    } catch {
+      // Storage unavailable
+    }
+  }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem("equigen_panel_widths", JSON.stringify(panelWidths));
     } catch {
-      // Storage unavailable — widths simply won't persist
+      // Storage unavailable
     }
   }, [panelWidths]);
 
@@ -1890,6 +1907,7 @@ export function Dashboard() {
               : "transition-all duration-300"
             : "w-0 overflow-hidden lg:w-14"
         }`}
+        suppressHydrationWarning
         style={isSidebarOpen ? { width: panelWidths.sidebar } : undefined}
       >
         {/* Logo */}
@@ -1934,7 +1952,14 @@ export function Dashboard() {
             </div>
           )}
           <button
-            onClick={() => { setDashboardMode("upload"); startNewAnalysis(); }}
+            onClick={() => {
+              if (dashboardMode === "autonomous") {
+                startNewAnalysis();
+              } else {
+                setDashboardMode("upload");
+                startNewAnalysis();
+              }
+            }}
             className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-blue-600/20 ${!isSidebarOpen && "justify-center px-0"}`}
             style={{ background: dashboardMode === "autonomous" ? "linear-gradient(135deg,#7c3aed,#6366f1)" : "linear-gradient(135deg,#2563eb,#1d4ed8)" }}
           >
@@ -2032,7 +2057,7 @@ export function Dashboard() {
                     : undefined
                 }
                 className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                  reportData?.company?.ticker === item.id
+                  activeReportId === item.id
                     ? "bg-blue-600/20 text-blue-300 border border-blue-500/20"
                     : "hover:bg-white/[0.04] text-slate-400 hover:text-slate-200"
                 } ${!isSidebarOpen && "justify-center px-0"}`}
@@ -2137,7 +2162,7 @@ export function Dashboard() {
               </h1>
               <p className="text-[10px] text-slate-500 font-medium mt-0.5">
                 {dashboardMode === "autonomous"
-                  ? "Devin-style goal decomposition, living draft synthesis, & real-time trajectory steering"
+                  ? "EquiGen-style goal decomposition, living draft synthesis, & real-time trajectory steering"
                   : "Geojit-style publication-grade PDF reports from raw financials"}
               </p>
             </div>
@@ -2303,13 +2328,17 @@ export function Dashboard() {
           {/* Autonomous Research Goal Terminal & Trajectory Workspace */}
           {dashboardMode === "autonomous" ? (
             <div className="flex-1 flex overflow-hidden bg-[#0a0a0f]">
-              <AgentWorkspace sessionId={activeSessionId || "session-demo"} />
+              <AgentWorkspace
+                sessionId={activeSessionId || "session-demo"}
+                activePlanId={activeReportId}
+              />
             </div>
           ) : (
             <>
               {/* ─── Column 1 — Configuration ─────────────────────── */}
               {showConfig && (
                 <div
+                  suppressHydrationWarning
                   className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
                   style={
                     {
