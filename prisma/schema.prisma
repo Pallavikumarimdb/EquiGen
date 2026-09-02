@@ -314,9 +314,11 @@ model ResearchSession {
   createdAt DateTime @default(now())
   messages  ConversationMessage[]
   toolCalls ToolCall[]
+  researchPlans ResearchPlan[]
 
   @@index([orgId])
 }
+
 
 model ConversationMessage {
   id        String   @id @default(uuid())
@@ -348,3 +350,74 @@ model GoldenExample {
   difficultyTag   String   @default("medium") // "easy" | "medium" | "hard" | "edge_case"
   createdAt       DateTime @default(now())
 }
+
+// ─── plan4.md: Autonomous AI Analyst Models ──────────────────────────────────
+
+model ResearchPlan {
+  id             String          @id @default(uuid())
+  sessionId      String
+  goalText       String
+  milestones     Json            // MilestonePlan[]
+  depth          String          @default("standard") // "quick" | "standard" | "deep"
+  costEstimate   Float?          // USD
+  latencyEstS    Int?            // seconds
+  status         String          @default("pending") // pending|approved|running|completed|failed|cancelled
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  session        ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  subagentRuns   SubagentRun[]
+  steeringEvents SteeringEvent[]
+}
+
+model SubagentRun {
+  id              String           @id @default(uuid())
+  planId          String
+  agentType       String           // "document" | "modeling" | "market_intel" | "compliance" | "synthesis"
+  milestoneRef    String?
+  status          String           @default("running") // running|completed|failed
+  inputJson       Json?
+  outputJson      Json?
+  latencyMs       Int?
+  costUsd         Float?
+  createdAt       DateTime         @default(now())
+  plan            ResearchPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  sandboxArtifacts SandboxArtifact[]
+  scrapeJobs      ScrapeJob[]
+}
+
+model SandboxArtifact {
+  id           String      @id @default(uuid())
+  runId        String
+  artifactType String      // "python_script" | "chart_png" | "csv" | "json" | "compliance_report_json"
+  storageUrl   String?
+  codeText     String?
+  stdout       String?
+  stderr       String?
+  exitCode     Int?
+  createdAt    DateTime    @default(now())
+  run          SubagentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model ScrapeJob {
+  id            String      @id @default(uuid())
+  runId         String
+  url           String
+  sourceType    String?     // "bse_filing" | "nse_filing" | "screener" | "concall_transcript" | "drhp"
+  rawHtmlUrl    String?
+  extractedText String?
+  status        String      @default("queued") // queued|running|completed|failed
+  createdAt     DateTime    @default(now())
+  run           SubagentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model SteeringEvent {
+  id        String       @id @default(uuid())
+  planId    String
+  actorId   String?
+  eventType String       // "pause" | "resume" | "redirect" | "cancel" | "approve_milestone" | "skip_milestone"
+  payload   Json?
+  createdAt DateTime     @default(now())
+  plan      ResearchPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+}
+
