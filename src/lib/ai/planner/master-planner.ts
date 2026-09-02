@@ -237,21 +237,28 @@ export class MasterPlannerAgent {
     // Step 4: Persist to DB (with graceful offline fallback)
     try {
       const plan = await prisma.researchPlan.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: {
           sessionId,
           goalText,
+          ticker,
+          companyName: goal.companyName,
           milestones: milestones as unknown as import("@prisma/client").Prisma.JsonArray,
           depth,
           costEstimate,
           latencyEstS,
           status: "pending",
-        },
+        } as any,
       });
 
       return {
         id: plan.id,
         sessionId: plan.sessionId,
         goalText: plan.goalText,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ticker: (plan as any).ticker ?? ticker,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        companyName: (plan as any).companyName ?? goal.companyName,
         milestones,
         depth: plan.depth as ResearchDepth,
         costEstimate: plan.costEstimate ?? 0,
@@ -267,6 +274,8 @@ export class MasterPlannerAgent {
         id: `plan_offline_${Date.now()}`,
         sessionId,
         goalText,
+        ticker,
+        companyName: goal.companyName,
         milestones,
         depth,
         costEstimate,
@@ -302,18 +311,22 @@ export class MasterPlannerAgent {
     });
 
     return {
-      id: plan.id,
-      sessionId: plan.sessionId,
-      goalText: plan.goalText,
-      milestones: (plan.milestones as unknown as MilestonePlan[]) ?? [],
-      depth: plan.depth as ResearchDepth,
-      costEstimate: plan.costEstimate ?? 0,
-      latencyEstS: plan.latencyEstS ?? 0,
-      status: plan.status as ResearchPlanRecord["status"],
-      approvedBy: plan.approvedBy,
-      approvedAt: plan.approvedAt?.toISOString() ?? null,
-      createdAt: plan.createdAt.toISOString(),
-    };
+        id: plan.id,
+        sessionId: plan.sessionId,
+        goalText: plan.goalText,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ticker: (plan as any).ticker ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        companyName: (plan as any).companyName ?? undefined,
+        milestones: (plan.milestones as unknown as MilestonePlan[]) ?? [],
+        depth: plan.depth as ResearchDepth,
+        costEstimate: plan.costEstimate ?? 0,
+        latencyEstS: plan.latencyEstS ?? 0,
+        status: plan.status as ResearchPlanRecord["status"],
+        approvedBy: plan.approvedBy,
+        approvedAt: plan.approvedAt?.toISOString() ?? null,
+        createdAt: plan.createdAt.toISOString(),
+      };
   }
 
   /**
@@ -346,6 +359,10 @@ export class MasterPlannerAgent {
       id: plan.id,
       sessionId: plan.sessionId,
       goalText: plan.goalText,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ticker: (plan as any).ticker ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      companyName: (plan as any).companyName ?? undefined,
       milestones: (plan.milestones as unknown as MilestonePlan[]) ?? [],
       depth: plan.depth as ResearchDepth,
       costEstimate: plan.costEstimate ?? 0,

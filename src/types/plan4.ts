@@ -110,6 +110,10 @@ export interface ResearchPlanRecord {
   id: string;
   sessionId: string;
   goalText: string;
+  /** Primary company ticker e.g. "TATAMOTORS" */
+  ticker?: string;
+  /** Company display name e.g. "Tata Motors Limited" */
+  companyName?: string;
   milestones: MilestonePlan[];
   depth: ResearchDepth;
   costEstimate: number;  // USD total

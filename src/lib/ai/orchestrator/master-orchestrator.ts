@@ -4,6 +4,10 @@
  * Document Agent -> Modeling Agent -> Market Intel Agent -> Synthesis Agent -> Compliance Agent.
  * Listens to analyst steering state (Pause, Resume, Redirect, Skip, Cancel) in real-time
  * and broadcasts SSE trajectory events.
+ *
+ * FIX: Removed all hardcoded "TATAMOTORS"/"Tata Motors Limited" strings.
+ * Ticker and companyName are now read from the ResearchPlan DB record (stored by MasterPlannerAgent).
+ * Fallback extraction from goalText is provided when the plan predates this fix.
  */
 
 import { ResearchPlanRecord, MilestonePlan, TrajectoryEvent } from "@/types/plan4";
@@ -25,38 +29,75 @@ export interface OrchestrationResult {
   latencyMs: number;
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a ticker and company name from a natural-language goal text as a best-effort fallback.
+ * Used only when the plan was created before ticker/companyName were persisted to the DB.
+ * Format expected: "... <TICKER> ..." or "... on <CompanyName> ..."
+ */
+function extractTickerFromGoalText(goalText: string): { ticker: string; companyName: string } {
+  // Try to match NSE-style uppercase ticker (2-12 uppercase letters/digits)
+  const tickerMatch = goalText.match(/\b([A-Z][A-Z0-9_&]{1,11})\b/);
+  const ticker = tickerMatch?.[1] ?? "UNKNOWN";
+
+  // Try to match "on <Company Name>" or "for <Company Name>"
+  const nameMatch = goalText.match(/(?:on|for)\s+([A-Z][A-Za-z\s&.]+?)(?:\s+[–—-]|\s+stock|\s+\(|,|$)/);
+  const companyName = nameMatch?.[1]?.trim() ?? ticker;
+
+  return { ticker, companyName };
+}
+
+// ─── Master Orchestrator ───────────────────────────────────────────────────────
+
 export class MasterOrchestrator {
   /**
-   * Executes a complete ResearchPlan milestone sequence
+   * Executes a complete ResearchPlan milestone sequence.
+   * All agent calls use the ticker and companyName stored in the ResearchPlan record —
+   * no company is ever hardcoded here.
    */
   public async executePlan(
     planId: string,
     apiKey?: string
-  ): PromiseOrchestrationResult {
+  ): Promise<OrchestrationResult> {
     const startTime = Date.now();
 
-    // 1. Fetch Plan record from DB (with graceful offline fallback)
+    // 1. Fetch Plan record from DB
     const plan = await prisma.researchPlan.findUnique({
       where: { id: planId },
     }).catch(() => null);
 
-    const defaultMilestones: MilestonePlan[] = [
-      { id: "m1", type: "fetch_documents", label: "Fetch Filings", description: "BSE/NSE filings", agentType: "document", estimatedMinutes: 5, estimatedCostUsd: 0.15, status: "pending", config: { sourceTypes: ["annual_report"], yearsBack: 3 } as any },
-      { id: "m2", type: "build_financial_model", label: "Build DCF Model", description: "5-year DCF", agentType: "modeling", estimatedMinutes: 10, estimatedCostUsd: 0.35, status: "pending", config: { modelType: "dcf", projectionYears: 5, runMonteCarlo: true, runSensitivity: true } as any },
-      { id: "m3", type: "peer_benchmark", label: "Peer Benchmarking", description: "Peer multiples", agentType: "market_intel", estimatedMinutes: 5, estimatedCostUsd: 0.20, status: "pending", config: { peerTickers: ["M_M", "HEROMOTOCO"], metrics: ["pe", "ev_ebitda"] } as any },
-      { id: "m4", type: "synthesise", label: "Synthesize Report", description: "Report assembly", agentType: "synthesis", estimatedMinutes: 5, estimatedCostUsd: 0.30, status: "pending", config: { targetWordCount: 2500 } as any },
-      { id: "m5", type: "compliance_audit", label: "SEBI Audit", description: "SEBI compliance check", agentType: "compliance", estimatedMinutes: 2, estimatedCostUsd: 0.10, status: "pending", config: { ruleSet: "SEBI_RA_2014" } as any },
-    ];
+    if (!plan) {
+      return {
+        planId,
+        status: "failed",
+        completedMilestones: [],
+        skippedMilestones: [],
+        finalReportSections: [],
+        latencyMs: Date.now() - startTime,
+      };
+    }
 
-    // Parse milestones JSON or fallback
-    const milestones = plan
-      ? ((plan.milestones as unknown as MilestonePlan[]) ?? defaultMilestones)
-      : defaultMilestones;
-    const goalText = plan ? plan.goalText : "Initiation coverage on Tata Motors — DCF valuation & peer benchmark";
+    const milestones = (plan.milestones as unknown as MilestonePlan[]) ?? [];
+    const goalText = plan.goalText;
+
+    // 2. Resolve ticker and companyName from the plan record.
+    //    Falls back to goalText extraction for plans created before the schema migration.
+    const fallback = extractTickerFromGoalText(goalText);
+    const ticker: string = (plan as Record<string, unknown>).ticker as string ?? fallback.ticker;
+    const companyName: string = (plan as Record<string, unknown>).companyName as string ?? fallback.companyName;
+
+    if (!ticker || ticker === "UNKNOWN") {
+      console.warn(
+        `[MasterOrchestrator] Could not resolve ticker for plan ${planId}. ` +
+        `GoalText: "${goalText.slice(0, 80)}". Proceeding with best-effort fallback.`
+      );
+    }
 
     // Emit initial planner thought
     trajectoryBus.emitEvent(planId, "planner_thought", {
-      reasoning: `Master Orchestrator initiated execution for goal: "${goalText.slice(0, 60)}...". Sequence has ${milestones.length} milestones.`,
+      reasoning: `Master Orchestrator initiated for "${companyName}" (${ticker}). ` +
+        `Goal: "${goalText.slice(0, 60)}...". Sequence has ${milestones.length} milestones.`,
     });
 
     // Shared execution context across milestones
@@ -69,18 +110,18 @@ export class MasterOrchestrator {
     const completedMilestones: string[] = [];
     const skippedMilestones: string[] = [];
 
-    // Update plan status to running
+    // Mark plan as running
     await prisma.researchPlan.update({
       where: { id: planId },
       data: { status: "running" },
     }).catch(() => {});
 
-    // 2. Iterate through milestones
+    // 3. Iterate through milestones
     for (let i = 0; i < milestones.length; i++) {
       const milestone = milestones[i];
       const milestoneRunId = `run_${milestone.id}_${Date.now()}`;
 
-      // Check current plan status in DB for steering interventions (pause / cancel)
+      // Check for steering interventions (pause / cancel)
       const currentPlanState = await prisma.researchPlan.findUnique({
         where: { id: planId },
         select: { status: true },
@@ -116,22 +157,20 @@ export class MasterOrchestrator {
         };
       }
 
-      // 3. Create SubagentRun in DB if plan exists
-      if (plan) {
-        await prisma.subagentRun.create({
-          data: {
-            id: milestoneRunId,
-            planId,
-            agentType: milestone.agentType ?? "document",
-            milestoneRef: milestone.id,
-            status: "running",
-          },
-        }).catch(() => {});
-      }
+      // Create SubagentRun in DB
+      await prisma.subagentRun.create({
+        data: {
+          id: milestoneRunId,
+          planId,
+          agentType: milestone.agentType ?? "document",
+          milestoneRef: milestone.id,
+          status: "running",
+        },
+      }).catch(() => {});
 
-      // 4. Execute milestone based on type
+      // Emit step start
       trajectoryBus.emitEvent(planId, "planner_thought", {
-        reasoning: `Step ${i + 1}/${milestones.length}: Executing milestone '${milestone.label}' [${milestone.type}]...`,
+        reasoning: `Step ${i + 1}/${milestones.length}: Executing milestone '${milestone.label}' [${milestone.type}] for ${ticker}...`,
       }, milestone.id);
 
       try {
@@ -151,11 +190,13 @@ export class MasterOrchestrator {
           documentOutput = await documentAgent.run({
             planId,
             runId: milestoneRunId,
-            ticker: "TATAMOTORS",
-            companyName: "Tata Motors Limited",
+            ticker,
+            companyName,
             milestone: docMilestone,
+            apiKey,
           });
           completedMilestones.push(milestone.id);
+
         } else if (milestone.type === "build_financial_model") {
           const modelMilestone = {
             id: milestone.id,
@@ -172,11 +213,15 @@ export class MasterOrchestrator {
           modelingOutput = await modelingAgent.run({
             planId,
             runId: milestoneRunId,
-            ticker: "TATAMOTORS",
-            companyName: "Tata Motors Limited",
+            ticker,
+            companyName,
             milestone: modelMilestone,
+            // Pass extracted financials from document phase when available
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            extractedFinancials: (documentOutput as any)?.extractedFinancials ?? undefined,
           });
           completedMilestones.push(milestone.id);
+
         } else if (milestone.type === "peer_benchmark") {
           const marketMilestone = {
             id: milestone.id,
@@ -188,42 +233,54 @@ export class MasterOrchestrator {
             estimatedCostUsd: 0.20,
             status: "running" as const,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            config: (milestone as any).config ?? { peerTickers: ["M_M", "HEROMOTOCO"], metrics: ["pe", "ev_ebitda"] },
+            config: (milestone as any).config ?? { peerTickers: [], metrics: ["pe", "ev_ebitda"] },
           };
           marketIntelOutput = await marketIntelAgent.run({
             planId,
             runId: milestoneRunId,
-            ticker: "TATAMOTORS",
-            companyName: "Tata Motors Limited",
+            ticker,
+            companyName,
             milestone: marketMilestone,
+            apiKey,
           });
           completedMilestones.push(milestone.id);
+
         } else if (milestone.type === "synthesise") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const synthResult = await synthesisAgent.run({
             planId,
-            ticker: "TATAMOTORS",
-            companyName: "Tata Motors Limited",
+            ticker,
+            companyName,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             modelingData: (modelingOutput as any)?.modelOutput,
             marketIntelData: {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              benchmarkTableMarkdown: (marketIntelOutput as any)?.peerBenchmarkMarkdown,
-              creditRating: "CRISIL AAA/Stable",
+              benchmarkTableMarkdown: (marketIntelOutput as any)?.benchmarkMarkdown,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              creditRating: (marketIntelOutput as any)?.creditRatings?.overallCreditProfile ?? "N/A",
             },
+            // Pass concall management quotes for management Q&A section
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            concallTranscripts: (documentOutput as any)?.concallTranscripts ?? [],
           }, apiKey);
           synthesisOutput = synthResult;
           completedMilestones.push(milestone.id);
+
         } else if (milestone.type === "compliance_audit") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // Use the actual analyst/org SEBI registration from the session if available
+          const sessionData = await prisma.researchSession.findFirst({
+            where: { researchPlans: { some: { id: planId } } },
+            select: { createdBy: true },
+          }).catch(() => null);
+
           const compResult = await complianceAgent.run({
             planId,
-            ticker: "TATAMOTORS",
-            companyName: "Tata Motors Limited",
+            ticker,
+            companyName,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             sections: (synthesisOutput as any)?.sections ?? [],
-            analystName: "Pallavi Kumari",
-            sebiRegNo: "INH000012345",
+            analystName: sessionData?.createdBy ?? "Certified Analyst",
+            // SEBI reg no must be provided by the org — not hardcoded
+            sebiRegNo: undefined,
           });
           complianceOutput = compResult;
           completedMilestones.push(milestone.id);
@@ -234,6 +291,7 @@ export class MasterOrchestrator {
           milestoneRef: milestone.id,
           message: err instanceof Error ? err.message : "Milestone execution error",
         });
+        // Continue with remaining milestones — partial results are better than none
       }
     }
 
@@ -245,7 +303,9 @@ export class MasterOrchestrator {
 
     trajectoryBus.emitEvent(planId, "plan_complete", {
       planId,
-      summary: `Research plan execution completed successfully! Total Latency: ${((Date.now() - startTime) / 1000).toFixed(1)}s`,
+      ticker,
+      companyName,
+      summary: `Research plan for ${companyName} (${ticker}) completed. Total Latency: ${((Date.now() - startTime) / 1000).toFixed(1)}s`,
     });
 
     return {

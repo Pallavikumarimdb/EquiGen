@@ -108,15 +108,15 @@ export class MarketIntelAgent {
     const divider = "|--------|" + profiles.map(() => "------").join("|") + "|";
 
     const rows = [
-      "| Market Cap (Cr) | " + profiles.map((p) => `₹${p.marketCapCr.toLocaleString()}`).join(" | ") + " |",
-      "| P/E Multiple | " + profiles.map((p) => `${p.peRatio}x`).join(" | ") + " |",
-      "| Price / Book | " + profiles.map((p) => `${p.pbRatio}x`).join(" | ") + " |",
-      "| ROCE % | " + profiles.map((p) => `${p.rocePercent}%`).join(" | ") + " |",
-      "| ROE % | " + profiles.map((p) => `${p.roePercent}%`).join(" | ") + " |",
-      "| Dividend Yield | " + profiles.map((p) => `${p.dividendYieldPercent}%`).join(" | ") + " |",
-      "| Promoter Holding | " + profiles.map((p) => `${p.shareholding.promoters}%`).join(" | ") + " |",
-      "| FII Holding | " + profiles.map((p) => `${p.shareholding.fii}%`).join(" | ") + " |",
-      "| DII Holding | " + profiles.map((p) => `${p.shareholding.dii}%`).join(" | ") + " |",
+      "| Market Cap (Cr) | " + profiles.map((p) => `₹${p.marketCapCr != null ? p.marketCapCr.toLocaleString() : "N/A"}`).join(" | ") + " |",
+      "| P/E Multiple | " + profiles.map((p) => p.peRatio != null ? `${p.peRatio}x` : "N/A").join(" | ") + " |",
+      "| Price / Book | " + profiles.map((p) => p.pbRatio != null ? `${p.pbRatio}x` : "N/A").join(" | ") + " |",
+      "| ROCE % | " + profiles.map((p) => p.rocePercent != null ? `${p.rocePercent}%` : "N/A").join(" | ") + " |",
+      "| ROE % | " + profiles.map((p) => p.roePercent != null ? `${p.roePercent}%` : "N/A").join(" | ") + " |",
+      "| Dividend Yield | " + profiles.map((p) => p.dividendYieldPercent != null ? `${p.dividendYieldPercent}%` : "N/A").join(" | ") + " |",
+      "| Promoter Holding | " + profiles.map((p) => p.shareholding.promoters != null ? `${p.shareholding.promoters}%` : "N/A").join(" | ") + " |",
+      "| FII Holding | " + profiles.map((p) => p.shareholding.fii != null ? `${p.shareholding.fii}%` : "N/A").join(" | ") + " |",
+      "| DII Holding | " + profiles.map((p) => p.shareholding.dii != null ? `${p.shareholding.dii}%` : "N/A").join(" | ") + " |",
     ];
 
     return `## Valuation & Operational Peer Benchmark

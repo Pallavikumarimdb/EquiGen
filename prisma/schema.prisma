@@ -357,6 +357,10 @@ model ResearchPlan {
   id             String          @id @default(uuid())
   sessionId      String
   goalText       String
+  /** Primary company ticker e.g. "TATAMOTORS" — used by the orchestrator to route agents */
+  ticker         String?
+  /** Display name of the company e.g. "Tata Motors Limited" */
+  companyName    String?
   milestones     Json            // MilestonePlan[]
   depth          String          @default("standard") // "quick" | "standard" | "deep"
   costEstimate   Float?          // USD
