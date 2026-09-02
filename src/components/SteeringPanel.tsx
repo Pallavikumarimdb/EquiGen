@@ -13,14 +13,33 @@ import {
   User,
   Sparkles,
   RotateCcw,
+  Wrench,
+  ChevronRight,
+  ChevronDown,
+  Brain,
+  Terminal,
+  CheckCircle,
+  FileSearch,
 } from "lucide-react";
 import { SteeringEventType } from "@/types/plan4";
+
+export interface ToolCallEvidence {
+  id: string;
+  tool: string;
+  status: "success" | "warning";
+  durationMs: number;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  summary: string;
+}
 
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  reasoning?: string;
+  toolCalls?: ToolCallEvidence[];
 }
 
 interface SteeringPanelProps {
@@ -41,6 +60,9 @@ export function SteeringPanel({
   const [redirectInput, setRedirectInput] = useState("");
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [expandedToolGroups, setExpandedToolGroups] = useState<Record<string, boolean>>({});
+  const [expandedToolDetails, setExpandedToolDetails] = useState<Record<string, boolean>>({});
+  const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [planStatus, setPlanStatus] = useState<"RUNNING" | "PAUSED" | "CANCELLED" | "COMPLETED" | "STANDBY">(
@@ -181,12 +203,19 @@ export function SteeringPanel({
         if (eventType === "cancel") setPlanStatus("CANCELLED");
         if (eventType === "redirect") {
           setRedirectInput("");
+          const newMsgId = `asst_${Date.now()}`;
           const asstMsg: ChatMessage = {
-            id: `asst_${Date.now()}`,
+            id: newMsgId,
             role: "assistant",
             content: data.response || "Model adjustments incorporated into living research draft.",
+            reasoning: data.reasoning,
+            toolCalls: data.toolCalls && data.toolCalls.length > 0 ? data.toolCalls : undefined,
             timestamp: new Date().toISOString(),
           };
+          // Default-expand tool calls so analyst immediately sees the verified execution evidence
+          if (data.toolCalls && data.toolCalls.length > 0) {
+            setExpandedToolGroups((prev) => ({ ...prev, [newMsgId]: true }));
+          }
           setMessages((prev) => [...prev, asstMsg]);
         }
         if (onSteer) onSteer(eventType, payload);
@@ -313,13 +342,133 @@ export function SteeringPanel({
                 </span>
               </div>
               <div
-                className={`px-3 py-2 rounded-2xl max-w-[90%] leading-relaxed break-words text-[11px] ${
+                className={`px-3 py-2 rounded-2xl max-w-[95%] leading-relaxed break-words text-[11px] space-y-2 ${
                   msg.role === "user"
                     ? "bg-indigo-600/30 border border-indigo-500/40 text-indigo-100 rounded-tr-xs"
                     : "bg-white/[0.05] border border-white/[0.08] text-slate-200 rounded-tl-xs"
                 }`}
               >
-                {msg.content}
+                {/* Assistant: Collapsible Thought Process */}
+                {msg.role === "assistant" && msg.reasoning && (
+                  <div className="rounded-xl bg-black/30 border border-white/5 overflow-hidden">
+                    <button
+                      onClick={() =>
+                        setExpandedThoughts((prev) => ({
+                          ...prev,
+                          [msg.id]: !prev[msg.id],
+                        }))
+                      }
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-semibold text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] transition-colors"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Brain className="w-3 h-3 text-indigo-400" />
+                        <span>Thought Process</span>
+                      </span>
+                      {expandedThoughts[msg.id] ? (
+                        <ChevronDown className="w-3 h-3 text-slate-500" />
+                      ) : (
+                        <ChevronRight className="w-3 h-3 text-slate-500" />
+                      )}
+                    </button>
+                    {expandedThoughts[msg.id] && (
+                      <div className="px-2.5 py-2 text-[10px] text-slate-400 leading-relaxed font-sans border-t border-white/5 bg-black/20 italic">
+                        {msg.reasoning}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Assistant: Collapsible Tool Calls & Research Evidence Widget */}
+                {msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div className="rounded-xl bg-[#0c0c10] border border-white/[0.08] overflow-hidden space-y-1">
+                    {/* Header Bar */}
+                    <button
+                      onClick={() =>
+                        setExpandedToolGroups((prev) => ({
+                          ...prev,
+                          [msg.id]: !prev[msg.id],
+                        }))
+                      }
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:text-white hover:bg-white/[0.04] transition-all"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Wrench className="w-3 h-3 text-emerald-400" />
+                        <span>{msg.toolCalls.length} Tool Call{msg.toolCalls.length > 1 ? "s" : ""} Executed</span>
+                        <span className="font-mono text-[9px] text-slate-500">
+                          ({msg.toolCalls.reduce((acc, t) => acc + t.durationMs, 0)}ms)
+                        </span>
+                      </span>
+                      {expandedToolGroups[msg.id] ? (
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      ) : (
+                        <ChevronRight className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+
+                    {/* Tool Calls List */}
+                    {expandedToolGroups[msg.id] && (
+                      <div className="p-2 space-y-2 border-t border-white/5 bg-black/40">
+                        {msg.toolCalls.map((tc) => (
+                          <div
+                            key={tc.id}
+                            className="rounded-lg bg-white/[0.02] border border-white/[0.06] p-2 space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-[10px] font-bold text-indigo-300 flex items-center gap-1">
+                                <Terminal className="w-3 h-3 text-indigo-400" />
+                                {tc.tool}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-mono text-slate-500">{tc.durationMs}ms</span>
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded">
+                                  PASSED
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-[10px] text-slate-300 leading-snug font-sans">
+                              {tc.summary}
+                            </p>
+
+                            {/* View Parameters & Inspection Output Toggle */}
+                            <button
+                              onClick={() =>
+                                setExpandedToolDetails((prev) => ({
+                                  ...prev,
+                                  [tc.id]: !prev[tc.id],
+                                }))
+                              }
+                              className="text-[9px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer pt-0.5"
+                            >
+                              <span>{expandedToolDetails[tc.id] ? "Hide Parameters & Evidence" : "Inspect Parameters & Output"}</span>
+                              {expandedToolDetails[tc.id] ? (
+                                <ChevronDown className="w-2.5 h-2.5" />
+                              ) : (
+                                <ChevronRight className="w-2.5 h-2.5" />
+                              )}
+                            </button>
+
+                            {expandedToolDetails[tc.id] && (
+                              <div className="space-y-1 pt-1 font-mono text-[9px]">
+                                <div className="p-1.5 rounded bg-black/70 border border-white/5 text-slate-400 max-h-32 overflow-y-auto scrollbar-thin">
+                                  <div className="text-slate-500 font-bold text-[8px] uppercase mb-0.5">Input Parameters</div>
+                                  <pre className="whitespace-pre-wrap">{JSON.stringify(tc.input, null, 2)}</pre>
+                                </div>
+                                <div className="p-1.5 rounded bg-black/70 border border-white/5 text-emerald-300 max-h-36 overflow-y-auto scrollbar-thin">
+                                  <div className="text-emerald-500 font-bold text-[8px] uppercase mb-0.5">Execution Evidence & Results</div>
+                                  <pre className="whitespace-pre-wrap">{JSON.stringify(tc.output, null, 2)}</pre>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Main Response Content */}
+                <div className="text-slate-200">{msg.content}</div>
               </div>
             </div>
           ))}

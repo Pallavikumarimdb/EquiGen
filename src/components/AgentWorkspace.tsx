@@ -7,8 +7,6 @@ import { SteeringPanel } from "./SteeringPanel";
 import { LivingDraftPanel } from "./LivingDraftPanel";
 import { ResearchPlanRecord, ReportSection } from "@/types/plan4";
 import {
-  PanelLeftClose,
-  PanelLeftOpen,
   MessageSquare,
   Activity,
   CheckCircle2,
@@ -31,7 +29,6 @@ type ViewLayout = "focused" | "split";
 export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps) {
   const [activePlan, setActivePlan] = useState<ResearchPlanRecord | null>(null);
   const [sections, setSections] = useState<ReportSection[]>([]);
-  const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
   const [rightTab, setRightTab] = useState<RightPanelTab>("copilot");
   const [viewLayout, setViewLayout] = useState<ViewLayout>("focused");
   const [isReportMaximized, setIsReportMaximized] = useState(false);
@@ -82,7 +79,6 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
     if (!activePlanId) {
       setActivePlan(null);
       setSections([]);
-      setIsLeftDrawerOpen(true); // Open goal terminal when starting a new run
       return;
     }
 
@@ -92,9 +88,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
         if (data && data.plan) {
           setActivePlan(data.plan);
           setSections(generateSectionsForPlan(data.plan.goalText, data.plan.id));
-          // If already completed, collapse left drawer to give report maximum space
           if (data.plan.status === "completed") {
-            setIsLeftDrawerOpen(false);
             setRightTab("copilot");
           } else {
             setRightTab("trajectory");
@@ -114,7 +108,6 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
           };
           setActivePlan(fallbackPlan);
           setSections(generateSectionsForPlan(fallbackPlan.goalText, activePlanId));
-          setIsLeftDrawerOpen(false);
           setRightTab("copilot");
         }
       })
@@ -132,7 +125,6 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
         };
         setActivePlan(fallbackPlan);
         setSections(generateSectionsForPlan(fallbackPlan.goalText, activePlanId));
-        setIsLeftDrawerOpen(false);
         setRightTab("copilot");
       });
   }, [activePlanId, sessionId]);
@@ -141,7 +133,6 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
     setActivePlan(plan);
     setSections(generateSectionsForPlan(plan.goalText, plan.id));
     setRightTab("trajectory");
-    setIsLeftDrawerOpen(false);
   };
 
   // Derive company name and ticker dynamically
@@ -172,49 +163,30 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
     <div className="flex flex-col h-full w-full bg-[#09090d] overflow-hidden font-sans">
       {/* ── Top Workspace Control Ribbon ─────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#121217] border-b border-white/[0.08] shrink-0 gap-3">
-        {/* Left: Milestone Drawer Toggle & Company Badge */}
+        {/* Left: Active Company & Status Badge */}
         <div className="flex items-center gap-2.5 min-w-0">
-          <button
-            onClick={() => setIsLeftDrawerOpen(!isLeftDrawerOpen)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-              isLeftDrawerOpen
-                ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
-                : "bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08] hover:text-white"
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${
+              isCompleted ? "bg-emerald-400" : "bg-blue-400 animate-ping"
+            }`}
+          />
+          <span className="text-xs font-bold text-white truncate max-w-[320px]">
+            {companyName}
+          </span>
+          {ticker && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
+              {ticker}
+            </span>
+          )}
+          <span
+            className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+              isCompleted
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-blue-500/10 border-blue-500/30 text-blue-400"
             }`}
           >
-            {isLeftDrawerOpen ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeftOpen className="w-3.5 h-3.5" />}
-            <span>Milestones Plan</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/10 font-mono">
-              {isCompleted ? "6/6" : "Running"}
-            </span>
-          </button>
-
-          <div className="h-4 w-[1px] bg-white/10 shrink-0" />
-
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                isCompleted ? "bg-emerald-400" : "bg-blue-400 animate-ping"
-              }`}
-            />
-            <span className="text-xs font-bold text-white truncate max-w-[240px]">
-              {companyName}
-            </span>
-            {ticker && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
-                {ticker}
-              </span>
-            )}
-            <span
-              className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                isCompleted
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                  : "bg-blue-500/10 border-blue-500/30 text-blue-400"
-              }`}
-            >
-              {activePlan.status}
-            </span>
-          </div>
+            {activePlan.status}
+          </span>
         </div>
 
         {/* Right: Inspector Tabs & Layout Switcher */}
@@ -286,19 +258,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
 
       {/* ── Workspace Main Stage ─────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden p-3 gap-3 relative">
-        {/* ── Left Drawer: Goal Terminal & Plan Overview (Collapsible) ─── */}
-        {isLeftDrawerOpen && (
-          <div className="w-80 2xl:w-96 shrink-0 flex flex-col h-full overflow-hidden transition-all duration-300">
-            <GoalTerminal
-              sessionId={sessionId}
-              activePlanId={activePlanId}
-              activePlan={activePlan}
-              onPlanApproved={handlePlanApproved}
-            />
-          </div>
-        )}
-
-        {/* ── Center Stage: Living Research Draft (Given Ample Space) ──── */}
+        {/* ── Center Stage: Living Research Draft (Given Full Space) ──── */}
         <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden transition-all duration-300">
           <LivingDraftPanel
             planId={activePlan?.id ?? "demo-plan-id"}
