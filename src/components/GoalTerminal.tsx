@@ -95,6 +95,14 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Failed to approve plan.");
+
+      // Kick off background execution via MasterOrchestrator
+      fetch("/api/agent/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        body: JSON.stringify({ planId: plan.id }),
+      }).catch((err) => console.warn("[GoalTerminal] Failed to trigger plan execution:", err));
+
       setPlan(data.plan as ResearchPlanRecord);
       setPhase("approved");
       onPlanApproved(data.plan as ResearchPlanRecord);

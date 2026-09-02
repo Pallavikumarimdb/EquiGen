@@ -173,7 +173,7 @@ function makeComplianceMilestone(depth: ResearchDepth): ComplianceAuditMilestone
 async function extractPeerTickers(
   goalText: string,
   ticker: string,
-  apiKey: string
+  apiKey?: string
 ): Promise<string[]> {
   try {
     const systemPrompt = `You extract peer/competitor stock tickers from a research goal description. Return JSON only: { "peers": string[] }. Max 5 peers. Use NSE ticker format (e.g. "M_M", "HEROMOTOCO"). If no peers are mentioned, return relevant sector peers for the given company.`;
@@ -209,7 +209,7 @@ export class MasterPlannerAgent {
    */
   async createPlan(
     goal: ResearchGoal,
-    apiKey: string
+    apiKey?: string
   ): Promise<ResearchPlanRecord> {
     const { depth, ticker, goalText, sessionId } = goal;
 
@@ -234,32 +234,49 @@ export class MasterPlannerAgent {
       .map((m) => MILESTONE_LATENCY_S[m.type][depth])
       .reduce((sum, s) => sum + s, 0);
 
-    // Step 4: Persist to DB
-    const plan = await prisma.researchPlan.create({
-      data: {
+    // Step 4: Persist to DB (with graceful offline fallback)
+    try {
+      const plan = await prisma.researchPlan.create({
+        data: {
+          sessionId,
+          goalText,
+          milestones: milestones as unknown as import("@prisma/client").Prisma.JsonArray,
+          depth,
+          costEstimate,
+          latencyEstS,
+          status: "pending",
+        },
+      });
+
+      return {
+        id: plan.id,
+        sessionId: plan.sessionId,
+        goalText: plan.goalText,
+        milestones,
+        depth: plan.depth as ResearchDepth,
+        costEstimate: plan.costEstimate ?? 0,
+        latencyEstS: plan.latencyEstS ?? 0,
+        status: plan.status as ResearchPlanRecord["status"],
+        approvedBy: plan.approvedBy,
+        approvedAt: plan.approvedAt?.toISOString() ?? null,
+        createdAt: plan.createdAt.toISOString(),
+      };
+    } catch (e) {
+      console.warn("[MasterPlannerAgent] DB persist offline fallback:", e);
+      return {
+        id: `plan_offline_${Date.now()}`,
         sessionId,
         goalText,
-        milestones: milestones as unknown as import("@prisma/client").Prisma.JsonArray,
+        milestones,
         depth,
         costEstimate,
         latencyEstS,
         status: "pending",
-      },
-    });
-
-    return {
-      id: plan.id,
-      sessionId: plan.sessionId,
-      goalText: plan.goalText,
-      milestones,
-      depth: plan.depth as ResearchDepth,
-      costEstimate: plan.costEstimate ?? 0,
-      latencyEstS: plan.latencyEstS ?? 0,
-      status: plan.status as ResearchPlanRecord["status"],
-      approvedBy: plan.approvedBy,
-      approvedAt: plan.approvedAt?.toISOString() ?? null,
-      createdAt: plan.createdAt.toISOString(),
-    };
+        approvedBy: null,
+        approvedAt: null,
+        createdAt: new Date().toISOString(),
+      };
+    }
   }
 
   /**

@@ -23,7 +23,7 @@ export interface DocumentAgentInput {
   companyName: string;
   isin?: string;
   milestone: FetchDocumentsMilestone;
-  apiKey: string;
+  apiKey?: string;
 }
 
 export interface FetchedDocument {

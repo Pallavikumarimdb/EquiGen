@@ -138,7 +138,7 @@ async function runTests() {
     const toolCallRes = await pythonRunTool.func({
       codeText: "print('Hello EquiGen')",
     });
-    const parsedToolRes = JSON.parse(toolCallRes);
+    const parsedToolRes = typeof toolCallRes === "string" ? JSON.parse(toolCallRes) : toolCallRes;
     if (parsedToolRes.success !== true) throw new Error("Tool call should return success=true");
 
     console.log("  ✅ python_execute Tool name & schema: ✅ Valid");
