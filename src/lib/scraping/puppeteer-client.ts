@@ -121,6 +121,9 @@ export class WebScraperClient {
     status = "completed"
   ): Promise<void> {
     try {
+      const runExists = await prisma.subagentRun.findUnique({ where: { id: runId } });
+      if (!runExists) return;
+
       await prisma.scrapeJob.create({
         data: {
           runId,

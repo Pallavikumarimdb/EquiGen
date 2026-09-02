@@ -8,52 +8,46 @@ import {
   DollarSign,
   Clock,
   CheckCircle2,
-  XCircle,
+  AlertTriangle,
   Zap,
   Search,
   BarChart3,
   FileText,
   Shield,
   BookOpen,
-  AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { ResearchPlanRecord, MilestonePlan, ResearchDepth } from "@/types/plan4";
 
-// ─── Milestone Icon Map ────────────────────────────────────────────────────────
-
 const MILESTONE_ICONS: Record<string, React.ReactNode> = {
-  fetch_documents:       <FileText size={16} />,
-  extract_financials:    <BarChart3 size={16} />,
-  build_financial_model: <Zap size={16} />,
-  peer_benchmark:        <Search size={16} />,
-  synthesise:            <BookOpen size={16} />,
-  compliance_audit:      <Shield size={16} />,
+  fetch_documents:       <FileText className="w-4 h-4 text-blue-400" />,
+  extract_financials:    <BarChart3 className="w-4 h-4 text-emerald-400" />,
+  build_financial_model: <Zap className="w-4 h-4 text-amber-400" />,
+  peer_benchmark:        <Search className="w-4 h-4 text-cyan-400" />,
+  synthesise:            <BookOpen className="w-4 h-4 text-violet-400" />,
+  compliance_audit:      <Shield className="w-4 h-4 text-rose-400" />,
 };
 
-// ─── Depth Selector ────────────────────────────────────────────────────────────
-
-const DEPTH_OPTIONS: { value: ResearchDepth; label: string; description: string; color: string }[] = [
+const DEPTH_OPTIONS: { value: ResearchDepth; label: string; desc: string; badgeColor: string }[] = [
   {
     value: "quick",
     label: "Quick",
-    description: "~10 min · $0.45 · 2yr filings, EV/EBITDA comparable",
-    color: "#3b82f6",
+    desc: "~10 min · $0.45 · 2Y Filings, EV/EBITDA",
+    badgeColor: "border-blue-500/30 bg-blue-500/10 text-blue-400",
   },
   {
     value: "standard",
     label: "Standard",
-    description: "~25 min · $1.10 · 4yr filings, DCF, concalls, 3Y projection",
-    color: "#8b5cf6",
+    desc: "~25 min · $1.10 · 4Y Filings, DCF, Concall",
+    badgeColor: "border-violet-500/30 bg-violet-500/10 text-violet-400",
   },
   {
     value: "deep",
     label: "Deep Dive",
-    description: "~55 min · $2.40 · 6yr filings, Monte Carlo, DRHP, full synthesis",
-    color: "#f59e0b",
+    desc: "~55 min · $2.40 · 6Y Filings, Monte Carlo, DRHP",
+    badgeColor: "border-amber-500/30 bg-amber-500/10 text-amber-400",
   },
 ];
-
-// ─── Component ─────────────────────────────────────────────────────────────────
 
 interface GoalTerminalProps {
   sessionId: string;
@@ -120,58 +114,44 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
   const totalMinutes = plan ? Math.ceil((plan.latencyEstS ?? 0) / 60) : 0;
 
   return (
-    <div style={{
-      background: "linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #0f0f1a 100%)",
-      border: "1px solid rgba(139, 92, 246, 0.25)",
-      borderRadius: "16px",
-      padding: "28px",
-      fontFamily: "'Inter', sans-serif",
-      maxWidth: "760px",
-      width: "100%",
-    }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
-        <div style={{
-          width: "40px", height: "40px", borderRadius: "10px",
-          background: "linear-gradient(135deg, #8b5cf6, #3b82f6)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <Target size={20} color="white" />
+    <div className="flex flex-col h-full bg-[#121217] border border-white/[0.08] rounded-2xl p-5 font-sans overflow-y-auto scrollbar-thin shadow-2xl">
+      {/* Terminal Title Header */}
+      <div className="flex items-center gap-3 pb-4 mb-4 border-b border-white/[0.06] shrink-0">
+        <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 shadow-lg shadow-indigo-500/20 text-white shrink-0">
+          <Target className="w-5 h-5" />
         </div>
         <div>
-          <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#f1f5f9" }}>
+          <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
             Autonomous Research Goal
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono font-semibold">
+              Devin Agent
+            </span>
           </h2>
-          <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
-            Tell EquiGen what to research. It figures out how.
+          <p className="text-xs text-slate-400 mt-0.5">
+            Specify research intent. EquiGen decomposes goals into execution milestones.
           </p>
         </div>
       </div>
 
-      {/* ── Input Phase ── */}
+      {/* ── Input & Planning Phase ── */}
       {(phase === "input" || phase === "planning") && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Ticker + Company */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "6px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                NSE / BSE Ticker
+        <div className="flex flex-col space-y-4">
+          {/* Ticker + Company Name */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-1">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                NSE/BSE Ticker
               </label>
               <input
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 placeholder="TATAMOTORS"
                 disabled={phase === "planning"}
-                style={{
-                  width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid rgba(148, 163, 184, 0.2)",
-                  background: "rgba(15, 15, 26, 0.8)", color: "#f1f5f9", fontSize: "14px",
-                  outline: "none", boxSizing: "border-box",
-                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                }}
+                className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-mono font-bold text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all"
               />
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "6px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            <div className="sm:col-span-2">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                 Company Name
               </label>
               <input
@@ -179,82 +159,68 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Tata Motors Limited"
                 disabled={phase === "planning"}
-                style={{
-                  width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid rgba(148, 163, 184, 0.2)",
-                  background: "rgba(15, 15, 26, 0.8)", color: "#f1f5f9", fontSize: "14px",
-                  outline: "none", boxSizing: "border-box",
-                }}
+                className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-medium text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all"
               />
             </div>
           </div>
 
-          {/* Goal Text */}
+          {/* Goal Description Textarea */}
           <div>
-            <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "6px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Research Goal
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              Research Objective & Scope
             </label>
             <textarea
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
               disabled={phase === "planning"}
               rows={4}
-              placeholder={`e.g. "Initiation coverage on Tata Motors — deep dive with 5-year DCF, compare EV and ICE segments vs M&M and Eicher Motors, fetch latest concall guidance on margin recovery timeline."`}
-              style={{
-                width: "100%", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(148, 163, 184, 0.2)",
-                background: "rgba(15, 15, 26, 0.8)", color: "#f1f5f9", fontSize: "14px",
-                outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: "1.6",
-                fontFamily: "'Inter', sans-serif",
-              }}
+              placeholder='e.g., "Initiation of coverage on Tata Motors — 5-year DCF, compare EV & ICE margins vs M&M, fetch Q3 concall guidance on margin recovery."'
+              className="w-full p-3 bg-black/50 border border-white/10 rounded-xl text-xs font-sans text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all leading-relaxed resize-none"
             />
           </div>
 
-          {/* Depth Selector */}
+          {/* Depth Selector Pills */}
           <div>
-            <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "8px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
               Research Depth
             </label>
-            <div style={{ display: "flex", gap: "10px" }}>
+            <div className="grid grid-cols-3 gap-2">
               {DEPTH_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
+                  type="button"
                   onClick={() => setDepth(opt.value)}
                   disabled={phase === "planning"}
-                  style={{
-                    flex: 1, padding: "12px 10px", borderRadius: "10px", cursor: "pointer",
-                    border: depth === opt.value ? `1.5px solid ${opt.color}` : "1px solid rgba(148, 163, 184, 0.15)",
-                    background: depth === opt.value ? `${opt.color}18` : "rgba(15, 15, 26, 0.6)",
-                    color: depth === opt.value ? opt.color : "#94a3b8",
-                    textAlign: "center", transition: "all 0.2s",
-                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    depth === opt.value
+                      ? `${opt.badgeColor} shadow-md`
+                      : "border-white/5 bg-black/30 text-slate-400 hover:border-white/10 hover:text-slate-200"
+                  }`}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "14px", marginBottom: "4px" }}>{opt.label}</div>
-                  <div style={{ fontSize: "11px", lineHeight: "1.4", opacity: 0.8 }}>{opt.description}</div>
+                  <div className="font-bold text-xs">{opt.label}</div>
+                  <div className="text-[10px] opacity-75 mt-1 leading-snug">{opt.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
           {error && (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px", borderRadius: "8px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", color: "#fca5a5" }}>
-              <AlertTriangle size={16} />
-              <span style={{ fontSize: "13px" }}>{error}</span>
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-medium">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           <button
             onClick={handleGeneratePlan}
             disabled={phase === "planning" || !goalText.trim() || !ticker.trim() || !companyName.trim()}
-            style={{
-              padding: "14px 24px", borderRadius: "10px", border: "none", cursor: "pointer",
-              background: phase === "planning" ? "rgba(139, 92, 246, 0.3)" : "linear-gradient(135deg, #8b5cf6, #3b82f6)",
-              color: "white", fontWeight: 700, fontSize: "15px", display: "flex", alignItems: "center",
-              justifyContent: "center", gap: "8px", transition: "all 0.2s", width: "100%",
-            }}
+            className="w-full py-3 px-4 rounded-xl font-bold text-xs text-white transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg, #6366f1, #3b82f6)" }}
           >
             {phase === "planning" ? (
-              <><Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} /> Generating Research Plan…</>
+              <><Loader2 className="w-4 h-4 animate-spin" /> Decomposing Goal into Milestones…</>
             ) : (
-              <><ChevronRight size={18} /> Generate Research Plan</>
+              <><Sparkles className="w-4 h-4" /> Generate Research Execution Plan</>
             )}
           </button>
         </div>
@@ -262,83 +228,84 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
 
       {/* ── Review Phase ── */}
       {phase === "review" && plan && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* Plan Header */}
-          <div style={{ padding: "16px", borderRadius: "10px", background: "rgba(139, 92, 246, 0.08)", border: "1px solid rgba(139, 92, 246, 0.2)" }}>
-            <div style={{ fontSize: "13px", color: "#c4b5fd", fontWeight: 600, marginBottom: "4px" }}>Research Plan — {plan.depth.charAt(0).toUpperCase() + plan.depth.slice(1)} Depth</div>
-            <div style={{ fontSize: "15px", color: "#f1f5f9", lineHeight: "1.5" }}>{plan.goalText}</div>
+        <div className="flex flex-col space-y-4">
+          {/* Plan Summary Box */}
+          <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs">
+            <div className="font-bold text-indigo-300 mb-1">
+              Research Plan: {companyName} ({ticker})
+            </div>
+            <div className="text-slate-300 leading-relaxed font-sans">{plan.goalText}</div>
           </div>
 
-          {/* Cost + Latency */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div style={{ padding: "14px", borderRadius: "8px", background: "rgba(15,15,26,0.6)", border: "1px solid rgba(148,163,184,0.1)", display: "flex", alignItems: "center", gap: "10px" }}>
-              <DollarSign size={18} color="#34d399" />
+          {/* Time & Cost Metrics */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <DollarSign className="w-4 h-4" />
+              </div>
               <div>
-                <div style={{ fontSize: "12px", color: "#64748b" }}>Estimated Cost</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "#34d399" }}>${totalCost.toFixed(3)}</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase">Estimated Cost</div>
+                <div className="text-sm font-bold text-emerald-400">${totalCost.toFixed(3)}</div>
               </div>
             </div>
-            <div style={{ padding: "14px", borderRadius: "8px", background: "rgba(15,15,26,0.6)", border: "1px solid rgba(148,163,184,0.1)", display: "flex", alignItems: "center", gap: "10px" }}>
-              <Clock size={18} color="#60a5fa" />
+            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                <Clock className="w-4 h-4" />
+              </div>
               <div>
-                <div style={{ fontSize: "12px", color: "#64748b" }}>Estimated Time</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "#60a5fa" }}>~{totalMinutes} min</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase">Estimated Time</div>
+                <div className="text-sm font-bold text-blue-400">~{totalMinutes} min</div>
               </div>
             </div>
           </div>
 
-          {/* Milestones */}
+          {/* Milestones Checklist */}
           <div>
-            <div style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px" }}>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
               Execution Milestones ({plan.milestones.length})
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {plan.milestones.map((m: MilestonePlan, i: number) => (
-                <div key={m.id} style={{
-                  display: "flex", alignItems: "flex-start", gap: "12px", padding: "12px 14px",
-                  borderRadius: "8px", background: "rgba(15, 15, 26, 0.5)", border: "1px solid rgba(148, 163, 184, 0.08)",
-                }}>
-                  <div style={{ color: "#8b5cf6", marginTop: "2px", flexShrink: 0 }}>
-                    {MILESTONE_ICONS[m.type] ?? <ChevronRight size={16} />}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 600, minWidth: "20px" }}>{i + 1}.</span>
-                      <span style={{ fontSize: "14px", fontWeight: 600, color: "#e2e8f0" }}>{m.label}</span>
+            <div className="space-y-2">
+              {plan.milestones.map((m: MilestonePlan, idx: number) => (
+                <div
+                  key={m.id}
+                  className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs"
+                >
+                  <div className="mt-0.5 shrink-0">{MILESTONE_ICONS[m.type] ?? <ChevronRight className="w-4 h-4 text-slate-400" />}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-200 flex items-center gap-2">
+                      <span className="text-slate-500 text-[10px] font-mono">{idx + 1}.</span>
+                      <span>{m.label}</span>
                     </div>
-                    <div style={{ fontSize: "12px", color: "#64748b", marginTop: "3px", marginLeft: "28px" }}>{m.description}</div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{m.description}</p>
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: "11px", color: "#475569" }}>~{m.estimatedMinutes}m</div>
-                    <div style={{ fontSize: "11px", color: "#34d399" }}>${m.estimatedCostUsd.toFixed(3)}</div>
+                  <div className="text-right shrink-0 text-[10px] font-mono">
+                    <div className="text-slate-500">~{m.estimatedMinutes}m</div>
+                    <div className="text-emerald-400">${m.estimatedCostUsd.toFixed(3)}</div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Approve / Edit */}
-          <div style={{ display: "flex", gap: "12px" }}>
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-2">
             <button
               onClick={handleEdit}
-              style={{
-                flex: 1, padding: "12px 20px", borderRadius: "10px", border: "1px solid rgba(148, 163, 184, 0.2)",
-                background: "transparent", color: "#94a3b8", fontWeight: 600, fontSize: "14px", cursor: "pointer",
-              }}
+              className="flex-1 py-2.5 px-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs transition-all"
             >
-              Edit Goal
+              Edit Scope
             </button>
             <button
               onClick={handleApprove}
               disabled={approving}
-              style={{
-                flex: 2, padding: "12px 20px", borderRadius: "10px", border: "none",
-                background: approving ? "rgba(34, 197, 94, 0.3)" : "linear-gradient(135deg, #22c55e, #16a34a)",
-                color: "white", fontWeight: 700, fontSize: "14px", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-              }}
+              className="flex-[2] py-2.5 px-3 rounded-xl font-bold text-xs text-white transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2"
+              style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
             >
-              {approving ? <><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Approving…</> : <><CheckCircle2 size={16} /> Approve & Execute Plan</>}
+              {approving ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Approving…</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4" /> Approve & Launch Plan</>
+              )}
             </button>
           </div>
         </div>
@@ -346,23 +313,16 @@ export function GoalTerminal({ sessionId, onPlanApproved }: GoalTerminalProps) {
 
       {/* ── Approved Phase ── */}
       {phase === "approved" && (
-        <div style={{
-          padding: "24px", borderRadius: "12px", textAlign: "center",
-          background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.3)",
-        }}>
-          <CheckCircle2 size={40} color="#22c55e" style={{ marginBottom: "12px" }} />
-          <div style={{ fontSize: "18px", fontWeight: 700, color: "#f1f5f9", marginBottom: "6px" }}>
-            Research Plan Approved!
-          </div>
-          <div style={{ fontSize: "13px", color: "#94a3b8" }}>
-            EquiGen is now executing your research plan. Monitor progress in the Trajectory Feed →
+        <div className="flex flex-col items-center justify-center p-6 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-3 my-auto">
+          <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+          <div>
+            <h3 className="text-sm font-bold text-white">Research Plan Approved & Launched</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Subagent Swarm is executing tasks. Monitor real-time progress in the Trajectory Stream panel →
+            </p>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   );
 }

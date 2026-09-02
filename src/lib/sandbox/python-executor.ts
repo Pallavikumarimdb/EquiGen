@@ -147,6 +147,9 @@ export class PythonExecutor {
     exitCode: number
   ): Promise<void> {
     try {
+      const runExists = await prisma.subagentRun.findUnique({ where: { id: runId } });
+      if (!runExists) return;
+
       await prisma.sandboxArtifact.create({
         data: {
           runId,

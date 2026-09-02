@@ -30,6 +30,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { GoalTerminal } from "./GoalTerminal";
+import { AgentWorkspace } from "./AgentWorkspace";
 import { ResearchPlanRecord } from "@/types/plan4";
 import { EquityResearchData, CompetitorInfo } from "@/types";
 import { PanelResizer } from "./PanelResizer";
@@ -466,11 +467,17 @@ export function Dashboard() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch("/api/history");
-        if (res.ok) {
+        const [res, planRes] = await Promise.all([
+          fetch("/api/history").catch(() => null),
+          fetch("/api/agent/plan").catch(() => null),
+        ]);
+
+        let historyItems: HistoryItem[] = [];
+
+        if (res && res.ok) {
           const data = await res.json();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const mapped = data.map((item: any) => ({
+          historyItems = data.map((item: any) => ({
             id: item.id,
             companyName: item.companyName,
             fileName: item.fileName,
@@ -489,8 +496,52 @@ export function Dashboard() {
             approvedAt: item.approvedAt,
             modelUsedForFinancials: item.modelUsedForFinancials || null,
           }));
-          setHistory(mapped);
-          saveHistoryToLocalStorage(mapped);
+        }
+
+        if (planRes && planRes.ok) {
+          const planData = await planRes.json();
+          if (Array.isArray(planData.plans)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const planItems: HistoryItem[] = planData.plans.map((p: any) => {
+              // Extract clean company name or goal summary
+              const cleanTitle = p.goalText
+                ? p.goalText.replace(/^(Initiation coverage on|Deep dive on|Research on)\s*/i, "").trim()
+                : "Autonomous Research";
+              const title = cleanTitle.length > 30 ? cleanTitle.slice(0, 30) + "…" : cleanTitle;
+
+              return {
+                id: p.id,
+                companyName: title,
+                fileName: "Autonomous Research",
+                createdAt: new Date(p.createdAt).toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+                reportData: {
+                  company: { name: cleanTitle, ticker: p.id, sector: "Autonomous" },
+                  executiveSummary: p.goalText,
+                } as unknown as EquityResearchData,
+                reportPdfBase64: null,
+                status: p.status || "pending",
+              };
+            });
+
+            // Merge items without duplicates
+            const existingIds = new Set(historyItems.map((h) => h.id));
+            for (const item of planItems) {
+              if (!existingIds.has(item.id)) {
+                historyItems.push(item);
+              }
+            }
+          }
+        }
+
+        if (historyItems.length > 0) {
+          setHistory(historyItems);
+          saveHistoryToLocalStorage(historyItems);
           return;
         }
       } catch (e) {
@@ -993,9 +1044,15 @@ export function Dashboard() {
   const deleteHistoryItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
+    const targetItem = history.find((item) => item.id === id);
+
     // Delete from Database
     try {
-      await fetch(`/api/history?id=${id}`, { method: "DELETE" });
+      if (targetItem?.fileName === "Autonomous Research") {
+        await fetch(`/api/agent/plan?planId=${id}`, { method: "DELETE" }).catch(() => {});
+      } else {
+        await fetch(`/api/history?id=${id}`, { method: "DELETE" }).catch(() => {});
+      }
     } catch (e) {
       console.warn("Failed to delete from database history:", e);
     }
@@ -2075,11 +2132,13 @@ export function Dashboard() {
               <Menu className="w-4 h-4" />
             </button>
             <div>
-              <h1 className="text-sm font-bold text-white">
-                AI Equity Research Generator
+              <h1 className="text-sm font-bold text-white flex items-center gap-2">
+                {dashboardMode === "autonomous" ? "Autonomous AI Analyst Workspace" : "AI Equity Research Generator"}
               </h1>
               <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-                Geojit-style publication-grade PDF reports from raw financials
+                {dashboardMode === "autonomous"
+                  ? "Devin-style goal decomposition, living draft synthesis, & real-time trajectory steering"
+                  : "Geojit-style publication-grade PDF reports from raw financials"}
               </p>
             </div>
           </div>
@@ -2241,16 +2300,10 @@ export function Dashboard() {
 
         {/* ── Main content layout */}
         <div className="flex-1 flex bg-[#0a0a0d] overflow-hidden relative">
-          {/* Autonomous Research Goal Terminal Mode */}
+          {/* Autonomous Research Goal Terminal & Trajectory Workspace */}
           {dashboardMode === "autonomous" ? (
-            <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto bg-gradient-to-br from-[#0c0c12] via-[#09090e] to-[#0f0f18]">
-              <GoalTerminal
-                sessionId={activeSessionId || "session-" + Date.now()}
-                onPlanApproved={(plan) => {
-                  setApprovedPlan(plan);
-                  showToast(`Research Plan approved for ${plan.goalText.slice(0, 35)}...`, "success");
-                }}
-              />
+            <div className="flex-1 flex overflow-hidden bg-[#0a0a0f]">
+              <AgentWorkspace sessionId={activeSessionId || "session-demo"} />
             </div>
           ) : (
             <>
