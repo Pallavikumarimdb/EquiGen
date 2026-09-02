@@ -237,7 +237,19 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
                     {ev.eventType.replace("_", " ")}
                   </span>
                   <span className="text-slate-300 font-sans text-xs truncate">
-                    {String(ev.data.reasoning ?? ev.data.tool ?? ev.data.summary ?? ev.data.message ?? JSON.stringify(ev.data).slice(0, 50))}
+                    {(() => {
+                      if (ev.eventType === "steering_applied") {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const payload = (ev.data as any)?.payload;
+                        if (payload?.instruction) return `Analyst: "${payload.instruction}"`;
+                        return `Steering: ${(ev.data as any)?.eventType ?? "applied"}`;
+                      }
+                      if (ev.data.reasoning) return String(ev.data.reasoning);
+                      if (ev.data.summary) return String(ev.data.summary);
+                      if (ev.data.message) return String(ev.data.message);
+                      if (ev.data.tool) return `Tool: ${String(ev.data.tool)}`;
+                      return JSON.stringify(ev.data).slice(0, 60);
+                    })()}
                   </span>
                 </div>
 
