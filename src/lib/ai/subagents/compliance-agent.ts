@@ -47,8 +47,8 @@ export class ComplianceAgent {
     // Combine all sections text for audit
     const fullText = input.sections.map((s) => `${s.name}: ${s.content}`).join("\n\n");
 
-    // 2. Perform SEBI Compliance Audit
-    const auditResult = SebiComplianceTool.auditReport(
+    // 2. Perform SEBI Compliance Audit (Async semantic evaluation)
+    const auditResult = await SebiComplianceTool.auditReportAsync(
       fullText,
       input.sebiRegNo ?? "INH000012345",
       input.analystName ?? "Certified Analyst"

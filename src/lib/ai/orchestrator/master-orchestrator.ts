@@ -250,6 +250,12 @@ export class MasterOrchestrator {
             planId,
             ticker,
             companyName,
+            documentData: {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              filings: (documentOutput as any)?.bseFilings ?? [],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              concallQuotes: (documentOutput as any)?.concallTranscripts?.flatMap((t: any) => t.quotes) ?? [],
+            },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             modelingData: (modelingOutput as any)?.modelOutput,
             marketIntelData: {
@@ -258,7 +264,7 @@ export class MasterOrchestrator {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               creditRating: (marketIntelOutput as any)?.creditRatings?.overallCreditProfile ?? "N/A",
             },
-            // Pass concall management quotes for management Q&A section
+            // Pass concall transcripts for management Q&A section
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             concallTranscripts: (documentOutput as any)?.concallTranscripts ?? [],
           }, apiKey);

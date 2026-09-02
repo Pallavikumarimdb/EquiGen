@@ -1277,7 +1277,7 @@ ${watermark}
   <div class="vertical-ribbon">${escape(quarterLabel)} Result Update</div>
   <div class="top-logo">
     <span>Retail Equity Research</span>
-    <span></span>
+    <span style="font-size: 7pt; color: #475569; font-weight: 600;">Data Freshness: As of ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST | Source: BSE/NSE Disclosures &amp; Live Quotes</span>
     <a href="https://www.EquiGen.com">www.EquiGen.com</a>
   </div>
   ${draftBanner}

@@ -11,6 +11,7 @@ import {
   recordActualUsage,
 } from "./model-router";
 import { withRateLimitRetry, RateLimitError } from "./retry-wrapper";
+import { ExtractionMemoryStore } from "./memory/extraction-memory";
 
 // --- Helper: Simple Character Chunker with overlap ---
 
@@ -817,16 +818,53 @@ function auditFinancialsNode(state: typeof ResearchState.State) {
   // Cross-statement matching validations
   const rev = financials.revenue || [];
 
-  const checkGrowth = (label: string, list: typeof rev) => {
-    for (let i = 1; i < list.length; i++) {
-      const prev = parseNum(list[i - 1].value);
-      if (prev > 0) {
-        // Verify against any growth metrics reported in estimates or summary
+  // Validation 1: Fundamental Arithmetic Checks (EBITDA <= Revenue, PAT <= Revenue, Non-negative Revenue)
+  const ebitdaList = financials.ebitda || [];
+  const patList = financials.pat || [];
+
+  rev.forEach((r) => {
+    const revVal = parseNum(r.value);
+    if (revVal < 0) {
+      errors.push(`Revenue for period ${r.period} is negative (${revVal}), which is mathematically impossible.`);
+    }
+
+    const ebitdaMatch = ebitdaList.find((e) => e.period === r.period);
+    if (ebitdaMatch && revVal > 0) {
+      const ebitdaVal = parseNum(ebitdaMatch.value);
+      if (ebitdaVal > revVal) {
+        errors.push(`EBITDA (₹${ebitdaVal} Cr) exceeds Revenue (₹${revVal} Cr) in period ${r.period}, which is an arithmetic impossibility.`);
       }
     }
-  };
 
-  checkGrowth("Revenue", rev);
+    const patMatch = patList.find((p) => p.period === r.period);
+    if (patMatch && revVal > 0) {
+      const patVal = parseNum(patMatch.value);
+      if (patVal > revVal) {
+        errors.push(`PAT / Net Profit (₹${patVal} Cr) exceeds Revenue (₹${revVal} Cr) in period ${r.period}, which is an arithmetic impossibility.`);
+      } else if (patVal / revVal > 0.60) {
+        errors.push(`PAT margin (${((patVal / revVal) * 100).toFixed(1)}%) in period ${r.period} is abnormally high (>60%). Check for Lakhs vs Crores unit mismatch.`);
+      }
+    }
+  });
+
+  // Validation 2: Target Price vs CMP Scale & Recommendation Sanity
+  const cmp = parseNum(financials.currentPrice ?? 0);
+  const tp = parseNum(financials.targetPrice ?? 0);
+  const rating = String(financials.recommendation || "").toUpperCase();
+
+  if (cmp > 0 && tp > 0) {
+    const scaleRatio = Math.max(cmp / tp, tp / cmp);
+    if (scaleRatio > 25) {
+      errors.push(`Target Price (₹${tp}) and Current Price (₹${cmp}) differ by a ${scaleRatio.toFixed(0)}x scale factor. Check per-share vs total market cap unit error.`);
+    }
+
+    const upsidePercent = ((tp - cmp) / cmp) * 100;
+    if (upsidePercent > 15 && (rating === "SELL" || rating === "REDUCE")) {
+      errors.push(`Recommendation is '${rating}' despite a ${upsidePercent.toFixed(1)}% DCF upside. Recommendation rating and target price are contradictory.`);
+    } else if (upsidePercent < -15 && (rating === "BUY" || rating === "ACCUMULATE")) {
+      errors.push(`Recommendation is '${rating}' despite a ${Math.abs(upsidePercent).toFixed(1)}% downside. Recommendation rating and target price are contradictory.`);
+    }
+  }
 
   // Validation: Check if YoY quarterly metrics are mathematically aligned with annual series direction
   const qf = financials.quarterlyFinancials || [];
@@ -1219,6 +1257,18 @@ export async function runOrResumeResearchPipeline(
             mathErrors: state.mathErrors,
           },
         });
+      }
+
+      // Record successful extraction strategy in ExtractionMemoryStore for pattern recall
+      if (state.companyGeneral?.ticker) {
+        ExtractionMemoryStore.recordExtractionOutcome(
+          state.companyGeneral.ticker,
+          state.companyGeneral.sector || "GENERAL",
+          {
+            preferredMode: "layout",
+            knownPitfalls: state.mathErrors,
+          }
+        );
       }
     } else {
       state.mathErrors = (job.mathErrors as string[]) || [];

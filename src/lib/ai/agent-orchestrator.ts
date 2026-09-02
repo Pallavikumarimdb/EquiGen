@@ -13,6 +13,8 @@ import { fetchMarketData } from "./tools/market-data-tool";
 import { fetchPeerComparison } from "./tools/peer-comparison-tool";
 import { fetchNewsAndFilings } from "./tools/news-search-tool";
 import { executeExcelWriteTool } from "./tools/excel-write-tool";
+import { LoopSafetyGuard, RepetitiveToolCallError } from "./loop-safety";
+import { compactConversationHistory } from "./context-compactor";
 
 export interface AgentChatMessage {
   role: "user" | "agent";
@@ -278,14 +280,21 @@ CRITICAL RULES:
       options.modelName ||
       (options.provider === "groq" ? "openrouter/free" : "gpt-4o-mini");
 
-    const messages: [string, string][] = [["system", systemPrompt]];
+    const rawMessages: [string, string][] = [["system", systemPrompt]];
     session.messages.forEach((m) => {
-      messages.push([m.role === "user" ? "user" : "assistant", m.content]);
+      rawMessages.push([m.role === "user" ? "user" : "assistant", m.content]);
     });
-    messages.push(["user", userPrompt]);
+    rawMessages.push(["user", userPrompt]);
+
+    // Compact history if older turns exceed 10 turns or 8,000 tokens
+    const compacted = await compactConversationHistory(rawMessages, {
+      apiKey: options.apiKey,
+    });
+    const messages = compacted.messages;
 
     let responseText = "";
     let loopAttempts = 0;
+    const safetyGuard = new LoopSafetyGuard(5, 2, 25000);
 
     while (loopAttempts < 5) {
       loopAttempts++;
@@ -328,6 +337,19 @@ CRITICAL RULES:
       const toolCall = this.parseToolCall(content);
       if (toolCall) {
         const tool = toolCall.tool;
+
+        // Loop safety guard check for repetitive tool invocations
+        try {
+          const toolNameStr = String(tool || "");
+          safetyGuard.recordAndValidateToolCall(toolNameStr, toolCall as Record<string, unknown>);
+        } catch (err) {
+          if (err instanceof RepetitiveToolCallError) {
+            console.warn(`[AgentOrchestrator] ${err.message}`);
+            responseText = `I noticed I was repeating the same tool query for '${String(tool || "")}'. Halting loop to prevent token exhaustion. How else can I assist with the research report?`;
+            break;
+          }
+          throw err;
+        }
         if (tool === "RecomputeFieldTool") {
           try {
             const field = String(toolCall.field || "");
