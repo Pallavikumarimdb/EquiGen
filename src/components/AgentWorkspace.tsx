@@ -21,12 +21,13 @@ import {
 interface AgentWorkspaceProps {
   sessionId: string;
   activePlanId?: string | null;
+  userId?: string;
 }
 
 type RightPanelTab = "copilot" | "trajectory" | "milestones";
 type ViewLayout = "focused" | "split";
 
-export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps) {
+export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspaceProps) {
   const [activePlan, setActivePlan] = useState<ResearchPlanRecord | null>(null);
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [rightTab, setRightTab] = useState<RightPanelTab>("copilot");
@@ -283,6 +284,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
                 <div className="shrink-0 max-h-[50%] overflow-hidden">
                   <SteeringPanel
                     planId={activePlan ? activePlan.id : "demo-plan-id"}
+                    userId={userId}
                     hasActivePlan={!!activePlan}
                     planStatusProp={activePlan?.status}
                   />
@@ -295,6 +297,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
                   <div className="h-full flex flex-col min-h-0 overflow-hidden">
                     <SteeringPanel
                       planId={activePlan ? activePlan.id : "demo-plan-id"}
+                      userId={userId}
                       hasActivePlan={!!activePlan}
                       planStatusProp={activePlan?.status}
                     />

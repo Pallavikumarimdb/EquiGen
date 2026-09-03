@@ -44,6 +44,7 @@ interface ChatMessage {
 
 interface SteeringPanelProps {
   planId: string;
+  userId?: string;
   isPaused?: boolean;
   hasActivePlan?: boolean;
   planStatusProp?: string;
@@ -52,6 +53,7 @@ interface SteeringPanelProps {
 
 export function SteeringPanel({
   planId,
+  userId,
   isPaused = false,
   hasActivePlan = false,
   planStatusProp,
@@ -102,7 +104,7 @@ export function SteeringPanel({
       return;
     }
 
-    const storageKey = `equigen_copilot_chat_${planId}`;
+    const storageKey = `equigen_copilot_chat_${userId || "guest"}_${planId}`;
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
@@ -129,17 +131,18 @@ export function SteeringPanel({
     } else {
       setMessages([]);
     }
-  }, [planId, isCompleted]);
+  }, [planId, isCompleted, userId]);
 
   // Save messages to localStorage
   useEffect(() => {
     if (!planId || planId === "demo-plan-id" || messages.length === 0) return;
     try {
-      localStorage.setItem(`equigen_copilot_chat_${planId}`, JSON.stringify(messages));
+      const storageKey = `equigen_copilot_chat_${userId || "guest"}_${planId}`;
+      localStorage.setItem(storageKey, JSON.stringify(messages));
     } catch {
       // ignore
     }
-  }, [messages, planId]);
+  }, [messages, planId, userId]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {

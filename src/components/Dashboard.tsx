@@ -205,7 +205,8 @@ export function Dashboard() {
       // Exclude large PDF base64 contents to prevent localStorage quota exceeded error
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const filtered = items.map(({ reportPdfBase64, ...rest }) => rest);
-      localStorage.setItem("equigen_history", JSON.stringify(filtered));
+      const userKey = user?.id || user?.email || "guest";
+      localStorage.setItem(`equigen_history_${userKey}`, JSON.stringify(filtered));
     } catch (e) {
       console.warn("Failed to save history to localStorage:", e);
     }
@@ -589,11 +590,14 @@ export function Dashboard() {
         );
       }
 
-      // Fallback to localStorage
+      // Fallback to user-scoped localStorage
       try {
-        const stored = localStorage.getItem("equigen_history");
+        const userKey = user?.id || user?.email || "guest";
+        const stored = localStorage.getItem(`equigen_history_${userKey}`);
         if (stored) {
           setHistory(JSON.parse(stored));
+        } else {
+          setHistory([]);
         }
       } catch (e) {
         console.error("Failed to load history from localStorage:", e);
@@ -601,7 +605,7 @@ export function Dashboard() {
     };
 
     fetchHistory();
-  }, []);
+  }, [user?.id]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const addToHistory = async (
@@ -2436,6 +2440,7 @@ export function Dashboard() {
               <AgentWorkspace
                 sessionId={activeSessionId || "session-demo"}
                 activePlanId={activeReportId}
+                userId={user?.id}
               />
             </div>
           ) : (
