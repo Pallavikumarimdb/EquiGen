@@ -2095,10 +2095,12 @@ export function Dashboard() {
           {/* Filtered History List */}
           {history
             .filter((item) => {
+              const itemObj = item as unknown as { sourceType?: string; reportData?: { sourceType?: string } };
               const itemIsAuto =
-                item.sourceType === "autonomous" ||
+                itemObj.sourceType === "autonomous" ||
+                itemObj.reportData?.sourceType === "autonomous" ||
                 item.fileName === "Autonomous Research" ||
-                item.companyName.toLowerCase().startsWith("initiation of coverage");
+                item.companyName?.toLowerCase()?.includes("initiation of coverage");
               if (dashboardMode === "autonomous" && !itemIsAuto) return false;
               if (dashboardMode === "upload" && itemIsAuto) return false;
               const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
@@ -2121,10 +2123,12 @@ export function Dashboard() {
 
           {history
             .filter((item) => {
+              const itemObj = item as unknown as { sourceType?: string; reportData?: { sourceType?: string } };
               const itemIsAuto =
-                item.sourceType === "autonomous" ||
+                itemObj.sourceType === "autonomous" ||
+                itemObj.reportData?.sourceType === "autonomous" ||
                 item.fileName === "Autonomous Research" ||
-                item.companyName.toLowerCase().startsWith("initiation of coverage");
+                item.companyName?.toLowerCase()?.includes("initiation of coverage");
               if (dashboardMode === "autonomous" && !itemIsAuto) return false;
               if (dashboardMode === "upload" && itemIsAuto) return false;
               const matchesSearch = !historySearch || item.companyName.toLowerCase().includes(historySearch.toLowerCase());
@@ -2139,7 +2143,11 @@ export function Dashboard() {
               return true;
             })
             .map((item) => {
-              const isAutonomous = item.sourceType === "autonomous";
+              const itemObj = item as unknown as { sourceType?: string; reportData?: { sourceType?: string } };
+              const isAutonomous =
+                itemObj.sourceType === "autonomous" ||
+                itemObj.reportData?.sourceType === "autonomous" ||
+                item.fileName === "Autonomous Research";
               const isSelected = activeReportId === item.id;
 
               return (

@@ -31,46 +31,51 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
   const [viewLayout, setViewLayout] = useState<ViewLayout>("focused");
   const [isReportMaximized, setIsReportMaximized] = useState(false);
 
-  // Dynamic section builder for ANY company name and ticker
-  const generateSectionsForPlan = (goalText: string, _planId: string): ReportSection[] => {
-    const rawGoal = goalText || "Initiation of institutional equity research";
-    const cleanGoal = rawGoal.replace(/^(Initiation coverage on|Deep dive on|Research on|Valuation analysis of)\s*/i, "").trim();
-    const compName = cleanGoal.split("—")[0].trim() || "Target Equity";
-    const tick = (compName.length <= 12 ? compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : compName.substring(0, 4).toUpperCase()) || "EQUITY";
-
-    return [
-      {
-        name: "executive_summary",
-        content: `INITIATION OF COVERAGE: ${compName} (${tick})\nRating: BUY | Target Price: ₹998.61/share\n\nWe initiate coverage on ${compName} with a 12-month target price of ₹998.61 per share. Our valuation is driven by a 5-year Discounted Cash Flow (DCF) model assuming an 11.0% WACC and 4.0% terminal growth rate. Key operating drivers include sustained volume expansion, disciplined capacity utilization, operational margin recovery, and strong balance sheet deleveraging.`,
-        citations: ["BSE Filing 2024-Q3", "Annual Report FY24", "Management Guidance Transcript"],
-        lastUpdatedAt: new Date().toISOString(),
-      },
-      {
-        name: "valuation",
-        content: `5-YEAR DISCOUNTED CASH FLOW (DCF) VALUATION ENGINE\n\n• Base Revenue: ₹48,500 Cr\n• Revenue Growth Rate: 13.5% CAGR (FY25-FY29)\n• EBITDA Margin: 18.5%\n• WACC: 11.0% | Terminal Growth Rate: 4.0%\n• Enterprise Value (EV): ₹52,400 Cr\n• Less Net Debt: ₹1,150 Cr\n• Implied Equity Value: ₹51,250 Cr\n• Implied Base Case Fair Value: ₹998.61 / share\n• 1,000-Iteration Monte Carlo Simulation Median: ₹994.20/share (85% Confidence Interval: ₹890 - ₹1,080).`,
-        citations: ["Node Sandbox Execution #482", "DCF Model Engine"],
-        lastUpdatedAt: new Date().toISOString(),
-      },
-      {
-        name: "business_description",
-        content: `PEER MULTIPLES BENCHMARK & MULTIPLES ASSESSMENT\n\n| Metric | ${tick} | Sector Peer A | Sector Peer B |\n|---|---|---|---|\n| Market Cap (Cr) | ₹45,000 | ₹98,400 | ₹76,200 |\n| P/E Multiple | 18.5x | 22.4x | 24.1x |\n| EV/EBITDA | 10.8x | 12.8x | 14.5x |\n| ROCE % | 21.5% | 19.8% | 18.2% |\n| ROE % | 24.1% | 21.5% | 19.5% |\n| Dividend Yield | 1.20% | 0.80% | 1.40% |\n\nValuation Assessment: ${compName} trades at an attractive valuation relative to historical multiples and peer benchmarks, providing an attractive risk-reward profile.`,
-        citations: ["Screener.in Peer Multiples", "BSE Market Data"],
-        lastUpdatedAt: new Date().toISOString(),
-      },
-      {
-        name: "management_qa_highlights",
-        content: `EARNINGS CONCALL TRANSCRIPT HIGHLIGHTS & GUIDANCE\n\nKey Management Guidance:\n1. Margin Expansion: Operating leverage and raw material procurement softening expected to support 120-160 bps EBITDA margin accretion.\n2. Capex & Balance Sheet: Organic operational cash flow comfortably covers planned capital expenditures with ongoing debt reduction.\n3. Demand Pipeline: Order backlog and new customer onboarding remain robust across core domestic and export operations.`,
-        citations: ["Earnings Concall Transcript Q3", "Management QA"],
-        lastUpdatedAt: new Date().toISOString(),
-      },
-      {
-        name: "disclosures",
-        content: `STATUTORY SEBI COMPLIANCE & DISCLOSURES (SEBI RA Regulations, 2014)\n\n• SEBI Research Analyst Reg No: INH000012345\n• Rating Scale Horizon: BUY (12-Month Investment Horizon)\n• Disclosures of Interest: The Analyst and Research Entity have no financial or beneficial ownership in ${compName} exceeding 1%.\n• Conflict of Interest: None.\n• Statutory Warning: Investments in securities market are subject to market risks. Read all related documents carefully before investing.\n• Analyst Certification: The views expressed accurately reflect personal views about the subject securities.`,
-        citations: ["SEBI Rule Engine Auditor", "Compliance Check"],
-        lastUpdatedAt: new Date().toISOString(),
-      },
-    ];
-  };
+  // Generates honest pending placeholders while research agents run (NO FAKE NUMBERS)
+  const getInitialPendingSections = (compName: string, tick: string): ReportSection[] => [
+    {
+      name: "executive_summary",
+      content: `[Executive Summary — Live AI Synthesis in progress]\nAutonomous subagents are executing milestones for ${compName} (${tick}). Exchange filings, financial modeling, peer multiples, and concall transcripts are being gathered. The complete institutional draft will stream here live as synthesis finishes.`,
+      citations: ["Live research pipeline in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "business_description",
+      content: `[Business Description — Document Agent analyzing exchange filings for ${compName} (${tick})...]`,
+      citations: ["BSE/NSE filing extraction in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "financial_analysis",
+      content: `[Financial Analysis — Modeling Agent processing historical financial statements and margins...]`,
+      citations: ["Financial modeling in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "valuation",
+      content: `[Valuation — Quantitative DCF model running in Python sandbox...]`,
+      citations: ["Sandbox valuation execution in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "key_risks",
+      content: `[Key Risks — Market intelligence agent analyzing credit disclosures and sector sentiment...]`,
+      citations: ["Credit rating & sector news digest in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "management_qa_highlights",
+      content: `[Management Q&A Highlights — Concall transcript guidance extraction in progress...]`,
+      citations: ["Earnings transcript tool in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    {
+      name: "disclosures",
+      content: `STATUTORY SEBI COMPLIANCE & DISCLOSURES (SEBI RA Regulations, 2014)\n\n• Regulatory Status: Certified Institutional Research Note\n• Disclosures of Interest: Standard statutory disclosures under SEBI RA 2014 regulations.\n• Statutory Warning: Investments in securities market are subject to market risks. Read all related documents carefully before investing.`,
+      citations: ["SEBI Compliance Audit in progress"],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+  ];
 
   // Effect to load active plan when activePlanId prop changes
   useEffect(() => {
@@ -80,64 +85,90 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
       return;
     }
 
-    fetch(`/api/agent/plan?id=${encodeURIComponent(activePlanId)}`)
+    const cleanPlanId = activePlanId.replace(/^rep_/, "");
+
+    fetch(`/api/agent/plan?planId=${encodeURIComponent(cleanPlanId)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && data.plan) {
           setActivePlan(data.plan);
-          setSections(generateSectionsForPlan(data.plan.goalText, data.plan.id));
+          if (Array.isArray(data.sections) && data.sections.length > 0) {
+            setSections(data.sections);
+          } else {
+            const comp = data.plan.companyName || "Target Company";
+            const tick = data.plan.ticker || "TICKER";
+            setSections(getInitialPendingSections(comp, tick));
+          }
           if (data.plan.status === "completed") {
             setRightTab("copilot");
           } else {
             setRightTab("trajectory");
           }
         } else {
-          // Fallback plan
-          const fallbackPlan: ResearchPlanRecord = {
-            id: activePlanId,
-            sessionId,
-            goalText: "Initiation of coverage on Tata Motors — DCF valuation & peer benchmark",
-            milestones: [],
-            depth: "standard",
-            costEstimate: 1.15,
-            latencyEstS: 25,
-            status: "completed",
-            createdAt: new Date().toISOString(),
-          };
-          setActivePlan(fallbackPlan);
-          setSections(generateSectionsForPlan(fallbackPlan.goalText, activePlanId));
-          setRightTab("copilot");
+          setActivePlan(null);
+          setSections([]);
         }
       })
       .catch(() => {
-        const fallbackPlan: ResearchPlanRecord = {
-          id: activePlanId,
-          sessionId,
-          goalText: "Initiation of coverage on Tata Motors — DCF valuation & peer benchmark",
-          milestones: [],
-          depth: "standard",
-          costEstimate: 1.15,
-          latencyEstS: 25,
-          status: "completed",
-          createdAt: new Date().toISOString(),
-        };
-        setActivePlan(fallbackPlan);
-        setSections(generateSectionsForPlan(fallbackPlan.goalText, activePlanId));
-        setRightTab("copilot");
+        setActivePlan(null);
+        setSections([]);
       });
   }, [activePlanId, sessionId]);
 
+  // Subscribe to real-time SSE stream in AgentWorkspace to update report sections & plan status live
+  useEffect(() => {
+    const planId = activePlan?.id || (activePlanId ? activePlanId.replace(/^rep_/, "") : null);
+    if (!planId || planId === "demo-plan-id") return;
+
+    const eventSource = new EventSource(`/api/agent/stream?planId=${encodeURIComponent(planId)}`);
+
+    eventSource.addEventListener("subagent_start", () => {
+      setActivePlan((prev) => (prev && prev.status !== "running" ? { ...prev, status: "running" } : prev));
+    });
+
+    eventSource.addEventListener("draft_updated", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        const newSec = payload?.section;
+        if (newSec && newSec.name) {
+          setSections((prev) => {
+            const next = prev.filter((s) => s.name !== newSec.name);
+            return [...next, newSec];
+          });
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("plan_complete", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (Array.isArray(payload?.sections) && payload.sections.length > 0) {
+          setSections(payload.sections);
+        }
+      } catch {}
+      setActivePlan((prev) => (prev ? { ...prev, status: "completed" } : prev));
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [activePlan?.id, activePlanId]);
+
   const handlePlanApproved = (plan: ResearchPlanRecord) => {
     setActivePlan(plan);
-    setSections(generateSectionsForPlan(plan.goalText, plan.id));
+    const comp = plan.companyName || "Target Company";
+    const tick = plan.ticker || "TICKER";
+    setSections(getInitialPendingSections(comp, tick));
     setRightTab("trajectory");
   };
 
   // Derive company name and ticker dynamically
   const goalText = activePlan?.goalText ?? "";
   const cleanGoal = goalText.replace(/^(Initiation coverage on|Deep dive on|Research on|Valuation analysis of)\s*/i, "").trim();
-  const companyName = activePlan ? cleanGoal.split("—")[0].trim() || "Target Equity" : undefined;
-  const ticker = companyName ? (companyName.length <= 12 ? companyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : companyName.substring(0, 4).toUpperCase()) : undefined;
+  const companyName = activePlan?.companyName || (activePlan ? cleanGoal.split("—")[0].trim() || "Target Equity" : undefined);
+  const ticker = activePlan?.ticker || (companyName ? (companyName.length <= 12 ? companyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : companyName.substring(0, 4).toUpperCase()) : undefined);
 
   const isCompleted = activePlan?.status === "completed";
 
@@ -269,7 +300,7 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
           />
         </div>
 
-        {/* ── Right Column: Copilot & Trajectory Inspector ────────────── */}
+        {/* ── Right Column: Copilot & Trajectory Inspector (Persistent DOM) ── */}
         {!isReportMaximized && (
           <div className="w-full xl:w-[420px] 2xl:w-[460px] shrink-0 flex flex-col h-full min-h-0 overflow-hidden transition-all duration-300">
             {viewLayout === "split" ? (
@@ -288,35 +319,29 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
                 </div>
               </div>
             ) : (
-              // Focused Mode: Full height for the active tab (No vertical cramming!)
-              <div className="h-full flex flex-col min-h-0 overflow-hidden">
-                {rightTab === "copilot" && (
-                  <div className="h-full flex flex-col min-h-0 overflow-hidden">
-                    <SteeringPanel
-                      planId={activePlan ? activePlan.id : "demo-plan-id"}
-                      userId={userId}
-                      hasActivePlan={!!activePlan}
-                      planStatusProp={activePlan?.status}
-                    />
-                  </div>
-                )}
+              // Focused Mode: Keep all 3 panels mounted to preserve live SSE connections & state
+              <div className="h-full flex flex-col min-h-0 overflow-hidden relative">
+                <div className={`h-full flex flex-col min-h-0 overflow-hidden ${rightTab === "copilot" ? "flex" : "hidden"}`}>
+                  <SteeringPanel
+                    planId={activePlan ? activePlan.id : "demo-plan-id"}
+                    userId={userId}
+                    hasActivePlan={!!activePlan}
+                    planStatusProp={activePlan?.status}
+                  />
+                </div>
 
-                {rightTab === "trajectory" && (
-                  <div className="h-full flex flex-col min-h-0 overflow-hidden">
-                    <TrajectoryFeed planId={activePlan ? activePlan.id : "demo-plan-id"} />
-                  </div>
-                )}
+                <div className={`h-full flex flex-col min-h-0 overflow-hidden ${rightTab === "trajectory" ? "flex" : "hidden"}`}>
+                  <TrajectoryFeed planId={activePlan ? activePlan.id : "demo-plan-id"} />
+                </div>
 
-                {rightTab === "milestones" && (
-                  <div className="h-full flex flex-col min-h-0 overflow-hidden">
-                    <GoalTerminal
-                      sessionId={sessionId}
-                      activePlanId={activePlanId}
-                      activePlan={activePlan}
-                      onPlanApproved={handlePlanApproved}
-                    />
-                  </div>
-                )}
+                <div className={`h-full flex flex-col min-h-0 overflow-hidden ${rightTab === "milestones" ? "flex" : "hidden"}`}>
+                  <GoalTerminal
+                    sessionId={sessionId}
+                    activePlanId={activePlan?.id || activePlanId}
+                    activePlan={activePlan}
+                    onPlanApproved={handlePlanApproved}
+                  />
+                </div>
               </div>
             )}
           </div>

@@ -1,5 +1,5 @@
 /**
- * Modeling Subagent — Phase 11 & Phase 1 (gap analysis fix)
+ * Modeling Subagent — Phase 11 & Phase 1 (gap analysis fix) — RELIABILITY FIX
  *
  * Quantitative Subagent that:
  * 1. Takes extracted historical financials (Income Statement, Balance Sheet, Cash Flow)
@@ -7,10 +7,18 @@
  * 3. Writes Python code for DCF valuation without hardcoded static assumptions
  * 4. Executes code inside PythonExecutor sandbox
  * 5. Stores output & updates SubagentRun
+ *
+ * RELIABILITY FIX:
+ * - When no extracted financials are provided (BSE/NSE returned 0 filings), the agent
+ *   now attempts a live Screener.in scrape to derive real market-based inputs.
+ * - If Screener also fails, isDerived=false is clearly flagged so synthesis agent
+ *   can add a prominent disclaimer instead of presenting fallback numbers as real data.
+ * - All model inputs (real or fallback) are logged to terminal with their source.
  */
 
 import { prisma } from "@/lib/db";
 import { pythonExecutor, computeDCFValuation } from "@/lib/sandbox/python-executor";
+import { fetchScreenerProfile } from "@/lib/ai/tools/screener-scrape-tool";
 import { BuildFinancialModelMilestone, ModelingOutput } from "@/types/plan4";
 
 export interface ModelingAgentInput {
@@ -28,6 +36,17 @@ export interface ModelingAgentOutput {
   codeExecuted: string;
   milestoneCompleted: boolean;
   summary: string;
+  dataQuality: ModelingDataQuality;
+}
+
+export interface ModelingDataQuality {
+  isDerivedFromRealData: boolean;   // true = real financials used; false = fallback constants
+  financialSource: "extracted_filings" | "screener_live" | "sector_fallback";
+  screenerLiveData: boolean;        // whether Screener scrape succeeded
+  baseRevenue: number;
+  revenueSource: string;            // what produced the base revenue figure
+  missingFields: string[];          // which fields could not be sourced
+  disclaimer: string | null;        // non-null when fallback was used
 }
 
 export class ModelingAgent {
@@ -38,47 +57,73 @@ export class ModelingAgent {
     const { planId: _planId, runId, ticker, companyName, milestone, extractedFinancials } = input;
     const { modelType, projectionYears } = milestone.config;
 
-    console.log(`[ModelingAgent] Running financial model '${modelType}' for ${ticker}...`);
+    console.log(`\n[ModelingAgent] ────────────────────────────────────────`);
+    console.log(`[ModelingAgent] Running financial model '${modelType}' for ${ticker} (${companyName})`);
     const startTime = Date.now();
 
-    // Extract dynamic financial metrics or derive inputs from financial series
-    const derivedParams = this.deriveModelParameters(extractedFinancials);
+    // Step 1: Derive model parameters — try real data sources first
+    const { params, dataQuality } = await this.deriveModelParameters(ticker, companyName, extractedFinancials);
 
-    // Generate Python financial modeling script using dynamic parameters
-    const pythonCode = this.generatePythonModelScript(ticker, modelType, projectionYears, derivedParams);
+    // Log all inputs clearly to terminal
+    console.log(`[ModelingAgent] INPUT SOURCE: ${dataQuality.financialSource}`);
+    console.log(`[ModelingAgent] Base Revenue: ₹${params.baseRevenue.toLocaleString("en-IN")} Cr (${dataQuality.revenueSource})`);
+    console.log(`[ModelingAgent] EBITDA Margin: ${(params.ebitdaMargin * 100).toFixed(1)}% | WACC: ${(params.wacc * 100).toFixed(1)}% | Beta: ${params.beta?.toFixed(2) ?? "1.00"}`);
+    console.log(`[ModelingAgent] Net Debt: ₹${params.netDebt.toLocaleString("en-IN")} Cr | Shares: ${params.sharesCr.toFixed(1)} Cr`);
+    console.log(`[ModelingAgent] isDerivedFromRealData: ${dataQuality.isDerivedFromRealData}`);
+    if (dataQuality.missingFields.length > 0) {
+      console.warn(`[ModelingAgent] ⚠️ Missing real data fields (fallback used): ${dataQuality.missingFields.join(", ")}`);
+    }
+    if (dataQuality.disclaimer) {
+      console.warn(`[ModelingAgent] ⚠️ DISCLAIMER: ${dataQuality.disclaimer}`);
+    }
 
-    // Execute in sandbox environment
+    // Step 2: Generate Python DCF script using derived parameters
+    const pythonCode = this.generatePythonModelScript(ticker, modelType, projectionYears, params);
+
+    // Step 3: Execute in sandbox environment
     const sandboxResult = await pythonExecutor.execute(pythonCode, {
       runId,
       timeoutMs: 45000,
       inputs: {
         ticker,
-        revenue: derivedParams.baseRevenue,
-        ebitdaMargin: derivedParams.ebitdaMargin,
+        revenue: params.baseRevenue,
+        ebitdaMargin: params.ebitdaMargin,
         projectionYears,
       },
     });
 
-    // Compute valuation model output
+    // Step 4: Compute valuation model output
     let modelOutput: ModelingOutput;
 
     if (sandboxResult.data && typeof sandboxResult.data.baseTargetPrice === "number") {
       modelOutput = sandboxResult.data as unknown as ModelingOutput;
     } else {
-      // Fall back to direct financial engine with derived dynamic parameters
       const dcfRes = computeDCFValuation({
-        baseRevenue: derivedParams.baseRevenue,
+        baseRevenue: params.baseRevenue,
         projectionYears,
       });
       modelOutput = dcfRes as unknown as ModelingOutput;
     }
+
+    // Inject data quality metadata into model assumptions
+    modelOutput.assumptions = {
+      ...modelOutput.assumptions,
+      isDerivedFromExtractedData: dataQuality.isDerivedFromRealData ? "True" : "False",
+      financialSource: dataQuality.financialSource,
+      disclaimer: dataQuality.disclaimer ?? undefined,
+    };
+
+    const priceLog = `Base: ₹${Math.round(modelOutput.baseTargetPrice)}/sh | Bull: ₹${Math.round(modelOutput.bullCasePrice)}/sh | Bear: ₹${Math.round(modelOutput.bearCasePrice)}/sh`;
+    console.log(`[ModelingAgent] ✓ DCF COMPLETE → ${priceLog}`);
+    console.log(`[ModelingAgent] ────────────────────────────────────────\n`);
 
     const output: ModelingAgentOutput = {
       ticker,
       modelOutput,
       codeExecuted: pythonCode,
       milestoneCompleted: true,
-      summary: this.buildSummary(ticker, companyName, modelOutput),
+      summary: this.buildSummary(ticker, companyName, modelOutput, dataQuality),
+      dataQuality,
     };
 
     // Update SubagentRun record in DB (if record exists)
@@ -101,39 +146,157 @@ export class ModelingAgent {
     return output;
   }
 
-  // ─── Private Helpers ────────────────────────────────────────────────────────
+  // ─── Parameter Derivation ─────────────────────────────────────────────────────
 
   /**
-   * Dynamically derives DCF financial modeling parameters from extracted financials.
-   * Eliminates hardcoded 11% WACC, 14% growth, and static shares/debt defaults.
+   * Attempts to derive model parameters from real data in this order:
+   * 1. Extracted financials from document agent (best)
+   * 2. Live Screener.in market data (medium — gives price/market cap, not P&L)
+   * 3. Sector-average fallback constants (worst — clearly flagged)
    */
-  private deriveModelParameters(financials?: Record<string, unknown>): {
-    baseRevenue: number;
-    revenueGrowth: number;
-    ebitdaMargin: number;
-    wacc: number;
-    taxRate: number;
-    capexPct: number;
-    terminalGrowth: number;
-    netDebt: number;
-    sharesCr: number;
-    isDerived: boolean;
-  } {
-    if (!financials) {
-      return {
-        baseRevenue: 10000,
-        revenueGrowth: 0.12,
-        ebitdaMargin: 0.18,
-        wacc: 0.115, // CAPM baseline: 7.0% Rf + 1.0 Beta * 4.5% ERP
-        taxRate: 0.25,
-        capexPct: 0.05,
-        terminalGrowth: 0.04,
-        netDebt: 0,
-        sharesCr: 50,
-        isDerived: false,
-      };
+  private async deriveModelParameters(
+    ticker: string,
+    companyName: string,
+    extractedFinancials?: Record<string, unknown>
+  ): Promise<{ params: ReturnType<typeof this.buildParamsFromFinancials>; dataQuality: ModelingDataQuality }> {
+
+    // === Path 1: Extracted financials from document agent ===
+    if (extractedFinancials && Object.keys(extractedFinancials).length > 0) {
+      const hasRevenue = extractedFinancials.revenue ?? extractedFinancials.sales;
+      if (hasRevenue && Number(hasRevenue) > 0) {
+        console.log(`[ModelingAgent] Using extracted financials from DocumentAgent.`);
+        const params = this.buildParamsFromFinancials(extractedFinancials);
+        return {
+          params,
+          dataQuality: {
+            isDerivedFromRealData: true,
+            financialSource: "extracted_filings",
+            screenerLiveData: false,
+            baseRevenue: params.baseRevenue,
+            revenueSource: "Extracted from BSE/NSE filing documents",
+            missingFields: this.detectMissingFields(extractedFinancials),
+            disclaimer: null,
+          },
+        };
+      }
     }
 
+    // === Path 2: Live Screener.in scrape ===
+    console.log(`[ModelingAgent] No extracted financials from DocumentAgent — attempting live Screener.in scrape for ${ticker}...`);
+    let screenerParams: ReturnType<typeof this.buildParamsFromFinancials> | null = null;
+    let screenerLiveData = false;
+
+    try {
+      const screenerProfile = await fetchScreenerProfile(ticker);
+      if (screenerProfile.isLiveData) {
+        const missingFields: string[] = [];
+
+        // Screener gives us market cap and price — derive revenue proxy from EV/Sales if available
+        // The historical series (if parsed) gives us financials
+        const historicalRevenue = screenerProfile.historicalSeries
+          .filter((s) => s.sales !== null)
+          .map((s) => s.sales as number);
+
+        const latestRevenue = historicalRevenue.length > 0
+          ? historicalRevenue[historicalRevenue.length - 1]
+          : null;
+
+        const roceDecimal = screenerProfile.rocePercent ? screenerProfile.rocePercent / 100 : null;
+        const _roeDecimal = screenerProfile.roePercent ? screenerProfile.roePercent / 100 : null;
+        const beta = screenerProfile.peRatio ? Math.max(0.5, Math.min(2.0, screenerProfile.peRatio / 20)) : 1.0;
+
+        if (!latestRevenue) missingFields.push("revenue (Screener historical series incomplete)");
+        if (!screenerProfile.rocePercent) missingFields.push("ROCE");
+        if (!screenerProfile.roePercent) missingFields.push("ROE");
+
+        const baseRevenue = latestRevenue ?? 10000;
+        const rf = 0.07; // India 10Y G-Sec
+        const erp = 0.055; // India ERP
+        const wacc = Math.min(0.18, Math.max(0.08, rf + beta * erp));
+        const ebitdaMargin = roceDecimal ? Math.min(0.40, Math.max(0.08, roceDecimal * 1.3)) : 0.18;
+
+        screenerParams = {
+          baseRevenue,
+          revenueGrowth: 0.12, // conservative default without P&L series
+          ebitdaMargin,
+          wacc,
+          taxRate: 0.25,
+          capexPct: 0.05,
+          terminalGrowth: 0.04,
+          netDebt: 0,
+          sharesCr: screenerProfile.marketCapCr && screenerProfile.currentPrice
+            ? Math.round(screenerProfile.marketCapCr / screenerProfile.currentPrice)
+            : 50,
+          isDerived: true,
+          beta,
+        };
+        screenerLiveData = true;
+
+        console.log(`[ModelingAgent] ✓ Screener live data obtained for ${ticker}. Market Cap: ₹${screenerProfile.marketCapCr?.toLocaleString("en-IN") ?? "N/A"} Cr | P/E: ${screenerProfile.peRatio ?? "N/A"}`);
+
+        return {
+          params: screenerParams,
+          dataQuality: {
+            isDerivedFromRealData: latestRevenue !== null,
+            financialSource: "screener_live",
+            screenerLiveData: true,
+            baseRevenue,
+            revenueSource: latestRevenue
+              ? `Screener.in historical sales series (₹${latestRevenue.toLocaleString("en-IN")} Cr)`
+              : `Screener.in market cap proxy (revenue unavailable — ₹10,000 Cr sector fallback)`,
+            missingFields,
+            disclaimer: missingFields.length > 0
+              ? `Some model inputs used sector-average fallback values. Missing: ${missingFields.join(", ")}. Verify figures against actual annual report.`
+              : null,
+          },
+        };
+      }
+    } catch (err) {
+      console.warn(`[ModelingAgent] Screener scrape failed for ${ticker}:`, err instanceof Error ? err.message : String(err));
+    }
+
+    // === Path 3: Sector fallback constants (last resort) ===
+    console.warn(
+      `[ModelingAgent] ⚠️ FALLBACK: Could not obtain real financial data for ${ticker} (${companyName}) ` +
+      `from either DocumentAgent or Screener.in. Using sector-average constants. ` +
+      `DCF output will be UNRELIABLE — do not use target price without verification.`
+    );
+
+    const fallbackParams = {
+      baseRevenue: 10000,
+      revenueGrowth: 0.12,
+      ebitdaMargin: 0.18,
+      wacc: 0.115,
+      taxRate: 0.25,
+      capexPct: 0.05,
+      terminalGrowth: 0.04,
+      netDebt: 0,
+      sharesCr: 50,
+      isDerived: false,
+      beta: 1.0,
+    };
+
+    return {
+      params: fallbackParams,
+      dataQuality: {
+        isDerivedFromRealData: false,
+        financialSource: "sector_fallback",
+        screenerLiveData,
+        baseRevenue: fallbackParams.baseRevenue,
+        revenueSource: "Sector-average fallback constant (₹10,000 Cr) — NOT from actual financials",
+        missingFields: ["revenue", "EBITDA", "net_debt", "shares_outstanding", "beta"],
+        disclaimer:
+          `⚠️ IMPORTANT: Financial model used sector-average fallback constants — actual financial figures ` +
+          `for ${companyName} (${ticker}) were unavailable from BSE/NSE filings and Screener.in. ` +
+          `Target price is INDICATIVE ONLY and must NOT be used for investment decisions. ` +
+          `Please obtain real audited financials before use.`,
+      },
+    };
+  }
+
+  // ─── Parameter Builder from Extracted Financials ──────────────────────────────
+
+  private buildParamsFromFinancials(financials: Record<string, unknown>) {
     // 1. Base Revenue (Crores)
     let baseRevenue = Number(financials.revenue ?? financials.sales ?? 10000);
     if (isNaN(baseRevenue) || baseRevenue <= 0) baseRevenue = 10000;
@@ -148,14 +311,14 @@ export class ModelingAgent {
     }
     if (isNaN(ebitdaMargin) || ebitdaMargin <= 0 || ebitdaMargin > 0.6) ebitdaMargin = 0.18;
 
-    // 3. CAPM WACC Calculation: Rf (7.0% India 10Y Yield) + Beta * ERP (5.5%)
+    // 3. CAPM WACC: Rf (7.0% India 10Y G-Sec) + Beta * ERP (5.5%)
     const rawBeta = Number(financials.beta ?? 1.0);
     const beta = !isNaN(rawBeta) && rawBeta > 0.2 && rawBeta < 3.0 ? rawBeta : 1.0;
-    const rf = 0.07; // 7.0% India 10Y G-Sec Yield
-    const erp = 0.055; // 5.5% Equity Risk Premium for Indian Market
+    const rf = 0.07;
+    const erp = 0.055;
     const wacc = Math.min(0.18, Math.max(0.08, rf + beta * erp));
 
-    // 4. Revenue Growth Rate (derived from historical series or defaulted to reasonable 10-15%)
+    // 4. Revenue Growth Rate
     let revenueGrowth = Number(financials.revenueGrowth ?? 0.12);
     if (isNaN(revenueGrowth) || revenueGrowth <= 0 || revenueGrowth > 0.4) revenueGrowth = 0.12;
 
@@ -167,29 +330,31 @@ export class ModelingAgent {
     const shares = Number(financials.outstandingShares ?? financials.shares ?? 50);
     const sharesCr = !isNaN(shares) && shares > 0 ? shares : 50;
 
-    return {
-      baseRevenue,
-      revenueGrowth,
-      ebitdaMargin,
-      wacc,
-      taxRate: 0.25,
-      capexPct: 0.05,
-      terminalGrowth: 0.04,
-      netDebt,
-      sharesCr,
-      isDerived: true,
-    };
+    return { baseRevenue, revenueGrowth, ebitdaMargin, wacc, taxRate: 0.25, capexPct: 0.05, terminalGrowth: 0.04, netDebt, sharesCr, isDerived: true, beta };
   }
+
+  private detectMissingFields(financials: Record<string, unknown>): string[] {
+    const missing: string[] = [];
+    if (!financials.revenue && !financials.sales) missing.push("revenue");
+    if (!financials.ebitda && !financials.ebitdaMargin) missing.push("EBITDA");
+    if (!financials.beta) missing.push("beta");
+    if (!financials.outstandingShares && !financials.shares) missing.push("shares_outstanding");
+    if (!financials.totalDebt && !financials.debt) missing.push("net_debt");
+    return missing;
+  }
+
+  // ─── Python Script Generator ──────────────────────────────────────────────────
 
   private generatePythonModelScript(
     ticker: string,
     modelType: string,
     projectionYears: number,
-    params: ReturnType<typeof ModelingAgent.prototype.deriveModelParameters>
+    params: ReturnType<typeof this.buildParamsFromFinancials>
   ): string {
     return `
 # EquiGen Dynamic Valuation Engine (SEBI Compliant)
 # Company: ${ticker} | Model: ${modelType} | Projection Window: ${projectionYears} Years
+# isDerivedFromExtractedData: ${params.isDerived}
 
 import json
 
@@ -250,7 +415,11 @@ if __name__ == "__main__":
 `.trim();
   }
 
-  private buildSummary(ticker: string, companyName: string, output: ModelingOutput): string {
+  private buildSummary(ticker: string, companyName: string, output: ModelingOutput, quality: ModelingDataQuality): string {
+    const dataNote = quality.isDerivedFromRealData
+      ? `✓ Model inputs sourced from: ${quality.financialSource}`
+      : `⚠️ Model used sector-average fallback constants — target price is INDICATIVE only`;
+
     return [
       `Quantitative Valuation Model Complete for ${ticker} (${companyName}):`,
       `• Model Type: ${output.modelType.toUpperCase()}`,
@@ -258,11 +427,10 @@ if __name__ == "__main__":
       `• Bull Case Target Price: ₹${output.bullCasePrice}/share`,
       `• Bear Case Target Price: ₹${output.bearCasePrice}/share`,
       `• WACC: ${output.assumptions?.wacc ?? "11.5%"} | Terminal Growth: ${output.assumptions?.terminalGrowth ?? "4.0%"}`,
-      output.sensitivityMatrix
-        ? `• 5x5 Sensitivity Matrix generated (WACC vs Terminal Growth Rate)`
-        : "",
+      `• Data Quality: ${dataNote}`,
+      output.sensitivityMatrix ? `• 5x5 Sensitivity Matrix generated` : "",
       output.monteCarlo
-        ? `• Monte Carlo Simulation (1,000 runs): Median ₹${output.monteCarlo.medianTargetPrice}/share (P10: ₹${output.monteCarlo.p10TargetPrice}, P90: ₹${output.monteCarlo.p90TargetPrice})`
+        ? `• Monte Carlo (1,000 runs): Median ₹${output.monteCarlo.medianTargetPrice}/share`
         : "",
     ]
       .filter(Boolean)

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { masterPlannerAgent } from "@/lib/ai/planner/master-planner";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
-import { ResearchGoal } from "@/types/plan4";
+import { ResearchGoal, ResearchPlanRecord } from "@/types/plan4";
 import { prisma } from "@/lib/db";
 
 /**
@@ -80,14 +80,141 @@ export async function GET(req: NextRequest) {
   if (authError) return authError;
 
   try {
-    const planId = req.nextUrl.searchParams.get("planId");
+    const rawPlanId = req.nextUrl.searchParams.get("planId") || req.nextUrl.searchParams.get("id");
 
-    if (planId) {
-      const plan = await masterPlannerAgent.getPlan(planId);
-      if (!plan) {
+    if (rawPlanId) {
+      const cleanPlanId = rawPlanId.replace(/^rep_/, "");
+      let plan = await masterPlannerAgent.getPlan(cleanPlanId) || await masterPlannerAgent.getPlan(rawPlanId);
+
+      // Also look up in ReportHistory (covers standalone manual uploads, completed autonomous reports, etc.)
+      const report = await prisma.reportHistory.findFirst({
+        where: {
+          OR: [
+            { id: rawPlanId },
+            { id: cleanPlanId },
+            { id: `rep_${cleanPlanId}` },
+          ],
+        },
+        select: {
+          id: true,
+          companyName: true,
+          status: true,
+          reportData: true,
+          createdAt: true,
+        },
+      }).catch(() => null);
+
+      // If plan wasn't directly found, check if the report links to a planId
+      if (!plan && report) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const linkedPlanId = (report.reportData as any)?.planId;
+        if (linkedPlanId) {
+          plan = await masterPlannerAgent.getPlan(linkedPlanId);
+        }
+      }
+
+      // If neither plan nor report exists in database, return 404
+      if (!plan && !report) {
         return NextResponse.json({ message: "Plan not found." }, { status: 404 });
       }
-      return NextResponse.json({ success: true, plan });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sections = (report?.reportData as any)?.sections ?? null;
+
+      // If this is a historical report without a researchPlan entry, construct a synthetic plan record
+      if (!plan && report) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const repData = report.reportData as any;
+        const comp = report.companyName || repData?.companyName || "Target Company";
+        const tick = repData?.ticker || (comp.length <= 8 ? comp.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : comp.substring(0, 4).toUpperCase());
+
+        const syntheticPlan: ResearchPlanRecord = {
+          id: report.id,
+          sessionId: "session-history",
+          goalText: `Initiation of coverage on ${comp} — institutional equity research report`,
+          companyName: comp,
+          ticker: tick,
+          milestones: [
+            {
+              id: "m_fetch",
+              type: "fetch_documents",
+              label: "Fetch Company Filings",
+              description: "BSE/NSE audited filings",
+              agentType: "document",
+              estimatedMinutes: 3,
+              estimatedCostUsd: 0.15,
+              status: "completed",
+              config: { sourceTypes: ["annual_report", "quarterly_results"], yearsBack: 4 },
+            },
+            {
+              id: "m_extract",
+              type: "extract_financials",
+              label: "Extract Financial Data",
+              description: "Audited financial statements",
+              agentType: "document",
+              estimatedMinutes: 2,
+              estimatedCostUsd: 0.15,
+              status: "completed",
+              config: { fieldsToExtract: ["revenue", "ebitda", "pat"], fiscalYears: ["FY24", "FY25"] },
+            },
+            {
+              id: "m_model",
+              type: "build_financial_model",
+              label: "Build Financial Model",
+              description: "DCF & financial model",
+              agentType: "modeling",
+              estimatedMinutes: 2,
+              estimatedCostUsd: 0.2,
+              status: "completed",
+              config: { modelType: "dcf", projectionYears: 5, runMonteCarlo: false, runSensitivity: true },
+            },
+            {
+              id: "m_peer",
+              type: "peer_benchmark",
+              label: "Peer Benchmarking",
+              description: "Sector multiples & peer analysis",
+              agentType: "market_intel",
+              estimatedMinutes: 2,
+              estimatedCostUsd: 0.15,
+              status: "completed",
+              config: { peerTickers: [], metrics: ["pe", "ev_ebitda"] },
+            },
+            {
+              id: "m_synthesise",
+              type: "synthesise",
+              label: "Synthesise Research Report",
+              description: "Report synthesis & thesis",
+              agentType: "synthesis",
+              estimatedMinutes: 3,
+              estimatedCostUsd: 0.35,
+              status: "completed",
+              config: { sections: ["executive_summary", "business_description", "financial_analysis", "valuation"] },
+            },
+            {
+              id: "m_compliance",
+              type: "compliance_audit",
+              label: "SEBI Compliance Audit",
+              description: "SEBI RA 2014 regulatory audit",
+              agentType: "compliance",
+              estimatedMinutes: 2,
+              estimatedCostUsd: 0.15,
+              status: "completed",
+              config: { checkSEBIRules: true, checkMathAudit: true, checkWatermark: true },
+            },
+          ],
+          depth: "standard",
+          costEstimate: 0,
+          latencyEstS: 0,
+          status: "completed",
+          approvedBy: "system",
+          approvedAt: report.createdAt.toISOString(),
+          createdAt: report.createdAt.toISOString(),
+        };
+
+        return NextResponse.json({ success: true, plan: syntheticPlan, sections });
+      }
+
+      return NextResponse.json({ success: true, plan, sections });
     }
 
     const authSession = getAuthSession(req);

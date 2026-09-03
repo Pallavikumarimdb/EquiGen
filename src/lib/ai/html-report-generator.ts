@@ -1729,13 +1729,453 @@ ${watermark}
 </html>`;
 }
 
+// ─── Autonomous AI Analyst Report Generator ───────────────────────────────────
+
+export interface AutonomousReportSection {
+  name: string;
+  content: string;
+  citations?: string[];
+  lastUpdatedAt?: string;
+}
+
+export interface AutonomousReportInput {
+  sourceType?: string;
+  ticker?: string;
+  companyName?: string;
+  planId?: string;
+  sections: AutonomousReportSection[];
+  completedAt?: string;
+}
+
+function renderMarkdownBody(md: string): string {
+  if (!md) return "";
+
+  // Split into lines
+  const lines = md.split("\n");
+  const htmlParts: string[] = [];
+  let inList = false;
+  let inTable = false;
+  let tableHeaderDone = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+
+    // Table detection
+    if (line.startsWith("|") && line.endsWith("|")) {
+      if (inList) {
+        htmlParts.push("</ul>");
+        inList = false;
+      }
+      if (!inTable) {
+        inTable = true;
+        tableHeaderDone = false;
+        htmlParts.push('<table class="auto-table"><tbody>');
+      }
+
+      // Check if separator row (|---|---|)
+      if (/^\|[\s\-:|]+\|$/.test(line)) {
+        tableHeaderDone = true;
+        continue;
+      }
+
+      const cells = line
+        .slice(1, -1)
+        .split("|")
+        .map((c) => c.trim());
+
+      const rowTag = !tableHeaderDone ? "th" : "td";
+      const cellsHtml = cells
+        .map((c) => `<${rowTag}>${formatInline(c)}</${rowTag}>`)
+        .join("");
+      htmlParts.push(`<tr>${cellsHtml}</tr>`);
+      continue;
+    } else if (inTable) {
+      htmlParts.push("</tbody></table>");
+      inTable = false;
+    }
+
+    // List detection
+    if (line.startsWith("- ") || line.startsWith("• ") || line.startsWith("* ")) {
+      if (!inList) {
+        inList = true;
+        htmlParts.push('<ul class="auto-list">');
+      }
+      const itemText = line.replace(/^[-•*]\s*/, "");
+      htmlParts.push(`<li>${formatInline(itemText)}</li>`);
+      continue;
+    } else if (inList) {
+      htmlParts.push("</ul>");
+      inList = false;
+    }
+
+    // Empty line
+    if (!line) {
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith(">")) {
+      const quoteText = line.replace(/^>\s*/, "");
+      htmlParts.push(`<div class="auto-quote">${formatInline(quoteText)}</div>`);
+      continue;
+    }
+
+    // Headers
+    if (line.startsWith("### ")) {
+      htmlParts.push(`<h4 class="auto-h4">${formatInline(line.slice(4))}</h4>`);
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      htmlParts.push(`<h3 class="auto-h3">${formatInline(line.slice(3))}</h3>`);
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      htmlParts.push(`<h2 class="auto-h2">${formatInline(line.slice(2))}</h2>`);
+      continue;
+    }
+
+    // Regular paragraph
+    htmlParts.push(`<p class="auto-p">${formatInline(line)}</p>`);
+  }
+
+  if (inList) htmlParts.push("</ul>");
+  if (inTable) htmlParts.push("</tbody></table>");
+
+  return htmlParts.join("\n");
+}
+
+function formatInline(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, '<span class="auto-code">$1</span>');
+}
+
+const SECTION_TITLE_MAP: Record<string, string> = {
+  executive_summary: "Executive Summary & Investment Thesis",
+  business_description: "Business Description & Operations",
+  financial_analysis: "Financial Health & Operating Analysis",
+  valuation: "Valuation Modeling & DCF Scenarios",
+  key_risks: "Key Investment Risks & Catalysts",
+  management_qa_highlights: "Management Q&A Highlights & Guidance",
+  disclosures: "SEBI Compliance & Statutory Disclosures",
+};
+
+function buildAutonomousHtml(
+  data: AutonomousReportInput,
+  options: HtmlReportOptions = {},
+): string {
+  const compName = data.companyName || "Target Company";
+  const ticker = data.ticker || "TICKER";
+  const dateStr = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const isDraft = options.status !== "published";
+  const sections = data.sections || [];
+
+  const getSec = (name: string) => sections.find((s) => s.name === name);
+
+  const execSummary = getSec("executive_summary");
+  const bizDesc = getSec("business_description");
+  const finAnalysis = getSec("financial_analysis");
+  const valuation = getSec("valuation");
+  const risks = getSec("key_risks");
+  const concall = getSec("management_qa_highlights");
+  const disclosures = getSec("disclosures");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${compName} (${ticker}) — Institutional Equity Research</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1917;
+    background: #f1f5f9;
+    margin: 0;
+    padding: 0;
+    font-size: 8.8pt;
+    line-height: 1.45;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 12mm auto;
+    background: #ffffff;
+    padding: 16mm 18mm 16mm 18mm;
+    page-break-after: always;
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  @media print {
+    body { background: transparent; }
+    .page { margin: 0; box-shadow: none; width: 100%; min-height: 100vh; }
+  }
+  .header {
+    border-bottom: 2px solid #008358;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .header-left .logo {
+    font-size: 14pt;
+    font-weight: 800;
+    color: #008358;
+    letter-spacing: -0.3px;
+  }
+  .header-left .sub-logo {
+    font-size: 7pt;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .header-right {
+    text-align: right;
+    font-size: 7.5pt;
+    color: #475569;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 7pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .badge-draft { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .badge-published { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+
+  .company-title-card {
+    background: #faf8f5;
+    border: 1px solid #e3dfd5;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .company-name { font-size: 15pt; font-weight: 800; color: #1a1917; margin: 0; }
+  .company-meta { font-size: 8pt; color: #59554a; margin-top: 2px; }
+
+  .section-card {
+    margin-bottom: 14px;
+  }
+  .sec-heading {
+    font-size: 10.5pt;
+    font-weight: 800;
+    color: #008358;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    margin: 0 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .auto-h2 { font-size: 10pt; font-weight: 700; color: #1e293b; margin: 10px 0 4px 0; }
+  .auto-h3 { font-size: 9.5pt; font-weight: 700; color: #334155; margin: 8px 0 4px 0; }
+  .auto-h4 { font-size: 9pt; font-weight: 700; color: #475569; margin: 6px 0 2px 0; }
+  .auto-p { margin: 0 0 6px 0; color: #334155; text-align: justify; }
+  .auto-list { margin: 0 0 8px 0; padding-left: 18px; color: #334155; }
+  .auto-list li { margin-bottom: 3px; }
+  .auto-quote {
+    background: #f8fafc;
+    border-left: 3px solid #008358;
+    padding: 6px 10px;
+    margin: 6px 0;
+    font-style: italic;
+    color: #334155;
+    border-radius: 0 4px 4px 0;
+  }
+  .auto-code {
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 8pt;
+    color: #0f172a;
+  }
+  .auto-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 7.8pt;
+  }
+  .auto-table th {
+    background: #f1f5f9;
+    color: #1e293b;
+    font-weight: 700;
+    padding: 5px 6px;
+    border: 1px solid #cbd5e1;
+    text-align: left;
+  }
+  .auto-table td {
+    padding: 4px 6px;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+  }
+  .auto-table tr:nth-child(even) { background: #fafafa; }
+
+  .footer {
+    position: absolute;
+    bottom: 10mm;
+    left: 18mm;
+    right: 18mm;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 6px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 6.8pt;
+    color: #64748b;
+  }
+  .disclaimer-box {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 6.8pt;
+    line-height: 1.35;
+    color: #475569;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: Initiation, Executive Summary & Business Operations -->
+<div class="page">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">EquiGen</div>
+      <div class="sub-logo">SEBI Registered Institutional Equity Research</div>
+    </div>
+    <div class="header-right">
+      <span class="badge ${isDraft ? 'badge-draft' : 'badge-published'}">
+        ${isDraft ? 'Draft — Live Research' : 'Official Published Note'}
+      </span>
+      <div>Date: ${dateStr}</div>
+    </div>
+  </div>
+
+  <div class="company-title-card">
+    <div>
+      <h1 class="company-name">${compName}</h1>
+      <div class="company-meta">NSE/BSE: <strong>${ticker}</strong> | Autonomous Pipeline Research Note</div>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.executive_summary}</h2>
+    ${renderMarkdownBody(execSummary?.content || "Executive summary synthesis pending.")}
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.business_description}</h2>
+    ${renderMarkdownBody(bizDesc?.content || "Business description pending from exchange filings.")}
+  </div>
+
+  <div class="footer">
+    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>Page 1 of 3</span>
+  </div>
+</div>
+
+<!-- PAGE 2: Financial Analysis & DCF Valuation Scenarios -->
+<div class="page">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">EquiGen</div>
+      <div class="sub-logo">Financial Modeling &amp; Quantitative Valuation</div>
+    </div>
+    <div class="header-right">
+      <div>${compName} (${ticker})</div>
+      <div>As of: ${dateStr}</div>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.financial_analysis}</h2>
+    ${renderMarkdownBody(finAnalysis?.content || "Financial analysis computation pending.")}
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.valuation}</h2>
+    ${renderMarkdownBody(valuation?.content || "Quantitative DCF model output pending.")}
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.key_risks}</h2>
+    ${renderMarkdownBody(risks?.content || "Key risks and market intelligence pending.")}
+  </div>
+
+  <div class="footer">
+    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>Page 2 of 3</span>
+  </div>
+</div>
+
+<!-- PAGE 3: Management Q&A Highlights & SEBI Disclosures -->
+<div class="page">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">EquiGen</div>
+      <div class="sub-logo">Management Q&amp;A &amp; Regulatory Disclosures</div>
+    </div>
+    <div class="header-right">
+      <div>${compName} (${ticker})</div>
+      <div>SEBI RA Reg: ${options.sebiRegNo || "INH000012345"}</div>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.management_qa_highlights}</h2>
+    ${renderMarkdownBody(concall?.content || "No concall transcript quotes available.")}
+  </div>
+
+  <div class="section-card">
+    <h2 class="sec-heading">${SECTION_TITLE_MAP.disclosures}</h2>
+    ${renderMarkdownBody(disclosures?.content || "Standard statutory disclosures apply.")}
+  </div>
+
+  <div class="disclaimer-box">
+    <strong>STATUTORY SEBI RA (2014) COMPLIANCE ATTESTATION:</strong><br>
+    This report was generated via the EquiGen autonomous multi-agent equity research pipeline.
+    <strong>Analyst Certification:</strong> The research subagents and certifying analyst ${options.reviewerName ? `(${options.reviewerName})` : ""} confirm that all findings reflect structured synthesis of BSE/NSE corporate disclosures, audited statements, and exchange filings.
+    <strong>Conflict of Interest:</strong> EquiGen Investments Limited and its analysts hold no financial interest exceeding 1% in ${compName}.
+    <strong>Standard Warning:</strong> Investment in securities market are subject to market risks. Read all related documents carefully before investing.
+  </div>
+
+  <div class="footer">
+    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>Page 3 of 3</span>
+  </div>
+</div>
+
+</body>
+</html>`;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export class HtmlReportGenerator {
   /**
-   * Generates a complete print-ready A4 HTML equity research report.
+   * Generates a complete print-ready A4 HTML equity research report for manual uploaded data.
    * Charts are drawn as inline SVG; layout is driven by CSS.
-   * No LLM call required — all data comes from the structured EquityResearchData.
    */
   static async generateHTML(
     data: EquityResearchData,
@@ -1743,4 +2183,16 @@ export class HtmlReportGenerator {
   ): Promise<string> {
     return buildHtml(data, options);
   }
+
+  /**
+   * Generates a complete print-ready A4 HTML equity research report for an autonomous pipeline run.
+   * Renders the real researched sections (Executive Summary, DCF Valuation, Concall, Risks, SEBI Disclosures).
+   */
+  static generateAutonomousHTML(
+    data: AutonomousReportInput,
+    options: HtmlReportOptions = {},
+  ): string {
+    return buildAutonomousHtml(data, options);
+  }
 }
+

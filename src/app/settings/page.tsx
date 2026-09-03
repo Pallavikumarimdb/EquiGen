@@ -193,9 +193,15 @@ export default function UserSettingsPage() {
 
   const handleSignOut = async () => {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("equigen_user");
+        localStorage.removeItem("equigen_session_token");
+        document.cookie = "session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      }
       await fetch("/api/auth/signout", { method: "POST" });
-      window.location.href = "/signin";
-    } catch {
+    } catch (err) {
+      console.warn("Signout request failed, forcing client redirect:", err);
+    } finally {
       window.location.href = "/signin";
     }
   };

@@ -71,32 +71,36 @@ export async function withRateLimitRetry<T>(
       if (
         status === 429 ||
         message.includes("rate_limit_exceeded") ||
-        message.includes("Rate limit")
+        message.includes("Rate limit") ||
+        message.includes("429") ||
+        message.includes("Quota")
       ) {
         const waitSeconds = parseRetryAfterSeconds(message);
         console.warn(
-          `[RetryWrapper] Rate limited (attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per Groq's response.`,
+          `\n[RetryWrapper] ⚠️ LLM API RATE LIMITED (Attempt ${attempt + 1}/${maxAttempts}). Waiting ${waitSeconds}s per provider backoff...`,
         );
+        console.warn(`[RetryWrapper] Error Details: ${message}\n`);
 
         // Long cooldown (daily-quota reset) → hand off to the fallback model when available.
         // Shorter waits are handled on the same model to preserve preferred-model quality.
         if (fallback && waitSeconds > 30) {
           try {
             console.warn(
-              `[RetryWrapper] Cooldown is ${waitSeconds}s — switching to fallback model.`,
+              `[RetryWrapper] 🔄 Long cooldown detected (${waitSeconds}s) — switching execution to fallback model...`,
             );
             return await fallback();
           } catch (fbErr: unknown) {
             lastError = fbErr;
             console.warn(
-              "[RetryWrapper] Fallback model also failed; resorting to wait-and-retry on primary.",
-              fbErr,
+              "[RetryWrapper] ❌ Fallback model execution also failed:",
+              fbErr instanceof Error ? fbErr.message : fbErr,
             );
           }
         }
 
         // Abort and throw immediately if wait duration exceeds 5 minutes (300s) to avoid freezing server processes
         if (waitSeconds > 300) {
+          console.error(`[RetryWrapper] ❌ Cooldown wait of ${waitSeconds}s exceeds 300s max limit. Halting execution.`);
           throw new RateLimitError(
             lastError instanceof Error ? lastError.message : message,
             waitSeconds,

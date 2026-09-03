@@ -31,19 +31,42 @@ export interface SynthesisInput {
   depth?: string;
   documentData?: {
     filings?: unknown[];
+    /** Typed filing titles & URLs for business description context */
+    filingTitles?: { type: string; title: string; url: string; date: string }[];
     concallQuotes?: { speaker?: string; quote: string; topic?: string }[];
+    totalDocumentsFetched?: number;
+    isLiveData?: boolean;
   };
-  modelingData?: ModelingOutput;
+  modelingData?: ModelingOutput & {
+    assumptions?: {
+      isDerivedFromExtractedData?: string;  // "True" | "False"
+      financialSource?: string;
+      disclaimer?: string;
+      [key: string]: unknown;
+    };
+  };
   marketIntelData?: {
     peRatio?: number;
     marketCapCr?: number;
     promoterShareholding?: number;
     creditRating?: string;
-    newsItems?: { title: string; sentiment: string }[];
+    creditRatingIsLive?: boolean;    // false when no real rating found
+    newsItems?: { title: string; sentiment: string; isLiveData?: boolean }[];
+    newsIsLive?: boolean;            // false when no real news fetched
     benchmarkTableMarkdown?: string;
+    screenerIsLive?: boolean;        // false when Screener scrape failed
   };
   /** Concall transcripts from DocumentAgent — used for management Q&A section */
   concallTranscripts?: ConcallTranscriptResult[];
+}
+
+export interface DataSourceSummary {
+  bseNseFilings: { count: number; isLive: boolean };
+  concallTranscript: { quotesFound: number; isLive: boolean };
+  screenerMarketData: { isLive: boolean };
+  creditRating: { isLive: boolean; found: boolean };
+  news: { count: number; isLive: boolean };
+  dcfModel: { isDerivedFromRealData: boolean; source: string };
 }
 
 export interface SynthesisOutput {
@@ -53,6 +76,7 @@ export interface SynthesisOutput {
   companyName: string;
   sections: ReportSection[];
   consistencyCheck: ConsistencyCheckResult;
+  dataSources: DataSourceSummary;
   completedAt: string;
 }
 
@@ -75,8 +99,9 @@ async function generateSectionWithLLM(
   prompt: string,
   apiKey?: string
 ): Promise<string | null> {
+  console.log(`[SynthesisAgent] 📝 Synthesizing section '${sectionName}' via LLM...`);
   try {
-    const { model } = await getModelForRequest(
+    const { model, modelName } = await getModelForRequest(
       { provider: "groq", apiKey },
       prompt,
     );
@@ -85,9 +110,10 @@ async function generateSectionWithLLM(
       new HumanMessage(prompt),
     ]);
     const content = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
+    console.log(`[SynthesisAgent] ✓ Section '${sectionName}' generated using model '${modelName}'.`);
     return content.trim() || null;
   } catch (err) {
-    console.warn(`[SynthesisAgent] LLM generation failed for section "${sectionName}":`, err);
+    console.error(`[SynthesisAgent] ❌ LLM generation failed for section "${sectionName}":`, err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -122,18 +148,29 @@ The executive summary must:
 }
 
 function buildBusinessDescriptionPrompt(input: SynthesisInput): string {
-  const filingCount = (input.documentData?.filings ?? []).length;
+  const filingCount = input.documentData?.totalDocumentsFetched ?? (input.documentData?.filings ?? []).length;
+  const filingTitles = input.documentData?.filingTitles ?? [];
+  const isLiveFilings = input.documentData?.isLiveData ?? false;
+
+  const filingsContext = filingTitles.length > 0
+    ? `Actual exchange filings fetched (use these to describe business):\n` +
+      filingTitles.slice(0, 10).map(f => `  - [${f.type}] ${f.title} (${f.date})`).join("\n")
+    : filingCount > 0
+    ? `${filingCount} exchange filings were fetched but filing content is not yet extracted. Describe general industry context only.`
+    : `No exchange filings could be fetched. State clearly that "business details are unavailable from exchange filings" and describe general sector context only.`;
+
   return `Write the Business Description section for ${input.companyName} (NSE: ${input.ticker}).
 
 Available data:
-- Exchange filings fetched: ${filingCount} documents
-- Company: ${input.companyName}
-- Ticker: ${input.ticker}
+- Data is live from exchange: ${isLiveFilings}
+- Total filings fetched: ${filingCount}
+- ${filingsContext}
 
-Important: Do NOT invent segment revenue splits or specific business unit data. 
-Describe what is known about the company's industry position, key business lines, and competitive context 
-in general terms. If specific segment data is not provided, clearly state "segment data pending from filings."
-Keep this to 120–150 words.`;
+Critical rules:
+1. Do NOT invent segment revenue splits or specific business unit percentages not in the data above.
+2. If filing content is unavailable, explicitly state "Detailed segment data pending — based on exchange filing titles only."
+3. Do not use your training data to fill in financial numbers. Only describe what business the company is in.
+4. Be 120–150 words.`;
 }
 
 function buildFinancialAnalysisPrompt(input: SynthesisInput): string {
@@ -145,20 +182,34 @@ and describe what will be covered in this section once the model runs (Revenue, 
 Keep this to 80–100 words.`;
   }
 
+  // Check if model used real data or fallback constants
+  const isDerivedFromReal = m.assumptions?.isDerivedFromExtractedData === "True";
+  const financialSource = m.assumptions?.financialSource ?? "unknown";
+  const modelDisclaimer = m.assumptions?.disclaimer;
+
+  const dataQualityNote = isDerivedFromReal
+    ? `Model inputs sourced from: ${financialSource} (real financial data).`
+    : `⚠️ IMPORTANT: Model used sector-average fallback constants (source: ${financialSource}) — actual financial data was unavailable. DO NOT present target price as research-grade. State this limitation clearly in the section.`;
+
   return `Write the Financial Analysis section for ${input.companyName} (NSE: ${input.ticker}).
 
 DCF Model Output:
 - Base-case target price: ₹${Math.round(m.baseTargetPrice)}/share
 - Model assumptions: ${JSON.stringify(m.assumptions)}
 - Projection type: ${m.modelType}
+- Data quality: ${dataQualityNote}
+${modelDisclaimer ? `- Model disclaimer: ${modelDisclaimer}` : ""}
 
 Market intelligence:
 - P/E Ratio: ${input.marketIntelData?.peRatio ?? "data pending"}
 - Market Cap: ${input.marketIntelData?.marketCapCr ? `₹${input.marketIntelData.marketCapCr.toLocaleString()} Cr` : "data pending"}
 - Promoter holding: ${input.marketIntelData?.promoterShareholding ? `${input.marketIntelData.promoterShareholding}%` : "data pending"}
+- Screener live data: ${input.marketIntelData?.screenerIsLive ? "Yes" : "No — market multiples may be unavailable"}
 
-Summarize the financial health and profitability trajectory based only on the above data.
-Do not fabricate CAGR percentages or margin figures not present in the model output.
+Rules:
+1. Summarize based ONLY on the above data.
+2. ${isDerivedFromReal ? "Mention that model inputs were sourced from real exchange filings." : "You MUST include a clear disclaimer that the financial model used sector-average fallback constants, not actual audited financials. This is mandatory."}
+3. Do not fabricate CAGR percentages or margin figures not present in the model output.
 Be 150–180 words.`;
 }
 
@@ -247,10 +298,38 @@ export class SynthesisAgent {
   /**
    * Main entry point for Synthesis Subagent execution.
    * All section content is LLM-generated from real input data.
+   * Data quality is tracked per-source and surfaced in output.dataSources.
    */
   public async run(input: SynthesisInput, apiKey?: string): Promise<SynthesisOutput> {
     const runId = input.runId ?? `synth_${Date.now()}`;
     const startTime = Date.now();
+
+    // Build data source summary for logging and output
+    const filingCount = input.documentData?.totalDocumentsFetched ?? (input.documentData?.filings ?? []).length;
+    const concallQuoteCount = (input.concallTranscripts ?? []).flatMap(t => t.quotes).length;
+    const isDerivedFromReal = input.modelingData?.assumptions?.isDerivedFromExtractedData === "True";
+    const financialSource = input.modelingData?.assumptions?.financialSource ?? "sector_fallback";
+    const newsCount = (input.marketIntelData?.newsItems ?? []).length;
+
+    const dataSources: DataSourceSummary = {
+      bseNseFilings: { count: filingCount, isLive: input.documentData?.isLiveData ?? filingCount > 0 },
+      concallTranscript: { quotesFound: concallQuoteCount, isLive: concallQuoteCount > 0 },
+      screenerMarketData: { isLive: input.marketIntelData?.screenerIsLive ?? false },
+      creditRating: { isLive: input.marketIntelData?.creditRatingIsLive ?? false, found: !!input.marketIntelData?.creditRating && input.marketIntelData.creditRating !== "N/A" },
+      news: { count: newsCount, isLive: input.marketIntelData?.newsIsLive ?? newsCount > 0 },
+      dcfModel: { isDerivedFromRealData: isDerivedFromReal, source: financialSource },
+    };
+
+    console.log(`\n[SynthesisAgent] DATA SOURCES SUMMARY for ${input.companyName} (${input.ticker}):`);
+    console.log(`[SynthesisAgent]   📄 Filings: ${filingCount} docs (${dataSources.bseNseFilings.isLive ? "🟢 live" : "🔴 none fetched"})`);
+    console.log(`[SynthesisAgent]   🎙️  Concall: ${concallQuoteCount} quotes (${dataSources.concallTranscript.isLive ? "🟢 live" : "🔴 none"})`);
+    console.log(`[SynthesisAgent]   📊 Screener: ${dataSources.screenerMarketData.isLive ? "🟢 live" : "🔴 failed"}`);
+    console.log(`[SynthesisAgent]   🏦 Credit Rating: ${dataSources.creditRating.found ? "🟢 found" : "🔴 not found"} (${dataSources.creditRating.isLive ? "live" : "empty"})`);
+    console.log(`[SynthesisAgent]   📰 News: ${newsCount} articles (${dataSources.news.isLive ? "🟢 live" : "🔴 none"})`);
+    console.log(`[SynthesisAgent]   💹 DCF Model: ${isDerivedFromReal ? "🟢 REAL DATA" : "🔴 SECTOR FALLBACK"} (source: ${financialSource})`);
+    if (!isDerivedFromReal) {
+      console.warn(`[SynthesisAgent] ⚠️⚠️ DCF model used fallback constants — target price is UNRELIABLE.`);
+    }
 
     trajectoryBus.emitEvent(
       input.planId,
@@ -355,6 +434,7 @@ export class SynthesisAgent {
       companyName: input.companyName,
       sections,
       consistencyCheck,
+      dataSources,
       completedAt: new Date().toISOString(),
     };
   }

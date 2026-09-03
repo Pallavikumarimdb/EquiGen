@@ -61,9 +61,10 @@ export class MasterOrchestrator {
   ): Promise<OrchestrationResult> {
     const startTime = Date.now();
 
-    // 1. Fetch Plan record from DB
+    // 1. Fetch Plan record from DB with linked session
     const plan = await prisma.researchPlan.findUnique({
       where: { id: planId },
+      include: { session: true },
     }).catch(() => null);
 
     if (!plan) {
@@ -109,6 +110,11 @@ export class MasterOrchestrator {
     const completedMilestones: string[] = [];
     const skippedMilestones: string[] = [];
 
+    console.log(`\n================================================================================`);
+    console.log(`[MasterOrchestrator] STARTING PIPELINE for ${companyName} (${ticker})`);
+    console.log(`[MasterOrchestrator] Plan ID: ${planId} | Total Milestones: ${milestones.length}`);
+    console.log(`================================================================================\n`);
+
     // Mark plan as running
     await prisma.researchPlan.update({
       where: { id: planId },
@@ -119,6 +125,11 @@ export class MasterOrchestrator {
     for (let i = 0; i < milestones.length; i++) {
       const milestone = milestones[i];
       const milestoneRunId = `run_${milestone.id}_${Date.now()}`;
+      const milestoneStartTime = Date.now();
+
+      console.log(`--------------------------------------------------------------------------------`);
+      console.log(`[MasterOrchestrator] Step ${i + 1}/${milestones.length}: Executing '${milestone.label}' [${milestone.type}]`);
+      console.log(`--------------------------------------------------------------------------------`);
 
       // Check for steering interventions (pause / cancel)
       const currentPlanState = await prisma.researchPlan.findUnique({
@@ -127,6 +138,7 @@ export class MasterOrchestrator {
       }).catch(() => null);
 
       if (currentPlanState?.status === "cancelled") {
+        console.log(`[MasterOrchestrator] ⏹️ Execution CANCELLED by analyst at milestone ${milestone.id}.`);
         trajectoryBus.emitEvent(planId, "steering_applied", {
           eventType: "cancel",
           message: "Master Orchestrator halted execution due to Analyst Cancel steering command.",
@@ -142,6 +154,7 @@ export class MasterOrchestrator {
       }
 
       if (currentPlanState?.status === "paused") {
+        console.log(`[MasterOrchestrator] ⏸️ Execution PAUSED by analyst at milestone ${milestone.id}.`);
         trajectoryBus.emitEvent(planId, "steering_applied", {
           eventType: "pause",
           message: "Master Orchestrator paused execution. Waiting for Analyst Resume command...",
@@ -167,9 +180,16 @@ export class MasterOrchestrator {
         },
       }).catch(() => {});
 
-      // Emit step start
+      // Emit step start & subagent_start event for real-time UI tracking
       trajectoryBus.emitEvent(planId, "planner_thought", {
         reasoning: `Step ${i + 1}/${milestones.length}: Executing milestone '${milestone.label}' [${milestone.type}] for ${ticker}...`,
+      }, milestone.id);
+
+      trajectoryBus.emitEvent(planId, "subagent_start", {
+        agentType: milestone.agentType ?? "document",
+        message: milestone.label,
+        stepNum: i + 1,
+        totalSteps: milestones.length,
       }, milestone.id);
 
       try {
@@ -245,27 +265,65 @@ export class MasterOrchestrator {
           completedMilestones.push(milestone.id);
 
         } else if (milestone.type === "synthesise") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const docOut = documentOutput as any;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const modelOut = modelingOutput as any;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const marketOut = marketIntelOutput as any;
+
+          // Build typed filing titles for business description context
+          const filingTitles = [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(docOut?.bseResult?.filings ?? []).map((f: any) => ({
+              type: f.type ?? "Filing",
+              title: f.title ?? "",
+              url: f.url ?? "",
+              date: f.date ?? "",
+            })),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(docOut?.nseResult?.filings ?? []).map((f: any) => ({
+              type: f.type ?? "Filing",
+              title: f.title ?? "",
+              url: f.url ?? "",
+              date: f.date ?? "",
+            })),
+          ].filter((f) => f.title.length > 0).slice(0, 15);
+
+          const creditRatingResult = marketOut?.creditRatings;
+          const newsDigest = marketOut?.newsDigest;
+          const screenerPrimaryProfile = marketOut?.peerProfiles?.[0];
+
           const synthResult = await synthesisAgent.run({
             planId,
             ticker,
             companyName,
             documentData: {
+              filings: docOut?.fetchedDocuments ?? [],
+              filingTitles,
+              totalDocumentsFetched: docOut?.totalDocumentsFetched ?? 0,
+              isLiveData: (docOut?.totalDocumentsFetched ?? 0) > 0,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              filings: (documentOutput as any)?.bseFilings ?? [],
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              concallQuotes: (documentOutput as any)?.concallTranscripts?.flatMap((t: any) => t.quotes) ?? [],
+              concallQuotes: docOut?.concallTranscripts?.flatMap((t: any) => t.quotes) ?? [],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            modelingData: (modelingOutput as any)?.modelOutput,
+            modelingData: modelOut?.modelOutput,
             marketIntelData: {
+              benchmarkTableMarkdown: marketOut?.benchmarkMarkdown,
+              creditRating: creditRatingResult?.overallCreditProfile ?? "N/A",
+              creditRatingIsLive: creditRatingResult?.isLiveData ?? false,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              benchmarkTableMarkdown: (marketIntelOutput as any)?.benchmarkMarkdown,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              creditRating: (marketIntelOutput as any)?.creditRatings?.overallCreditProfile ?? "N/A",
+              newsItems: newsDigest?.news?.map((n: any) => ({
+                title: n.title,
+                sentiment: n.sentiment,
+                isLiveData: n.isLiveData,
+              })) ?? [],
+              newsIsLive: newsDigest?.isLiveData ?? false,
+              screenerIsLive: screenerPrimaryProfile?.isLiveData ?? false,
+              peRatio: screenerPrimaryProfile?.peRatio ?? undefined,
+              marketCapCr: screenerPrimaryProfile?.marketCapCr ?? undefined,
+              promoterShareholding: screenerPrimaryProfile?.shareholding?.promoters ?? undefined,
             },
-            // Pass concall transcripts for management Q&A section
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            concallTranscripts: (documentOutput as any)?.concallTranscripts ?? [],
+            concallTranscripts: docOut?.concallTranscripts ?? [],
           }, apiKey);
           synthesisOutput = synthResult;
           completedMilestones.push(milestone.id);
@@ -290,36 +348,142 @@ export class MasterOrchestrator {
           complianceOutput = compResult;
           completedMilestones.push(milestone.id);
         }
+
+        const stepDuration = ((Date.now() - milestoneStartTime) / 1000).toFixed(1);
+        console.log(`[MasterOrchestrator] ✓ Milestone ${i + 1}/${milestones.length} '${milestone.label}' COMPLETED in ${stepDuration}s\n`);
+
+        trajectoryBus.emitEvent(planId, "milestone_done", {
+          milestoneRef: milestone.id,
+          milestoneLabel: milestone.label,
+          stepNum: i + 1,
+          totalSteps: milestones.length,
+          summary: `Completed milestone ${i + 1}/${milestones.length}: ${milestone.label}`,
+        }, milestone.id);
       } catch (err) {
-        console.error(`[MasterOrchestrator] Milestone ${milestone.id} failed:`, err);
+        const stepDuration = ((Date.now() - milestoneStartTime) / 1000).toFixed(1);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[MasterOrchestrator] ❌ FAILED Milestone ${i + 1}/${milestones.length} '${milestone.label}' after ${stepDuration}s:`);
+        console.error(`[MasterOrchestrator] Exception Details: ${errMsg}\n`);
+
         trajectoryBus.emitEvent(planId, "error", {
           milestoneRef: milestone.id,
-          message: err instanceof Error ? err.message : "Milestone execution error",
+          message: errMsg,
         });
         // Continue with remaining milestones — partial results are better than none
       }
     }
 
-    // 4. Mark plan as completed in DB
+    // 4. Mark plan status in DB
+    const finalStatus = completedMilestones.length > 0 ? "completed" : "failed";
     await prisma.researchPlan.update({
       where: { id: planId },
-      data: { status: "completed" },
+      data: { status: finalStatus },
     }).catch(() => {});
 
-    trajectoryBus.emitEvent(planId, "plan_complete", {
-      planId,
-      ticker,
-      companyName,
-      summary: `Research plan for ${companyName} (${ticker}) completed. Total Latency: ${((Date.now() - startTime) / 1000).toFixed(1)}s`,
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalSections = (complianceOutput as any)?.updatedSections ?? (synthesisOutput as any)?.sections ?? [];
+
+    // Save/Upsert completed report into ReportHistory for sidebar history tracking
+    if (finalStatus === "completed") {
+      const reportId = `rep_${planId}`;
+      const activeOrgId = plan.session?.orgId || "default-org";
+      const activeCreatedById = plan.session?.createdBy && plan.session.createdBy !== "analyst" ? plan.session.createdBy : null;
+
+      await prisma.reportHistory.upsert({
+        where: { id: reportId },
+        create: {
+          id: reportId,
+          orgId: activeOrgId,
+          createdById: activeCreatedById,
+          companyName: companyName || ticker,
+          fileName: "Autonomous Research",
+          status: "published",
+          modelUsedForFinancials: "Groq Llama 3.3 / OpenRouter Free",
+          reportData: {
+            sourceType: "autonomous",
+            ticker,
+            companyName,
+            planId,
+            sections: finalSections,
+            completedAt: new Date().toISOString(),
+          },
+        },
+        update: {
+          orgId: activeOrgId,
+          status: "published",
+          reportData: {
+            sourceType: "autonomous",
+            ticker,
+            companyName,
+            planId,
+            sections: finalSections,
+            completedAt: new Date().toISOString(),
+          },
+        },
+      }).catch((err) => {
+        console.warn("[MasterOrchestrator] Failed to save ReportHistory record:", err);
+      });
+      console.log(`[MasterOrchestrator] Saved ReportHistory record '${reportId}' for ${companyName} (${ticker}) under Org '${activeOrgId}'.`);
+    }
+
+    const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    // ── DATA QUALITY REPORT ──────────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const synthData = synthesisOutput as any;
+    const dataSources = synthData?.dataSources;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const modelQuality = (modelingOutput as any)?.dataQuality;
+
+    console.log(`\n════════════════════════════════════════════════════════════════════════════════`);
+    console.log(`[MasterOrchestrator] DATA QUALITY REPORT — ${companyName} (${ticker})`);
+    console.log(`════════════════════════════════════════════════════════════════════════════════`);
+    console.log(`  📄 BSE/NSE Filings  : ${dataSources?.bseNseFilings?.count ?? 0} docs | ${dataSources?.bseNseFilings?.isLive ? "🟢 LIVE" : "🔴 NONE FETCHED"}`);
+    console.log(`  🎙️  Concall Transcript: ${dataSources?.concallTranscript?.quotesFound ?? 0} quotes | ${dataSources?.concallTranscript?.isLive ? "🟢 LIVE" : "🔴 NONE"}`);
+    console.log(`  📊 Screener Data    : ${dataSources?.screenerMarketData?.isLive ? "🟢 LIVE" : "🔴 FAILED"}`);
+    console.log(`  🏦 Credit Rating    : ${dataSources?.creditRating?.found ? "🟢 REAL RATING FOUND" : "🔴 NO PUBLIC RATING"} | isLive=${dataSources?.creditRating?.isLive}`);
+    console.log(`  📰 News Articles    : ${dataSources?.news?.count ?? 0} articles | ${dataSources?.news?.isLive ? "🟢 LIVE" : "🔴 NONE FETCHED"}`);
+    console.log(`  💹 DCF Model        : ${modelQuality?.isDerivedFromRealData ? "🟢 REAL FINANCIALS" : "🔴 SECTOR FALLBACK (UNRELIABLE)"} | source: ${modelQuality?.financialSource ?? "unknown"}`);
+    if (modelQuality && !modelQuality.isDerivedFromRealData) {
+      console.warn(`  ⚠️  TARGET PRICE WARNING: DCF used generic constants — do NOT use target price for investment decisions.`);
+    }
+    const liveSourceCount = [
+      dataSources?.bseNseFilings?.isLive,
+      dataSources?.concallTranscript?.isLive,
+      dataSources?.screenerMarketData?.isLive,
+      dataSources?.creditRating?.isLive,
+      dataSources?.news?.isLive,
+      modelQuality?.isDerivedFromRealData,
+    ].filter(Boolean).length;
+    console.log(`  ── Research Quality: ${liveSourceCount}/6 sources live ──`);
+    console.log(`════════════════════════════════════════════════════════════════════════════════`);
+    console.log(`[MasterOrchestrator] PIPELINE FINISHED | Status: ${finalStatus.toUpperCase()} | Completed: ${completedMilestones.length}/${milestones.length} | Latency: ${totalSec}s`);
+    console.log(`════════════════════════════════════════════════════════════════════════════════\n`);
+
+    if (finalStatus === "failed") {
+      trajectoryBus.emitEvent(planId, "error", {
+        planId,
+        message: "Research execution halted: LLM API key rate-limited or daily quota exhausted.",
+      });
+    } else {
+      trajectoryBus.emitEvent(planId, "plan_complete", {
+        planId,
+        ticker,
+        companyName,
+        summary: `Research plan for ${companyName} (${ticker}) completed. Total Latency: ${((Date.now() - startTime) / 1000).toFixed(1)}s`,
+        dataSources: dataSources ?? null,
+        researchQuality: `${liveSourceCount}/6 sources live`,
+        modelFallback: modelQuality ? !modelQuality.isDerivedFromRealData : true,
+        sections: finalSections,
+      });
+    }
 
     return {
       planId,
       status: "completed",
       completedMilestones,
       skippedMilestones,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      finalReportSections: (complianceOutput as any)?.updatedSections ?? (synthesisOutput as any)?.sections ?? [],
+      finalReportSections: finalSections,
       latencyMs: Date.now() - startTime,
     };
   }

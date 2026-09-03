@@ -37,8 +37,17 @@ export async function buildInstitutionalEquityData(
   }
 
   // 2. Deterministic, mathematically consistent financial model engine
-  // Generates 100% filled institutional data for ANY company dynamically
-  return generateDynamicFinancialModel(cleanName, ticker, goalObjective);
+  // RELIABILITY FIX: Log a very clear warning when falling back to synthetic model.
+  // This data is mathematically generated from a hash seed — NOT from real filings.
+  console.warn(
+    `[InstitutionalEquityData] ⚠️⚠️ SYNTHETIC MODEL FALLBACK for ${cleanName} (${ticker}). ` +
+    `LLM generation failed or returned invalid JSON. All financial figures are mathematically ` +
+    `generated from a hash seed — NOT sourced from actual audited filings or live market data. ` +
+    `This report MUST be treated as a structural template only and NOT as investment research.`
+  );
+  const syntheticData = generateDynamicFinancialModel(cleanName, ticker, goalObjective);
+  // Inject a synthetic flag so downstream consumers can display a disclaimer
+  return { ...syntheticData, isSyntheticModel: true } as typeof syntheticData;
 }
 
 /**
@@ -93,7 +102,7 @@ async function generateEquityResearchViaAI(
     model: modelName,
     temperature: 0.2,
     maxRetries: 0,
-    timeout: 6000,
+    timeout: 30000,
   });
 
   const prompt = `You are an institutional Equity Research Analyst at a SEBI-registered brokerage.
@@ -129,7 +138,7 @@ Requirements:
    - "executiveSummary": comprehensive initiation investment thesis`;
 
   const response = await model.invoke(prompt, {
-    signal: AbortSignal.timeout(4000),
+    signal: AbortSignal.timeout(30000),
   });
   const text = typeof response.content === "string" ? response.content.trim() : "";
   const cleanJson = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();

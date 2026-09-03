@@ -62,8 +62,10 @@ export class MarketIntelAgent {
     // Step 2: Fetch Credit Ratings
     const creditRatings = await fetchCreditRatings(ticker);
 
+    const companyName = input.companyName;
+
     // Step 3: Fetch Sector News with LLM sentiment
-    const newsDigest = await fetchSectorNews(ticker, { apiKey });
+    const newsDigest = await fetchSectorNews(ticker, { apiKey, companyName });
 
     // Step 4: Format Peer Benchmark Markdown table
     const benchmarkMarkdown = this.formatBenchmarkTable(peerProfiles);

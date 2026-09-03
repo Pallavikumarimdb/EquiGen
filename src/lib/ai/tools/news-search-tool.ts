@@ -82,20 +82,13 @@ export async function fetchNewsAndFilings(queryOrCompany: string): Promise<NewsS
     console.warn(`[NewsSearchTool] RSS fetch failed for query "${query}", returning structured news summary:`, error);
   }
 
-  // Graceful fallback if news feed unavailable
-  const fallbackSummary = [
-    `📰 **Recent Corporate Developments for ${query}**`,
-    `1. **Quarterly Performance Note**: Strong revenue trajectory supported by volume expansion.`,
-    `2. **Management Commentary**: Focus on margin expansion and debt reduction.`,
-    `3. **Regulatory / Exchange Filings**: Standard compliance disclosure submitted to BSE/NSE.`,
-    ``,
-    `*Live news query logged as of ${dateStr} IST*`
-  ].join("\n");
-
+  // RELIABILITY FIX: When live news feed unavailable, return honest empty result.
+  // Never fabricate news headlines or market commentary.
+  console.warn(`[NewsSearchTool] ⚠️ Live news feed unavailable for "${query}". Returning empty result.`);
   return {
     query,
     articles: [],
     asOf: timestamp,
-    rawSummary: fallbackSummary,
+    rawSummary: `📰 **News for ${query.toUpperCase()}**\n\n> ⚠️ Live news feed unavailable at ${dateStr} IST.\n> No news articles could be retrieved. Please verify outbound internet access or check again later.`,
   };
 }

@@ -67,11 +67,20 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
 
+  const [completedMilestoneIds, setCompletedMilestoneIds] = useState<string[]>([]);
+  const [activeStepIdx, setActiveStepIdx] = useState<number>(0);
+  const [researchQuality, setResearchQuality] = useState<string | null>(null);
+  const [dataSources, setDataSources] = useState<Record<string, { isLive?: boolean; count?: number; found?: boolean; isDerivedFromRealData?: boolean; source?: string; quotesFound?: number }> | null>(null);
+  const [modelFallback, setModelFallback] = useState<boolean | null>(null);
+
   // Sync state when activePlan or activePlanId changes
   React.useEffect(() => {
     if (activePlan) {
       setPlan(activePlan);
       setPhase("approved");
+      if (activePlan.status === "completed") {
+        setActiveStepIdx(6);
+      }
     } else if (!activePlanId) {
       setGoalText("");
       setTicker("");
@@ -82,6 +91,57 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
       setError(null);
     }
   }, [activePlan, activePlanId]);
+
+  // Subscribe to real-time SSE stream for live milestone progress checkmarks
+  React.useEffect(() => {
+    const planIdToUse = plan?.id || activePlanId;
+    if (!planIdToUse || planIdToUse === "demo-plan-id") return;
+
+    const eventSource = new EventSource(`/api/agent/stream?planId=${encodeURIComponent(planIdToUse)}`);
+
+    eventSource.addEventListener("subagent_start", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (typeof payload?.stepNum === "number") {
+          setActiveStepIdx(payload.stepNum - 1);
+        } else if (parsed?.milestoneRef) {
+          const mNum = parseInt(String(parsed.milestoneRef).replace(/\D/g, ""), 10);
+          if (!isNaN(mNum)) setActiveStepIdx(mNum - 1);
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("milestone_done", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        const mRef = payload?.milestoneRef || parsed?.milestoneRef;
+        if (mRef) {
+          setCompletedMilestoneIds((prev) => Array.from(new Set([...prev, mRef])));
+        }
+        if (typeof payload?.stepNum === "number") {
+          setActiveStepIdx(payload.stepNum);
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("plan_complete", (e: MessageEvent) => {
+      setPlan((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      setActiveStepIdx(6);
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (payload?.researchQuality) setResearchQuality(payload.researchQuality);
+        if (payload?.dataSources) setDataSources(payload.dataSources);
+        if (typeof payload?.modelFallback === "boolean") setModelFallback(payload.modelFallback);
+      } catch {}
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [plan?.id, activePlanId]);
 
   const handleGeneratePlan = async () => {
     if (!goalText.trim() || !ticker.trim() || !companyName.trim()) return;
@@ -391,7 +451,9 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
           <div>
             <div className="text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-2 flex items-center justify-between">
               <span>Execution Milestones</span>
-              <span className="text-[#137333] text-[9px] font-mono font-bold">100% Passed</span>
+              <span className={`text-[9px] font-mono font-bold ${plan.status === "completed" ? "text-[#137333]" : "text-[#1A73E8]"}`}>
+                {plan.status === "completed" ? "100% Passed" : "In Progress"}
+              </span>
             </div>
             <div className="space-y-1.5">
               {(plan.milestones && plan.milestones.length > 0
@@ -405,23 +467,87 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
                     { id: "m6", type: "compliance_audit", label: "SEBI Compliance Audit", description: "SEBI RA 2014 statutory compliance check" },
                   ]
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ).map((m: any, idx: number) => (
-                <div
-                  key={m.id}
-                  className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] text-xs"
-                >
-                  <div className="shrink-0">{MILESTONE_ICONS[m.type] ?? <CheckCircle2 className="w-3.5 h-3.5 text-[#137333]" />}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-[#1A1917] text-[11px] truncate flex items-center gap-1.5">
-                      <span className="text-[#59554A] font-mono text-[9px]">{idx + 1}.</span>
-                      <span>{m.label}</span>
+              ).map((m: any, idx: number) => {
+                const isPlanDone = plan.status === "completed" || activeStepIdx >= 6;
+                const isPassed = isPlanDone || m.status === "completed" || completedMilestoneIds.includes(m.id) || idx < activeStepIdx;
+                const isRunning = !isPlanDone && !isPassed && (m.status === "running" || idx === activeStepIdx);
+                return (
+                  <div
+                    key={m.id}
+                    className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] text-xs"
+                  >
+                    <div className="shrink-0">{MILESTONE_ICONS[m.type] ?? <CheckCircle2 className="w-3.5 h-3.5 text-[#137333]" />}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-[#1A1917] text-[11px] truncate flex items-center gap-1.5">
+                        <span className="text-[#59554A] font-mono text-[9px]">{idx + 1}.</span>
+                        <span>{m.label}</span>
+                      </div>
                     </div>
+                    {isPassed ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#137333] shrink-0" />
+                    ) : isRunning ? (
+                      <Loader2 className="w-3.5 h-3.5 text-[#1A73E8] animate-spin shrink-0" />
+                    ) : (
+                      <Clock className="w-3.5 h-3.5 text-[#59554A] shrink-0" />
+                    )}
                   </div>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#137333] shrink-0" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
+
+          {/* ── Research Data Quality Panel ── */}
+          {(dataSources || researchQuality) && (
+            <div className="rounded-xl border border-[#E3DFD5] overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-[#FAF8F5] border-b border-[#E3DFD5]">
+                <span className="text-[10px] font-bold text-[#383530] uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle className="w-3 h-3 text-amber-500" />
+                  Research Data Quality
+                </span>
+                {researchQuality && (
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                    modelFallback === false
+                      ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
+                      : "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
+                  }`}>
+                    {researchQuality}
+                  </span>
+                )}
+              </div>
+              <div className="p-2.5 space-y-1.5">
+                {dataSources && (() => {
+                  const sourceRows = [
+                    { label: "BSE/NSE Filings", isLive: dataSources.bseNseFilings?.isLive, detail: `${dataSources.bseNseFilings?.count ?? 0} docs` },
+                    { label: "Concall Transcript", isLive: dataSources.concallTranscript?.isLive, detail: `${dataSources.concallTranscript?.quotesFound ?? 0} quotes` },
+                    { label: "Screener Market Data", isLive: dataSources.screenerMarketData?.isLive, detail: "" },
+                    { label: "Credit Rating", isLive: dataSources.creditRating?.isLive && dataSources.creditRating?.found, detail: dataSources.creditRating?.found ? "Found" : "Not available" },
+                    { label: "News Articles", isLive: dataSources.news?.isLive, detail: `${dataSources.news?.count ?? 0} articles` },
+                    { label: "DCF Model Inputs", isLive: dataSources.dcfModel?.isDerivedFromRealData, detail: dataSources.dcfModel?.source ?? "" },
+                  ];
+                  return sourceRows.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="text-[#59554A] font-medium">{row.label}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {row.detail && <span className="text-[9px] text-[#59554A] font-mono">{row.detail}</span>}
+                        <span className={`px-1.5 py-0.5 rounded-full font-bold text-[8px] uppercase tracking-wider ${
+                          row.isLive
+                            ? "bg-[#E6F4EA] text-[#137333]"
+                            : "bg-[#FCE8E6] text-[#C5221F]"
+                        }`}>
+                          {row.isLive ? "🟢 Live" : "🔴 Unavailable"}
+                        </span>
+                      </div>
+                    </div>
+                  ));
+                })()}
+                {modelFallback && (
+                  <div className="mt-2 p-2 rounded-lg bg-[#FEF7E0] border border-[#FDE293] text-[9px] text-[#B06000] font-medium leading-relaxed">
+                    ⚠️ DCF model used sector-average fallback constants — target price is indicative only. Obtain actual audited financials before use.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

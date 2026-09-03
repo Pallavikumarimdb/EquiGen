@@ -64,17 +64,23 @@ export function SteeringPanel({
   const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const [planStatus, setPlanStatus] = useState<"RUNNING" | "PAUSED" | "CANCELLED" | "COMPLETED" | "STANDBY">(
+  const [planStatus, setPlanStatus] = useState<"RUNNING" | "PAUSED" | "CANCELLED" | "COMPLETED" | "STANDBY" | "FAILED">(
     hasActivePlan
       ? planStatusProp?.toUpperCase() === "COMPLETED"
         ? "COMPLETED"
         : planStatusProp?.toUpperCase() === "CANCELLED"
         ? "CANCELLED"
+        : planStatusProp?.toUpperCase() === "FAILED"
+        ? "FAILED"
         : isPaused
         ? "PAUSED"
         : "RUNNING"
       : "STANDBY"
   );
+
+  const [currentMilestone, setCurrentMilestone] = useState<string>("Initializing research agents...");
+  const [currentStepNum, setCurrentStepNum] = useState<number>(1);
+  const [lastErrorMsg, setLastErrorMsg] = useState<string | null>(null);
 
   const isCompleted = planStatus === "COMPLETED";
 
@@ -87,12 +93,72 @@ export function SteeringPanel({
       setPlanStatus("COMPLETED");
     } else if (statusUpper === "CANCELLED") {
       setPlanStatus("CANCELLED");
+    } else if (statusUpper === "FAILED") {
+      setPlanStatus("FAILED");
     } else if (statusUpper === "PAUSED" || isPaused) {
       setPlanStatus("PAUSED");
     } else {
       setPlanStatus("RUNNING");
     }
   }, [hasActivePlan, isPaused, planId, planStatusProp]);
+
+  // Subscribe to real-time SSE trajectory stream for status, progress, and errors
+  useEffect(() => {
+    if (!planId || planId === "demo-plan-id") return;
+
+    const eventSource = new EventSource(`/api/agent/stream?planId=${encodeURIComponent(planId)}`);
+
+    eventSource.addEventListener("plan_complete", () => {
+      setPlanStatus("COMPLETED");
+      setCurrentStepNum(6);
+      setCurrentMilestone("Research Completed");
+      setLastErrorMsg(null);
+    });
+
+    eventSource.addEventListener("error", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const errMsg = parsed?.data?.message || parsed?.message || "Execution error encountered.";
+        setLastErrorMsg(errMsg);
+        setPlanStatus("FAILED");
+      } catch {
+        // SSE network disconnect
+      }
+    });
+
+    eventSource.addEventListener("subagent_start", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (payload?.message) {
+          setCurrentMilestone(payload.message);
+        }
+        if (typeof payload?.stepNum === "number") {
+          setCurrentStepNum(payload.stepNum);
+        } else if (parsed?.milestoneRef) {
+          const mNum = parseInt(String(parsed.milestoneRef).replace(/\D/g, ""), 10);
+          if (!isNaN(mNum)) setCurrentStepNum(mNum);
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("milestone_done", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (typeof payload?.stepNum === "number") {
+          setCurrentStepNum(Math.min(6, payload.stepNum + 1));
+        } else if (parsed?.milestoneRef) {
+          const mNum = parseInt(String(parsed.milestoneRef).replace(/\D/g, ""), 10);
+          if (!isNaN(mNum) && mNum < 6) setCurrentStepNum(mNum + 1);
+        }
+      } catch {}
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [planId]);
 
   // Load chat history from localStorage or seed initial welcome message
   useEffect(() => {
@@ -307,12 +373,14 @@ export function SteeringPanel({
                 ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
                 : planStatus === "COMPLETED"
                 ? "bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]"
+                : planStatus === "FAILED"
+                ? "bg-rose-100 border-rose-300 text-rose-700 font-extrabold"
                 : planStatus === "CANCELLED"
                 ? "bg-rose-50 border-rose-200 text-rose-800"
                 : "bg-[#FAF8F5] border-[#E3DFD5] text-[#59554A]"
             }`}
           >
-            {planStatus}
+            {planStatus === "FAILED" ? "RATE LIMITED / FAILED" : planStatus}
           </span>
         </div>
       </div>
@@ -483,6 +551,48 @@ export function SteeringPanel({
           )}
 
           <div ref={chatEndRef} />
+        </div>
+      )}
+
+      {/* Live Agent Execution Status & Diagnostic Progress Card */}
+      {hasActivePlan && !isCompleted && (
+        <div className={`p-3 rounded-xl border space-y-2 shrink-0 ${planStatus === "FAILED" ? "bg-rose-50/60 border-rose-200" : "bg-[#FAF8F5] border-[#E3DFD5]"}`}>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2 font-bold text-[#1A1917] truncate">
+              {planStatus === "RUNNING" ? (
+                <Loader2 className="w-3.5 h-3.5 text-[#137333] animate-spin shrink-0" />
+              ) : planStatus === "FAILED" ? (
+                <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              ) : (
+                <Pause className="w-3.5 h-3.5 text-[#B06000] shrink-0" />
+              )}
+              <span className="truncate">
+                {planStatus === "FAILED"
+                  ? "Execution Stopped (Rate Limit / Quota Exhausted)"
+                  : `Step ${currentStepNum} of 6: ${currentMilestone}`}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-[#59554A] shrink-0 ml-2">
+              {Math.round((currentStepNum / 6) * 100)}%
+            </span>
+          </div>
+
+          <div className="w-full bg-[#E3DFD5] h-1.5 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-500 rounded-full ${planStatus === "FAILED" ? "bg-rose-500" : "bg-[#137333]"}`}
+              style={{ width: `${Math.round((currentStepNum / 6) * 100)}%` }}
+            />
+          </div>
+
+          {lastErrorMsg && (
+            <div className="p-2 rounded-lg bg-rose-100/70 border border-rose-300 text-rose-900 text-[10px] space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-rose-950">
+                <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>LLM API Rate Limit / Exhausted Key Alert</span>
+              </div>
+              <p className="font-mono text-[9.5px] leading-relaxed break-words text-rose-800">{lastErrorMsg}</p>
+            </div>
+          )}
         </div>
       )}
 

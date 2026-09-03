@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, session: null }, { status: 200 });
     }
 
-    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    const hasAccess = !report.orgId || report.orgId === orgId || orgId === "default-org";
     if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
@@ -57,18 +57,14 @@ export async function GET(req: NextRequest) {
     }
 
     let session = await prisma.researchSession.findFirst({
-      where: orgId === "default-org"
-        ? {
-            reportId,
-            OR: [
-              { orgId: "default-org" },
-              { orgId: null },
-            ],
-          }
-        : {
-            reportId,
-            orgId,
-          },
+      where: {
+        reportId,
+        OR: [
+          { orgId },
+          { orgId: "default-org" },
+          { orgId: null },
+        ],
+      },
       orderBy: { createdAt: "desc" },
       include: {
         messages: {
