@@ -57,7 +57,7 @@ interface GoalTerminalProps {
   onNewGoal?: () => void;
 }
 
-export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApproved, onNewGoal }: GoalTerminalProps) {
+export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApproved, onNewGoal: _onNewGoal }: GoalTerminalProps) {
   const [goalText, setGoalText] = useState("");
   const [ticker, setTicker] = useState("");
   const [companyName, setCompanyName] = useState("");

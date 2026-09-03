@@ -57,7 +57,7 @@ export async function fetchNseFilings(
   const fromDate = new Date();
   fromDate.setFullYear(fromDate.getFullYear() - yearsBack);
   // NSE date format: DD-MM-YYYY
-  const fmt = (d: Date) =>
+  const _fmt = (d: Date) =>
     `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
 
   const filings: NseFiling[] = [];

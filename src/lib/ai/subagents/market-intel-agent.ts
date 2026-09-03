@@ -40,7 +40,7 @@ export class MarketIntelAgent {
    * Runs market intelligence research for a peer benchmark milestone.
    */
   async run(input: MarketIntelAgentInput): Promise<MarketIntelAgentOutput> {
-    const { planId, runId, ticker, companyName, milestone, apiKey } = input;
+    const { planId: _planId, runId, ticker, companyName: _companyName, milestone, apiKey } = input;
     const { peerTickers } = milestone.config;
     const startTime = Date.now();
 

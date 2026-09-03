@@ -11,16 +11,12 @@ import {
   History,
   CheckCircle2,
   AlertCircle,
-  Eye,
   Loader2,
   CheckCircle,
   X,
-  ShieldAlert,
   ClipboardList,
   Clock,
   UserCheck,
-  FileCheck,
-  Key,
 } from "lucide-react";
 import { ReportSection, ReportSectionName } from "@/types/plan4";
 import { SectionStore } from "@/lib/report/section-store";
@@ -198,7 +194,7 @@ export function LivingDraftPanel({
     setIsEditing(false);
   };
 
-  const sectionHistory = SectionStore.getSectionHistory(planId, activeSection);
+  const _sectionHistory = SectionStore.getSectionHistory(planId, activeSection);
 
   // Generate complete audit trail records for this research run
   const auditRecords: AuditRecord[] = [

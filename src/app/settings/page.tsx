@@ -15,7 +15,6 @@ import {
   Loader2,
   Save,
   LogOut,
-  Sparkles,
   Cpu,
 } from "lucide-react";
 
@@ -34,7 +33,7 @@ type SettingsTab = "profile" | "keys" | "compliance";
 export default function UserSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("keys");
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -528,7 +527,7 @@ export default function UserSettingsPage() {
               <div className="p-4 rounded-xl bg-black/40 border border-white/5 space-y-3">
                 <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">Statutory Warning Notice</div>
                 <p className="text-xs text-slate-300 font-mono bg-black/50 p-3 rounded-lg border border-white/5 leading-relaxed">
-                  "Investments in securities market are subject to market risks. Read all the related documents carefully before investing. Registration granted by SEBI and certification from NISM in no way guarantee performance of the intermediary or provide any assurance of returns to investors."
+                  &quot;Investments in securities market are subject to market risks. Read all the related documents carefully before investing. Registration granted by SEBI and certification from NISM in no way guarantee performance of the intermediary or provide any assurance of returns to investors.&quot;
                 </p>
                 <div className="text-[10px] text-slate-500">
                   Enforced on all published research documents per SEBI Master Circular 2024.

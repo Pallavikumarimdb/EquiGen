@@ -10,14 +10,13 @@
  * Fallback extraction from goalText is provided when the plan predates this fix.
  */
 
-import { ResearchPlanRecord, MilestonePlan, TrajectoryEvent } from "@/types/plan4";
+import { MilestonePlan } from "@/types/plan4";
 import { documentAgent } from "../subagents/document-agent";
 import { modelingAgent } from "../subagents/modeling-agent";
 import { marketIntelAgent } from "../subagents/market-intel-agent";
 import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { trajectoryBus } from "../trajectory-emitter";
-import { SectionStore } from "@/lib/report/section-store";
 import { prisma } from "@/lib/db";
 
 export interface OrchestrationResult {
@@ -326,6 +325,5 @@ export class MasterOrchestrator {
   }
 }
 
-type PromiseOrchestrationResult = Promise<OrchestrationResult>;
 
 export const masterOrchestrator = new MasterOrchestrator();

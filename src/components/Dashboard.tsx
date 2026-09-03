@@ -23,19 +23,11 @@ import {
   RefreshCw,
   Bot,
   Search,
-  Target,
-  TrendingUp,
-  Clock,
-  Shield,
-  Zap,
-  ChevronRight,
   ChevronDown,
   Key,
   Building2,
   LogOut,
-  User as UserIcon,
 } from "lucide-react";
-import { GoalTerminal } from "./GoalTerminal";
 import { AgentWorkspace } from "./AgentWorkspace";
 import { ResearchPlanRecord } from "@/types/plan4";
 import { EquityResearchData, CompetitorInfo } from "@/types";
@@ -57,7 +49,7 @@ const PANEL_LIMITS: Record<PanelKey, { min: number; max: number }> = {
 const clampPanelWidth = (value: number, key: PanelKey) =>
   Math.min(PANEL_LIMITS[key].max, Math.max(PANEL_LIMITS[key].min, value));
 
-function loadPanelWidths(): Record<PanelKey, number> {
+function _loadPanelWidths(): Record<PanelKey, number> {
   if (typeof window === "undefined") return { ...DEFAULT_PANEL_WIDTHS };
   try {
     const raw = localStorage.getItem("equigen_panel_widths");
@@ -181,11 +173,11 @@ interface DashboardStats {
 
 export function Dashboard() {
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>("upload");
-  const [historyFilter, setHistoryFilter] = useState<"all" | "autonomous" | "manual">("all");
+  const [_historyFilter, setHistoryFilter] = useState<"all" | "autonomous" | "manual">("all");
   const [historySearch, setHistorySearch] = useState("");
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({ total: 0, draft: 0, underReview: 0, approved: 0, published: 0 });
-  const [autonomousSessionId, setAutonomousSessionId] = useState<string | null>(null);
-  const [approvedPlan, setApprovedPlan] = useState<ResearchPlanRecord | null>(null);
+  const [_autonomousSessionId, _setAutonomousSessionId] = useState<string | null>(null);
+  const [_approvedPlan, _setApprovedPlan] = useState<ResearchPlanRecord | null>(null);
   const [companyName, setCompanyName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -317,7 +309,7 @@ export function Dashboard() {
   const [pendingForkPrompt, setPendingForkPrompt] = useState("");
 
   // User Role & Review Queue states
-  const [userRole, setUserRole] = useState<
+  const [_userRole, setUserRole] = useState<
     "analyst" | "research_analyst" | "admin"
   >("research_analyst");
   const [viewQueueOnly, setViewQueueOnly] = useState(false);
@@ -605,6 +597,7 @@ export function Dashboard() {
     };
 
     fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -236,8 +236,7 @@ export class MasterPlannerAgent {
 
     // Step 4: Persist to DB (with graceful offline fallback)
     try {
-      const plan = await prisma.researchPlan.create({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const planRecord = await (prisma.researchPlan.create as unknown as (args: Record<string, unknown>) => Promise<Record<string, unknown>>)({
         data: {
           sessionId,
           goalText,
@@ -248,25 +247,23 @@ export class MasterPlannerAgent {
           costEstimate,
           latencyEstS,
           status: "pending",
-        } as any,
+        },
       });
 
       return {
-        id: plan.id,
-        sessionId: plan.sessionId,
-        goalText: plan.goalText,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ticker: (plan as any).ticker ?? ticker,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        companyName: (plan as any).companyName ?? goal.companyName,
+        id: String(planRecord.id),
+        sessionId: String(planRecord.sessionId),
+        goalText: String(planRecord.goalText),
+        ticker: String(planRecord.ticker ?? ticker),
+        companyName: String(planRecord.companyName ?? goal.companyName),
         milestones,
-        depth: plan.depth as ResearchDepth,
-        costEstimate: plan.costEstimate ?? 0,
-        latencyEstS: plan.latencyEstS ?? 0,
-        status: plan.status as ResearchPlanRecord["status"],
-        approvedBy: plan.approvedBy,
-        approvedAt: plan.approvedAt?.toISOString() ?? null,
-        createdAt: plan.createdAt.toISOString(),
+        depth: planRecord.depth as ResearchDepth,
+        costEstimate: Number(planRecord.costEstimate ?? 0),
+        latencyEstS: Number(planRecord.latencyEstS ?? 0),
+        status: (planRecord.status ?? "pending") as ResearchPlanRecord["status"],
+        approvedBy: (planRecord.approvedBy as string) ?? undefined,
+        approvedAt: (planRecord.approvedAt as Date)?.toISOString() ?? null,
+        createdAt: (planRecord.createdAt as Date)?.toISOString() ?? new Date().toISOString(),
       };
     } catch (e) {
       console.warn("[MasterPlannerAgent] DB persist offline fallback:", e);

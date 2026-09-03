@@ -57,7 +57,7 @@ export class WebScraperClient {
     const { runId, sourceType = "web", timeoutMs = 15000, retries = 2 } = options;
     const fetchedAt = new Date().toISOString();
 
-    let lastError: Error | null = null;
+    let _lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -95,7 +95,7 @@ export class WebScraperClient {
           fetchedAt,
         };
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+        _lastError = err instanceof Error ? err : new Error(String(err));
       }
     }
 

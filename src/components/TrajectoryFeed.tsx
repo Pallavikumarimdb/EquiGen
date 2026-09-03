@@ -14,7 +14,6 @@ import {
   Sparkles,
   Terminal,
   Layers,
-  Filter,
 } from "lucide-react";
 import { TrajectoryEvent, TrajectoryEventType } from "@/types/plan4";
 
@@ -235,10 +234,10 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
                   <span className="text-[#1A1917] font-sans text-xs font-semibold truncate">
                     {(() => {
                       if (ev.eventType === "steering_applied") {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const payload = (ev.data as any)?.payload;
+                        const dataObj = ev.data as Record<string, unknown>;
+                        const payload = dataObj?.payload as Record<string, unknown> | undefined;
                         if (payload?.instruction) return `Analyst: "${payload.instruction}"`;
-                        return `Steering: ${(ev.data as any)?.eventType ?? "applied"}`;
+                        return `Steering: ${dataObj?.eventType ?? "applied"}`;
                       }
                       if (ev.data.reasoning) return String(ev.data.reasoning);
                       if (ev.data.summary) return String(ev.data.summary);

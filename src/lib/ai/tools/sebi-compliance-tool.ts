@@ -116,7 +116,7 @@ ${sectionsText.slice(0, 8000)}
   public static auditReport(
     sectionsText: string,
     sebiRegNo?: string,
-    analystName?: string
+    _analystName?: string
   ): SebiAuditResult {
     const violations: SebiAuditViolation[] = [];
     const present: string[] = [];

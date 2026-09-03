@@ -11,15 +11,12 @@ import {
   CheckCircle2,
   Bot,
   User,
-  Sparkles,
   RotateCcw,
   Wrench,
   ChevronRight,
   ChevronDown,
   Brain,
   Terminal,
-  CheckCircle,
-  FileSearch,
 } from "lucide-react";
 import { SteeringEventType } from "@/types/plan4";
 

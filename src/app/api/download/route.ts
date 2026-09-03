@@ -33,7 +33,14 @@ export async function GET(req: NextRequest) {
     const orgId = session?.orgId || "default-org";
 
     // 1. Fetch report details from database (with graceful offline fallback)
-    let report: any = null;
+    let report: {
+      id: string;
+      orgId: string | null;
+      companyName: string;
+      status: string;
+      reportData: unknown;
+      pdfBase64: string | null;
+    } | null = null;
     try {
       report = await prisma.reportHistory.findUnique({
         where: { id },

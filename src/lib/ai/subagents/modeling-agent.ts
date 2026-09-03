@@ -35,7 +35,7 @@ export class ModelingAgent {
    * Executes quantitative financial modeling for a given research plan milestone.
    */
   async run(input: ModelingAgentInput): Promise<ModelingAgentOutput> {
-    const { planId, runId, ticker, companyName, milestone, extractedFinancials } = input;
+    const { planId: _planId, runId, ticker, companyName, milestone, extractedFinancials } = input;
     const { modelType, projectionYears } = milestone.config;
 
     console.log(`[ModelingAgent] Running financial model '${modelType}' for ${ticker}...`);

@@ -54,7 +54,7 @@ export class DocumentAgent {
    * Records all fetched URLs in ScrapeJob table for audit provenance.
    */
   async run(input: DocumentAgentInput): Promise<DocumentAgentOutput> {
-    const { planId, runId, ticker, companyName, milestone, apiKey } = input;
+    const { planId: _planId, runId, ticker, companyName, milestone, apiKey } = input;
     const startTime = Date.now();
     const sourceTypes = milestone?.config?.sourceTypes ?? ["annual_report", "quarterly_results", "concall_transcript"];
     const yearsBack = milestone?.config?.yearsBack ?? 3;

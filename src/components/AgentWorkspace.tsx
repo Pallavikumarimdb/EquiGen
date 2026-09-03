@@ -13,9 +13,6 @@ import {
   Maximize2,
   Minimize2,
   Split,
-  Layers,
-  Sparkles,
-  ShieldCheck,
 } from "lucide-react";
 
 interface AgentWorkspaceProps {
@@ -35,7 +32,7 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
   const [isReportMaximized, setIsReportMaximized] = useState(false);
 
   // Dynamic section builder for ANY company name and ticker
-  const generateSectionsForPlan = (goalText: string, planId: string): ReportSection[] => {
+  const generateSectionsForPlan = (goalText: string, _planId: string): ReportSection[] => {
     const rawGoal = goalText || "Initiation of institutional equity research";
     const cleanGoal = rawGoal.replace(/^(Initiation coverage on|Deep dive on|Research on|Valuation analysis of)\s*/i, "").trim();
     const compName = cleanGoal.split("—")[0].trim() || "Target Equity";

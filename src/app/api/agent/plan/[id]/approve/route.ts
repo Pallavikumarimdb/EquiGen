@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { masterPlannerAgent } from "@/lib/ai/planner/master-planner";
 import { requireApiSecret } from "@/lib/utils/auth";
-import { prisma } from "@/lib/db";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
