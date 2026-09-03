@@ -49,6 +49,20 @@ export interface ModelingDataQuality {
   disclaimer: string | null;        // non-null when fallback was used
 }
 
+export interface DerivedModelParams {
+  baseRevenue: number;
+  revenueGrowth: number;
+  ebitdaMargin: number;
+  wacc: number;
+  taxRate: number;
+  capexPct: number;
+  terminalGrowth: number;
+  netDebt: number;
+  sharesCr: number;
+  isDerived: boolean;
+  beta: number;
+}
+
 export class ModelingAgent {
   /**
    * Executes quantitative financial modeling for a given research plan milestone.
@@ -110,7 +124,7 @@ export class ModelingAgent {
       ...modelOutput.assumptions,
       isDerivedFromExtractedData: dataQuality.isDerivedFromRealData ? "True" : "False",
       financialSource: dataQuality.financialSource,
-      disclaimer: dataQuality.disclaimer ?? undefined,
+      ...(dataQuality.disclaimer ? { disclaimer: dataQuality.disclaimer } : {}),
     };
 
     const priceLog = `Base: ₹${Math.round(modelOutput.baseTargetPrice)}/sh | Bull: ₹${Math.round(modelOutput.bullCasePrice)}/sh | Bear: ₹${Math.round(modelOutput.bearCasePrice)}/sh`;
@@ -158,7 +172,7 @@ export class ModelingAgent {
     ticker: string,
     companyName: string,
     extractedFinancials?: Record<string, unknown>
-  ): Promise<{ params: ReturnType<typeof this.buildParamsFromFinancials>; dataQuality: ModelingDataQuality }> {
+  ): Promise<{ params: DerivedModelParams; dataQuality: ModelingDataQuality }> {
 
     // === Path 1: Extracted financials from document agent ===
     if (extractedFinancials && Object.keys(extractedFinancials).length > 0) {
@@ -296,7 +310,7 @@ export class ModelingAgent {
 
   // ─── Parameter Builder from Extracted Financials ──────────────────────────────
 
-  private buildParamsFromFinancials(financials: Record<string, unknown>) {
+  private buildParamsFromFinancials(financials: Record<string, unknown>): DerivedModelParams {
     // 1. Base Revenue (Crores)
     let baseRevenue = Number(financials.revenue ?? financials.sales ?? 10000);
     if (isNaN(baseRevenue) || baseRevenue <= 0) baseRevenue = 10000;
