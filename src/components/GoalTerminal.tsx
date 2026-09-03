@@ -141,20 +141,20 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
   const totalMinutes = plan ? Math.ceil((plan.latencyEstS ?? 0) / 60) : 0;
 
   return (
-    <div className="flex flex-col h-full bg-[#121217] border border-white/[0.08] rounded-2xl p-5 font-sans overflow-y-auto scrollbar-thin shadow-2xl">
+    <div className="flex flex-col h-full bg-white border border-[#E3DFD5] rounded-2xl p-5 font-sans overflow-y-auto shadow-sm">
       {/* Terminal Title Header */}
-      <div className="flex items-center gap-3 pb-4 mb-4 border-b border-white/[0.06] shrink-0">
-        <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 shadow-lg shadow-indigo-500/20 text-white shrink-0">
+      <div className="flex items-center gap-3 pb-4 mb-4 border-b border-[#E2DFD6] shrink-0">
+        <div className="p-2.5 rounded-xl bg-[#1A1917] text-white shrink-0 shadow-sm">
           <Target className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
+          <h2 className="text-sm font-bold text-[#1A1917] tracking-wide flex items-center gap-2">
             Autonomous Research Goal
-            <span className="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono font-semibold">
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#E8F0FE] border border-[#D2E3FC] text-[#1A73E8] font-mono font-bold">
               EquiGen Agent
             </span>
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-[#59554A] mt-0.5">
             Specify research intent. EquiGen decomposes goals into execution milestones.
           </p>
         </div>
@@ -166,7 +166,7 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
           {/* Ticker + Company Name */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-1">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label className="block text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-1.5">
                 NSE/BSE Ticker
               </label>
               <input
@@ -174,11 +174,11 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 placeholder="TATAMOTORS"
                 disabled={phase === "planning"}
-                className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-mono font-bold text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                className="w-full px-3 py-2.5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl text-xs font-mono font-bold text-[#1A1917] placeholder-[#7A7568] focus:outline-none focus:border-[#1A1917] transition-all"
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label className="block text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-1.5">
                 Company Name
               </label>
               <input
@@ -186,14 +186,14 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Tata Motors Limited"
                 disabled={phase === "planning"}
-                className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-medium text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                className="w-full px-3 py-2.5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl text-xs font-medium text-[#1A1917] placeholder-[#7A7568] focus:outline-none focus:border-[#1A1917] transition-all"
               />
             </div>
           </div>
 
           {/* Goal Description Textarea */}
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+            <label className="block text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-1.5">
               Research Objective & Scope
             </label>
             <textarea
@@ -202,13 +202,13 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
               disabled={phase === "planning"}
               rows={4}
               placeholder='e.g., "Initiation of coverage on Tata Motors — 5-year DCF, compare EV & ICE margins vs M&M, fetch Q3 concall guidance on margin recovery."'
-              className="w-full p-3 bg-black/50 border border-white/10 rounded-xl text-xs font-sans text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all leading-relaxed resize-none"
+              className="w-full p-3.5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl text-xs font-sans text-[#1A1917] placeholder-[#7A7568] focus:outline-none focus:border-[#1A1917] transition-all leading-relaxed resize-none font-medium"
             />
           </div>
 
           {/* Depth Selector Pills */}
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+            <label className="block text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-2">
               Research Depth
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -218,22 +218,22 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
                   type="button"
                   onClick={() => setDepth(opt.value)}
                   disabled={phase === "planning"}
-                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                     depth === opt.value
-                      ? `${opt.badgeColor} shadow-md`
-                      : "border-white/5 bg-black/30 text-slate-400 hover:border-white/10 hover:text-slate-200"
+                      ? "bg-[#1A1917] border-[#1A1917] text-white shadow-md font-bold"
+                      : "border-[#E3DFD5] bg-[#FAF8F5] text-[#383530] hover:border-[#1A1917] hover:text-[#1A1917]"
                   }`}
                 >
                   <div className="font-bold text-xs">{opt.label}</div>
-                  <div className="text-[10px] opacity-75 mt-1 leading-snug">{opt.desc}</div>
+                  <div className={`text-[10px] mt-1 leading-snug ${depth === opt.value ? "text-slate-300" : "text-[#59554A]"}`}>{opt.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-medium">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-[#FEF7E0] border border-[#FDE293] text-[#B06000] text-xs font-medium">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-[#B06000]" />
               <span>{error}</span>
             </div>
           )}
@@ -241,13 +241,12 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
           <button
             onClick={handleGeneratePlan}
             disabled={phase === "planning" || !goalText.trim() || !ticker.trim() || !companyName.trim()}
-            className="w-full py-3 px-4 rounded-xl font-bold text-xs text-white transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-40"
-            style={{ background: "linear-gradient(135deg, #6366f1, #3b82f6)" }}
+            className="w-full py-3.5 px-4 rounded-xl font-bold text-xs text-white transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-40 bg-[#1A1917] hover:bg-[#2C2A26] cursor-pointer"
           >
             {phase === "planning" ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Decomposing Goal into Milestones…</>
             ) : (
-              <><Sparkles className="w-4 h-4" /> Generate Research Execution Plan</>
+              <><Sparkles className="w-4 h-4 text-amber-400" /> Generate Research Execution Plan</>
             )}
           </button>
         </div>
@@ -257,57 +256,57 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
       {phase === "review" && plan && (
         <div className="flex flex-col space-y-4">
           {/* Plan Summary Box */}
-          <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs">
-            <div className="font-bold text-indigo-300 mb-1">
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] text-xs">
+            <div className="font-bold text-[#1A1917] mb-1">
               Research Plan: {companyName} ({ticker})
             </div>
-            <div className="text-slate-300 leading-relaxed font-sans">{plan.goalText}</div>
+            <div className="text-[#383530] leading-relaxed font-sans font-medium">{plan.goalText}</div>
           </div>
 
           {/* Time & Cost Metrics */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-[#E6F4EA] border border-[#CEEAD6] text-[#137333]">
                 <DollarSign className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Estimated Cost</div>
-                <div className="text-sm font-bold text-emerald-400">${totalCost.toFixed(3)}</div>
+                <div className="text-[10px] font-bold text-[#59554A] uppercase">Estimated Cost</div>
+                <div className="text-sm font-bold text-[#137333]">${totalCost.toFixed(3)}</div>
               </div>
             </div>
-            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-[#E8F0FE] border border-[#D2E3FC] text-[#1A73E8]">
                 <Clock className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Estimated Time</div>
-                <div className="text-sm font-bold text-blue-400">~{totalMinutes} min</div>
+                <div className="text-[10px] font-bold text-[#59554A] uppercase">Estimated Time</div>
+                <div className="text-sm font-bold text-[#1A73E8]">~{totalMinutes} min</div>
               </div>
             </div>
           </div>
 
           {/* Milestones Checklist */}
           <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+            <div className="text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-2">
               Execution Milestones ({plan.milestones.length})
             </div>
             <div className="space-y-2">
               {plan.milestones.map((m: MilestonePlan, idx: number) => (
                 <div
                   key={m.id}
-                  className="flex items-start gap-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs"
+                  className="flex items-start gap-3 p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] text-xs"
                 >
-                  <div className="mt-0.5 shrink-0">{MILESTONE_ICONS[m.type] ?? <ChevronRight className="w-4 h-4 text-slate-400" />}</div>
+                  <div className="mt-0.5 shrink-0">{MILESTONE_ICONS[m.type] ?? <ChevronRight className="w-4 h-4 text-[#59554A]" />}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-slate-200 flex items-center gap-2">
-                      <span className="text-slate-500 text-[10px] font-mono">{idx + 1}.</span>
+                    <div className="font-bold text-[#1A1917] flex items-center gap-2">
+                      <span className="text-[#59554A] text-[10px] font-mono">{idx + 1}.</span>
                       <span>{m.label}</span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{m.description}</p>
+                    <p className="text-[11px] text-[#59554A] mt-0.5 leading-snug font-medium">{m.description}</p>
                   </div>
                   <div className="text-right shrink-0 text-[10px] font-mono">
-                    <div className="text-slate-500">~{m.estimatedMinutes}m</div>
-                    <div className="text-emerald-400">${m.estimatedCostUsd.toFixed(3)}</div>
+                    <div className="text-[#59554A]">~{m.estimatedMinutes}m</div>
+                    <div className="text-[#137333] font-bold">${m.estimatedCostUsd.toFixed(3)}</div>
                   </div>
                 </div>
               ))}
@@ -318,20 +317,19 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
           <div className="flex gap-2 pt-2">
             <button
               onClick={handleEdit}
-              className="flex-1 py-2.5 px-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs transition-all"
+              className="flex-1 py-2.5 px-3 rounded-xl border border-[#E3DFD5] bg-[#FAF8F5] hover:bg-[#EFECE6] text-[#1A1917] font-bold text-xs transition-all cursor-pointer"
             >
               Edit Scope
             </button>
             <button
               onClick={handleApprove}
               disabled={approving}
-              className="flex-[2] py-2.5 px-3 rounded-xl font-bold text-xs text-white transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2"
-              style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+              className="flex-[2] py-2.5 px-3 rounded-xl font-bold text-xs text-white transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 bg-[#1A1917] hover:bg-[#2C2A26] cursor-pointer"
             >
               {approving ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Approving…</>
               ) : (
-                <><CheckCircle2 className="w-4 h-4" /> Approve & Launch Plan</>
+                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Approve & Launch Plan</>
               )}
             </button>
           </div>
@@ -342,47 +340,47 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
       {phase === "approved" && plan && (
         <div className="space-y-3.5">
           {/* Header Card */}
-          <div className="p-3.5 rounded-xl bg-gradient-to-br from-violet-950/30 to-black border border-violet-500/20 space-y-2">
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold text-[#1A1917] uppercase tracking-widest flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 Active Research Goal
               </span>
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
                 plan.status === "completed"
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                  ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
                   : plan.status === "running"
-                  ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                  : "bg-violet-500/10 border-violet-500/30 text-violet-300"
+                  ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
+                  : "bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]"
               }`}>
                 {plan.status || "completed"}
               </span>
             </div>
-            <p className="text-xs font-semibold text-slate-200 leading-snug">
+            <p className="text-xs font-semibold text-[#1A1917] leading-snug">
               {plan.goalText}
             </p>
           </div>
 
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-2.5">
-              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-[#E6F4EA] border border-[#CEEAD6] text-[#137333]">
                 <DollarSign className="w-3.5 h-3.5" />
               </div>
               <div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase">Plan Cost</div>
-                <div className="text-xs font-bold text-emerald-400">
+                <div className="text-[9px] font-bold text-[#59554A] uppercase">Plan Cost</div>
+                <div className="text-xs font-bold text-[#137333]">
                   ${(plan.costEstimate ?? 1.15).toFixed(2)}
                 </div>
               </div>
             </div>
-            <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center gap-2.5">
-              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-[#E8F0FE] border border-[#D2E3FC] text-[#1A73E8]">
                 <Clock className="w-3.5 h-3.5" />
               </div>
               <div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase">Est. Time</div>
-                <div className="text-xs font-bold text-blue-400">
+                <div className="text-[9px] font-bold text-[#59554A] uppercase">Est. Time</div>
+                <div className="text-xs font-bold text-[#1A73E8]">
                   ~{Math.round((plan.latencyEstS ?? 25) / 60) || 1} min ({plan.depth ?? "standard"})
                 </div>
               </div>
@@ -391,9 +389,9 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
 
           {/* Execution Milestones */}
           <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+            <div className="text-[10px] font-bold text-[#383530] uppercase tracking-wider mb-2 flex items-center justify-between">
               <span>Execution Milestones</span>
-              <span className="text-emerald-400 text-[9px] font-mono">100% Passed</span>
+              <span className="text-[#137333] text-[9px] font-mono font-bold">100% Passed</span>
             </div>
             <div className="space-y-1.5">
               {(plan.milestones && plan.milestones.length > 0
@@ -410,16 +408,16 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
               ).map((m: any, idx: number) => (
                 <div
                   key={m.id}
-                  className="flex items-center gap-2.5 p-2.5 rounded-xl bg-black/40 border border-white/5 text-xs"
+                  className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] text-xs"
                 >
-                  <div className="shrink-0">{MILESTONE_ICONS[m.type] ?? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}</div>
+                  <div className="shrink-0">{MILESTONE_ICONS[m.type] ?? <CheckCircle2 className="w-3.5 h-3.5 text-[#137333]" />}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-slate-200 text-[11px] truncate flex items-center gap-1.5">
-                      <span className="text-slate-500 font-mono text-[9px]">{idx + 1}.</span>
+                    <div className="font-bold text-[#1A1917] text-[11px] truncate flex items-center gap-1.5">
+                      <span className="text-[#59554A] font-mono text-[9px]">{idx + 1}.</span>
                       <span>{m.label}</span>
                     </div>
                   </div>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#137333] shrink-0" />
                 </div>
               ))}
             </div>

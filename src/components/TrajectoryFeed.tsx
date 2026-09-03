@@ -161,21 +161,21 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
   });
 
   return (
-    <div className="flex flex-col h-full bg-[#121217] border border-white/[0.08] rounded-2xl overflow-hidden font-sans shadow-xl">
+    <div className="flex flex-col h-full bg-white border border-[#E3DFD5] rounded-2xl overflow-hidden font-sans shadow-sm">
       {/* Feed Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#16161e] border-b border-white/[0.06] shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#FAF8F5] border-b border-[#E2DFD6] shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <div className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-          <span className="text-xs font-bold text-white tracking-wide uppercase truncate">
+          <div className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-[#9C978B]"}`} />
+          <span className="text-xs font-bold text-[#1A1917] tracking-wide uppercase truncate">
             Trajectory Stream
           </span>
-          <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-white/10 text-slate-300 font-mono font-semibold shrink-0">
+          <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#E8F0FE] border border-[#D2E3FC] text-[#1A73E8] font-mono font-bold shrink-0">
             {events.length}
           </span>
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 text-[10px] font-semibold shrink-0">
+        <div className="flex items-center gap-1 bg-[#E4E0D6] p-1 rounded-xl border border-[#D5D0C3] text-[10px] font-semibold shrink-0">
           {[
             { id: "all", label: "All" },
             { id: "thoughts", label: "Thoughts" },
@@ -185,10 +185,10 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
             <button
               key={f.id}
               onClick={() => setFilterType(f.id)}
-              className={`px-2 py-0.5 rounded-lg transition-all ${
+              className={`px-2.5 py-1 rounded-lg transition-all ${
                 filterType === f.id
-                  ? "bg-indigo-600 text-white font-bold shadow-sm"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
+                  ? "bg-[#1A1917] text-white font-bold shadow-sm"
+                  : "text-[#59554A] hover:text-[#1A1917] hover:bg-[#DCD7CC]"
               }`}
             >
               {f.label}
@@ -200,13 +200,13 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
       {/* Events Stream Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-xs scrollbar-thin">
         {filteredEvents.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full min-h-[160px] text-slate-500 space-y-3 p-6 text-center font-sans">
-            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-slate-400">
-              <Activity className="w-6 h-6 animate-pulse text-indigo-400" />
+          <div className="flex flex-col items-center justify-center h-full min-h-[160px] text-[#59554A] space-y-3 p-6 text-center font-sans">
+            <div className="p-3 rounded-2xl bg-[#FAF8F5] border border-[#E3DFD5] text-[#1A1917]">
+              <Activity className="w-6 h-6 animate-pulse text-[#1A1917]" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-300">Waiting for agent execution events…</p>
-              <p className="text-[10px] text-slate-500 mt-1 max-w-[220px]">
+              <p className="text-xs font-bold text-[#1A1917]">Waiting for agent execution events…</p>
+              <p className="text-[10px] text-[#59554A] mt-1 max-w-[220px] font-medium">
                 Approve a research plan to begin streaming agent thoughts, tool calls & sandbox outputs.
               </p>
             </div>
@@ -215,28 +215,24 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
 
         {filteredEvents.map((ev, idx) => {
           const isExpanded = expandedIndex === idx;
-          const color = EVENT_COLORS[ev.eventType] ?? "#94a3b8";
+          const color = EVENT_COLORS[ev.eventType] ?? "#1A1917";
 
           return (
             <div
               key={idx}
-              className="rounded-xl border transition-all overflow-hidden"
-              style={{
-                borderColor: `${color}30`,
-                background: `linear-gradient(135deg, ${color}08, rgba(18,18,23,0.8))`,
-              }}
+              className="rounded-xl border border-[#E3DFD5] bg-[#FAF8F5] transition-all overflow-hidden shadow-sm"
             >
               {/* Event Bar */}
               <div
                 onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors"
+                className="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-[#EFECE6] transition-colors"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="shrink-0">{EVENT_ICONS[ev.eventType]}</span>
-                  <span className="font-bold uppercase tracking-wider text-[9px] shrink-0" style={{ color }}>
+                  <span className="font-extrabold uppercase tracking-wider text-[9px] shrink-0" style={{ color }}>
                     {ev.eventType.replace("_", " ")}
                   </span>
-                  <span className="text-slate-300 font-sans text-xs truncate">
+                  <span className="text-[#1A1917] font-sans text-xs font-semibold truncate">
                     {(() => {
                       if (ev.eventType === "steering_applied") {
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -253,18 +249,18 @@ export function TrajectoryFeed({ planId, autoScroll = true }: TrajectoryFeedProp
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-slate-500 font-sans ml-2">
-                  <Clock className="w-3 h-3 text-slate-600" />
+                <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-[#59554A] font-sans font-bold ml-2">
+                  <Clock className="w-3 h-3 text-[#59554A]" />
                   <span>{new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                  {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-600" />}
+                  {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-[#1A1917]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#59554A]" />}
                 </div>
               </div>
 
               {/* Collapsible Details */}
               {isExpanded && (
-                <div className="px-3.5 py-3 border-t border-white/[0.06] bg-black/60 text-[11px] text-slate-300 font-mono overflow-x-auto space-y-2">
-                  <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Payload Data</div>
-                  <pre className="whitespace-pre-wrap break-all bg-black/80 p-3 rounded-lg border border-white/5 text-emerald-400/90 leading-relaxed text-[10px]">
+                <div className="px-3.5 py-3 border-t border-[#E2DFD6] bg-[#EFECE6] text-[11px] text-[#1A1917] font-mono overflow-x-auto space-y-2">
+                  <div className="text-[9px] uppercase font-bold text-[#59554A] tracking-wider">Payload Data</div>
+                  <pre className="whitespace-pre-wrap break-all bg-white p-3 rounded-xl border border-[#E3DFD5] text-[#0F5229] font-bold leading-relaxed text-[10px]">
                     {JSON.stringify(ev.data, null, 2)}
                   </pre>
                 </div>

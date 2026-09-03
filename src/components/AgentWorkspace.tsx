@@ -146,7 +146,7 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
   // When there is NO active plan, present GoalTerminal cleanly centered
   if (!activePlan) {
     return (
-      <div className="flex items-center justify-center h-full w-full bg-[#09090d] p-6 overflow-y-auto font-sans">
+      <div className="flex items-center justify-center h-full w-full bg-[#FAF8F5] p-6 overflow-y-auto font-sans">
         <div className="w-full max-w-2xl">
           <GoalTerminal
             sessionId={sessionId}
@@ -160,29 +160,29 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#09090d] overflow-hidden font-sans">
+    <div className="flex flex-col h-full w-full bg-[#F6F4EE] overflow-hidden font-sans">
       {/* ── Top Workspace Control Ribbon ─────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#121217] border-b border-white/[0.08] shrink-0 gap-3">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#EFECE6] border-b border-[#E2DFD6] shrink-0 gap-3">
         {/* Left: Active Company & Status Badge */}
         <div className="flex items-center gap-2.5 min-w-0">
           <span
             className={`w-2 h-2 rounded-full shrink-0 ${
-              isCompleted ? "bg-emerald-400" : "bg-blue-400 animate-ping"
+              isCompleted ? "bg-emerald-500" : "bg-blue-500 animate-ping"
             }`}
           />
-          <span className="text-xs font-bold text-white truncate max-w-[320px]">
+          <span className="text-xs font-bold text-[#1A1917] truncate max-w-[320px]">
             {companyName}
           </span>
           {ticker && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E3DFD5] text-[#59554A]">
               {ticker}
             </span>
           )}
           <span
             className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
               isCompleted
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                : "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
+                : "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
             }`}
           >
             {activePlan.status}
@@ -193,13 +193,13 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
         {!isReportMaximized && (
           <div className="flex items-center gap-2 shrink-0">
             {/* Tab Selector */}
-            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 text-xs font-semibold">
+            <div className="flex items-center gap-1 bg-[#E4E0D6] p-1 rounded-xl border border-[#D5D0C3] text-xs font-semibold">
               <button
                 onClick={() => setRightTab("copilot")}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
                   rightTab === "copilot"
-                    ? "bg-indigo-600 text-white shadow-sm font-bold"
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                    ? "bg-[#1A1917] text-white shadow-sm font-bold"
+                    : "text-[#59554A] hover:text-[#1A1917] hover:bg-[#DCD7CC]"
                 }`}
               >
                 <MessageSquare className="w-3 h-3" />
@@ -208,10 +208,10 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
 
               <button
                 onClick={() => setRightTab("trajectory")}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
                   rightTab === "trajectory"
-                    ? "bg-indigo-600 text-white shadow-sm font-bold"
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                    ? "bg-[#1A1917] text-white shadow-sm font-bold"
+                    : "text-[#59554A] hover:text-[#1A1917] hover:bg-[#DCD7CC]"
                 }`}
               >
                 <Activity className="w-3 h-3" />
@@ -220,10 +220,10 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
 
               <button
                 onClick={() => setRightTab("milestones")}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
                   rightTab === "milestones"
-                    ? "bg-indigo-600 text-white shadow-sm font-bold"
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                    ? "bg-[#1A1917] text-white shadow-sm font-bold"
+                    : "text-[#59554A] hover:text-[#1A1917] hover:bg-[#DCD7CC]"
                 }`}
               >
                 <CheckCircle2 className="w-3 h-3" />
@@ -237,8 +237,8 @@ export function AgentWorkspace({ sessionId, activePlanId }: AgentWorkspaceProps)
               title={viewLayout === "focused" ? "Switch to Split Inspector (Stack both)" : "Switch to Focused Tabs"}
               className={`p-1.5 rounded-xl border transition-all text-xs ${
                 viewLayout === "split"
-                  ? "bg-white/10 text-white border-white/20"
-                  : "bg-white/[0.04] text-slate-400 border-white/[0.08] hover:text-white hover:bg-white/[0.08]"
+                  ? "bg-[#1A1917] text-white border-[#1A1917]"
+                  : "bg-white text-[#59554A] border-[#E3DFD5] hover:text-[#1A1917] hover:bg-[#EFECE6]"
               }`}
             >
               <Split className="w-3.5 h-3.5" />

@@ -1934,10 +1934,10 @@ export function Dashboard() {
   };
 
   return (
-    <div className="h-screen w-screen flex bg-[#0c0c0f] text-slate-100 antialiased font-sans overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="h-screen w-screen flex bg-[#F6F4EE] text-[#1A1917] antialiased font-sans overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
       {/* ── Left Sidebar ─────────────────────────────────────────────── */}
       <aside
-        className={`h-screen bg-[#111115] border-r border-white/[0.06] flex flex-col shrink-0 z-20 ${
+        className={`h-screen bg-[#EFECE6] border-r border-[#E2DFD6] flex flex-col shrink-0 z-20 ${
           isSidebarOpen
             ? activeResizer === "sidebar"
               ? ""
@@ -1948,14 +1948,14 @@ export function Dashboard() {
         style={isSidebarOpen ? { width: panelWidths.sidebar } : undefined}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/[0.06] shrink-0">
-          <div className="p-1.5 shrink-0 rounded-lg" style={{ background: "linear-gradient(135deg, #6366f1, #3b82f6)" }}>
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-[#E2DFD6] shrink-0">
+          <div className="p-1.5 shrink-0 rounded-xl bg-[#1A1917] text-white shadow-sm">
             <BarChart3 className="w-4 h-4 text-white" />
           </div>
           {isSidebarOpen && (
             <div>
-              <span className="text-sm font-black tracking-widest uppercase text-white">EquiGen</span>
-              <div className="text-[9px] text-slate-500 font-medium tracking-wider">AI Equity Research</div>
+              <span className="text-sm font-black tracking-widest uppercase text-[#1A1917]">EquiGen</span>
+              <div className="text-[9px] text-[#9C978B] font-semibold tracking-wider">AI EQUITY RESEARCH</div>
             </div>
           )}
         </div>
@@ -1963,7 +1963,7 @@ export function Dashboard() {
         {/* Mode Switcher + Action Button */}
         <div className="px-3 pt-3 pb-2 shrink-0 space-y-2.5">
           {isSidebarOpen && (
-            <div className="grid grid-cols-2 p-1 bg-black/40 border border-white/[0.08] rounded-xl text-[11px] font-semibold">
+            <div className="grid grid-cols-2 p-1 bg-[#E4E0D6] border border-[#D5D0C3] rounded-xl text-[11px] font-semibold">
               <button
                 onClick={() => {
                   setDashboardMode("autonomous");
@@ -1971,8 +1971,8 @@ export function Dashboard() {
                 }}
                 className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
                   dashboardMode === "autonomous"
-                    ? "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-900/30"
-                    : "text-slate-400 hover:text-white"
+                    ? "bg-[#1A1917] text-white shadow-sm font-bold"
+                    : "text-[#59554A] hover:text-[#1A1917]"
                 }`}
               >
                 <Bot className="w-3.5 h-3.5" />
@@ -1985,8 +1985,8 @@ export function Dashboard() {
                 }}
                 className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
                   dashboardMode === "upload"
-                    ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-blue-900/30"
-                    : "text-slate-400 hover:text-white"
+                    ? "bg-[#1A1917] text-white shadow-sm font-bold"
+                    : "text-[#59554A] hover:text-[#1A1917]"
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
@@ -2004,16 +2004,12 @@ export function Dashboard() {
                 startNewAnalysis();
               }
             }}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98] shadow-lg border ${
-              dashboardMode === "autonomous"
-                ? "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-violet-950/40 border-violet-400/20"
-                : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-950/40 border-blue-400/20"
-            } ${!isSidebarOpen && "justify-center px-0"}`}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98] shadow-sm bg-[#1A1917] hover:bg-[#2C2A26] ${!isSidebarOpen && "justify-center px-0"}`}
           >
             {dashboardMode === "autonomous" ? (
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-400" />
             ) : (
-              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <Plus className="w-3.5 h-3.5 shrink-0 text-white" />
             )}
             {isSidebarOpen && (
               <span>{dashboardMode === "autonomous" ? "New Research Goal" : "Upload Financial PDF"}</span>
@@ -2026,14 +2022,14 @@ export function Dashboard() {
           <div className="px-3 pb-2 shrink-0">
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { label: "Draft", value: dashboardStats.draft, color: "#64748b" },
-                { label: "In Review", value: dashboardStats.underReview, color: "#f59e0b" },
-                { label: "Approved", value: dashboardStats.approved, color: "#3b82f6" },
-                { label: "Published", value: dashboardStats.published, color: "#22c55e" },
+                { label: "Draft", value: dashboardStats.draft, color: "#59554A", bg: "#FEF7E0", border: "#FDE293" },
+                { label: "In Review", value: dashboardStats.underReview, color: "#B06000", bg: "#FEF7E0", border: "#FDE293" },
+                { label: "Approved", value: dashboardStats.approved, color: "#1A73E8", bg: "#E8F0FE", border: "#D2E3FC" },
+                { label: "Published", value: dashboardStats.published, color: "#137333", bg: "#E6F4EA", border: "#CEEAD6" },
               ].filter(s => s.value > 0).map(stat => (
-                <div key={stat.label} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: `${stat.color}15`, border: `1px solid ${stat.color}30` }}>
+                <div key={stat.label} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: stat.bg, border: `1px solid ${stat.border}` }}>
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: stat.color }} />
-                  <span className="text-[9px] font-bold" style={{ color: stat.color }}>{stat.value} {stat.label}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: stat.color }}>{stat.value} {stat.label}</span>
                 </div>
               ))}
             </div>
@@ -2046,17 +2042,17 @@ export function Dashboard() {
             <div className="px-1 space-y-2">
               {/* Search */}
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#9C978B]" />
                 <input
                   value={historySearch}
                   onChange={e => setHistorySearch(e.target.value)}
                   placeholder={dashboardMode === "autonomous" ? "Search research goals…" : "Search PDF reports…"}
-                  className="w-full pl-7 pr-3 py-1.5 rounded-lg text-[11px] bg-white/5 border border-white/10 text-slate-300 placeholder-slate-600 outline-none focus:border-blue-500/40 transition-colors"
+                  className="w-full pl-7 pr-3 py-1.5 rounded-xl text-[11px] bg-white border border-[#E3DFD5] text-[#1A1917] placeholder-[#9C978B] outline-none focus:border-[#1A1917] transition-colors"
                 />
               </div>
 
-              <div className="flex items-center justify-between border-b border-white/[0.04] pb-1.5">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex items-center justify-between border-b border-[#E2DFD6] pb-1.5">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#383530]">
                   {dashboardMode === "autonomous"
                     ? "Agent Research Runs"
                     : viewQueueOnly
@@ -2066,10 +2062,10 @@ export function Dashboard() {
                 {dashboardMode === "upload" && (
                   <button
                     onClick={() => setViewQueueOnly(!viewQueueOnly)}
-                    className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border ${
+                    className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all border ${
                       viewQueueOnly
-                        ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
-                        : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                        ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
+                        : "bg-white border-[#E3DFD5] text-[#1A1917] hover:bg-[#EFECE6]"
                     }`}
                   >
                     {viewQueueOnly ? "All" : "Queue"}
@@ -2088,10 +2084,10 @@ export function Dashboard() {
                   setHistoryFilter(nextMode === "autonomous" ? "autonomous" : "manual");
                 }}
                 title={dashboardMode === "autonomous" ? "Switch to PDF Uploads" : "Switch to Auto Research"}
-                className={`w-8 h-8 rounded-lg mx-auto flex items-center justify-center border transition-all ${
+                className={`w-8 h-8 rounded-xl mx-auto flex items-center justify-center border transition-all ${
                   dashboardMode === "autonomous"
-                    ? "bg-violet-600/20 border-violet-500/40 text-violet-300"
-                    : "bg-blue-600/20 border-blue-500/40 text-blue-300"
+                    ? "bg-[#1A1917] border-[#1A1917] text-white"
+                    : "bg-white border-[#E3DFD5] text-[#1A1917]"
                 }`}
               >
                 {dashboardMode === "autonomous" ? <Bot className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
@@ -2119,7 +2115,7 @@ export function Dashboard() {
               }
               return true;
             }).length === 0 && isSidebarOpen && (
-            <div className="px-3 py-8 text-center text-[11px] text-slate-600 italic">
+            <div className="px-3 py-8 text-center text-[11px] text-[#59554A] font-medium italic">
               {dashboardMode === "autonomous"
                 ? "No autonomous research runs yet"
                 : "No uploaded PDF reports yet"}
@@ -2160,43 +2156,43 @@ export function Dashboard() {
                   }
                   className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
                     isSelected
-                      ? isAutonomous
-                        ? "bg-violet-600/20 text-violet-300 border border-violet-500/30"
-                        : "bg-blue-600/20 text-blue-300 border border-blue-500/30"
-                      : "hover:bg-white/[0.04] text-slate-400 hover:text-slate-200"
+                      ? "bg-[#1A1917] text-white shadow-sm font-semibold"
+                      : "hover:bg-[#E7E3DA] text-[#1A1917]"
                   } ${!isSidebarOpen && "justify-center px-0"}`}
                 >
                   {isAutonomous ? (
-                    <Bot className="w-3.5 h-3.5 shrink-0 text-violet-400 opacity-80" />
+                    <Bot className={`w-3.5 h-3.5 shrink-0 ${isSelected ? "text-amber-400" : "text-[#1A1917]"}`} />
                   ) : (
-                    <FileText className="w-3.5 h-3.5 shrink-0 text-blue-400 opacity-80" />
+                    <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? "text-amber-400" : "text-[#1A1917]"}`} />
                   )}
                   {isSidebarOpen && (
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5">
-                        <div className="text-[11px] font-semibold truncate">
+                        <div className={`text-[11px] font-bold truncate ${isSelected ? "text-white" : "text-[#1A1917]"}`}>
                           {item.companyName}
                         </div>
                         <span
-                          className={`px-1 py-0.2 text-[8px] font-black uppercase rounded shrink-0 ${
-                            item.status === "published" || item.status === "completed"
-                              ? "bg-emerald-500/20 text-emerald-300"
+                          className={`px-1.5 py-0.5 text-[8px] font-extrabold uppercase rounded-full border shrink-0 ${
+                            isSelected
+                              ? "bg-white/20 border-white/30 text-white"
+                              : item.status === "published" || item.status === "completed"
+                              ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#0F5229]"
                               : item.status === "approved"
-                              ? "bg-blue-500/20 text-blue-300"
+                              ? "bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]"
                               : item.status === "changes_requested" || item.status === "cancelled" || item.status === "failed"
-                              ? "bg-rose-500/20 text-rose-300"
+                              ? "bg-rose-50 border-rose-200 text-rose-800"
                               : item.status === "under_review" || item.status === "running"
-                              ? "bg-amber-500/20 text-amber-300"
-                              : "bg-white/[0.06] text-slate-400"
+                              ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
+                              : "bg-[#FAF8F5] border-[#E3DFD5] text-[#59554A]"
                           }`}
                         >
                           {item.status || (isAutonomous ? "completed" : "draft")}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[9px] text-slate-600 mt-0.5">
-                        <span className="truncate">{item.createdAt}</span>
-                        <span className={`text-[8px] uppercase tracking-wider font-semibold ${isAutonomous ? "text-violet-400/80" : "text-blue-400/80"}`}>
-                          {isAutonomous ? "Auto Run" : "Manual PDF"}
+                      <div className="flex items-center gap-2 text-[9px] mt-0.5">
+                        <span className={`truncate font-semibold ${isSelected ? "text-slate-300" : "text-[#59554A]"}`}>{item.createdAt}</span>
+                        <span className={`text-[8px] uppercase tracking-wider font-extrabold ${isSelected ? "text-amber-400" : "text-[#1A1917]"}`}>
+                          {isAutonomous ? "AUTO RUN" : "MANUAL PDF"}
                         </span>
                       </div>
                     </div>
@@ -2260,19 +2256,19 @@ export function Dashboard() {
       {/* ── Main Area ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header */}
-        <header className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.06] bg-[#111115] shrink-0">
+        <header className="flex items-center justify-between px-6 py-3.5 border-b border-[#E2DFD6] bg-[#FAF8F5] shrink-0">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-white/[0.06] rounded-lg text-slate-500 hover:text-slate-200 transition-colors"
+              className="p-2 hover:bg-[#EFECE6] rounded-xl text-[#59554A] hover:text-[#1A1917] transition-colors border border-transparent hover:border-[#E2DFD6]"
             >
               <Menu className="w-4 h-4" />
             </button>
             <div>
-              <h1 className="text-sm font-bold text-white flex items-center gap-2">
+              <h1 className="text-sm font-bold text-[#1A1917] flex items-center gap-2">
                 {dashboardMode === "autonomous" ? "Autonomous AI Analyst Workspace" : "AI Equity Research Generator"}
               </h1>
-              <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+              <p className="text-[10px] text-[#59554A] font-medium mt-0.5">
                 {dashboardMode === "autonomous"
                   ? "EquiGen-style goal decomposition, living draft synthesis, & real-time trajectory steering"
                   : "Geojit-style publication-grade PDF reports from raw financials"}
@@ -2284,16 +2280,16 @@ export function Dashboard() {
             {/* Model indicator — links directly to /settings */}
             <Link
               href="/settings"
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl transition-all"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-[#EFECE6] border border-[#E3DFD5] rounded-xl transition-all shadow-sm"
               title="Configure AI Inference Engines & API Keys"
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-slate-300 font-sans">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-bold text-[#1A1917] font-sans">
                 {aiProvider === "groq"
                   ? `Groq · ${getModelLabel(groqModel)}`
                   : `OpenAI · ${openaiModel === "gpt-4o-mini" ? "GPT-4o Mini" : "GPT-4o"}`}
               </span>
-              <Key className="w-3 h-3 text-slate-500" />
+              <Key className="w-3 h-3 text-[#9C978B]" />
             </Link>
 
             {/* Manual PDF Mode controls only */}
@@ -2301,10 +2297,10 @@ export function Dashboard() {
               <>
                 <button
                   onClick={() => setShowConfig(!showConfig)}
-                  className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                  className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
                     showConfig
-                      ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
-                      : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
+                      ? "bg-[#1A1917] text-white border-[#1A1917]"
+                      : "bg-white border-[#E3DFD5] text-[#59554A] hover:text-[#1A1917]"
                   }`}
                   title="Toggle Report Configuration Panel"
                 >
@@ -2314,10 +2310,10 @@ export function Dashboard() {
                 {reportData && (
                   <button
                     onClick={() => setIsChatOpen(!isChatOpen)}
-                    className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                    className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
                       isChatOpen
-                        ? "bg-blue-600/20 border-blue-500/30 text-blue-300"
-                        : "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200"
+                        ? "bg-[#1A1917] text-white border-[#1A1917]"
+                        : "bg-white border-[#E3DFD5] text-[#59554A] hover:text-[#1A1917]"
                     }`}
                   >
                     <Sparkles className="w-4 h-4" />
@@ -2331,19 +2327,19 @@ export function Dashboard() {
             <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-all cursor-pointer select-none"
+                className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-xl bg-white hover:bg-[#EFECE6] border border-[#E3DFD5] transition-all cursor-pointer select-none shadow-sm"
               >
-                <div className="w-6 h-6 rounded-lg bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center font-bold text-[10px] text-indigo-300 shadow-inner">
+                <div className="w-6 h-6 rounded-lg bg-[#1A1917] text-white flex items-center justify-center font-bold text-[10px] shadow-inner">
                   {user?.name ? user.name.substring(0, 2).toUpperCase() : "PK"}
                 </div>
                 <div className="flex flex-col text-left hidden md:flex">
-                  <span className="text-xs font-bold text-white leading-none">{user?.name || "Analyst"}</span>
-                  <span className="text-[9px] text-slate-400 font-medium mt-0.5 leading-none">{user?.orgName || "EquiGen"}</span>
+                  <span className="text-xs font-bold text-[#1A1917] leading-none">{user?.name || "Analyst"}</span>
+                  <span className="text-[9px] text-[#59554A] font-medium mt-0.5 leading-none">{user?.orgName || "EquiGen"}</span>
                 </div>
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold border capitalize bg-indigo-500/10 border-indigo-500/20 text-indigo-400">
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold border capitalize bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]">
                   {user?.role === "reviewer" ? "SEBI Analyst" : user?.role || "analyst"}
                 </span>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserMenuOpen ? "rotate-180" : ""}`} />
+                <ChevronDown className={`w-3.5 h-3.5 text-[#59554A] transition-transform ${isUserMenuOpen ? "rotate-180" : ""}`} />
               </button>
 
               {/* Floating User Menu */}
@@ -2433,10 +2429,10 @@ export function Dashboard() {
         </div>
 
         {/* ── Main content layout */}
-        <div className="flex-1 flex bg-[#0a0a0d] overflow-hidden relative">
+        <div className="flex-1 flex bg-[#FAF8F5] overflow-hidden relative">
           {/* Autonomous Research Goal Terminal & Trajectory Workspace */}
           {dashboardMode === "autonomous" ? (
-            <div className="flex-1 flex overflow-hidden bg-[#0a0a0f]">
+            <div className="flex-1 flex overflow-hidden bg-[#FAF8F5]">
               <AgentWorkspace
                 sessionId={activeSessionId || "session-demo"}
                 activePlanId={activeReportId}
@@ -2448,7 +2444,7 @@ export function Dashboard() {
               {showConfig && (
                 <div
                   suppressHydrationWarning
-                  className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-white/[0.06] bg-[#111115]/30 flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
+                  className="w-full lg:w-[var(--config-w)] shrink-0 border-r border-[#E2DFD6] bg-[#EFECE6] flex flex-col h-full overflow-y-auto p-5 space-y-4 scrollbar-thin"
                   style={
                     {
                       "--config-w": `${panelWidths.config}px`,
@@ -2456,13 +2452,13 @@ export function Dashboard() {
               }
             >
               {/* Report Configuration Card */}
-              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
-                <div className="px-5 py-4 border-b border-white/[0.06]">
+              <div className="bg-white border border-[#E3DFD5] rounded-2xl overflow-hidden shadow-sm">
+                <div className="px-5 py-4 border-b border-[#E2DFD6] bg-[#FAF8F5]">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-1.5 bg-blue-600/20 rounded-lg">
-                      <Layers className="w-3.5 h-3.5 text-blue-400" />
+                    <div className="p-1.5 bg-[#1A1917] text-white rounded-lg">
+                      <Layers className="w-3.5 h-3.5 text-white" />
                     </div>
-                    <h2 className="text-sm font-bold text-white">
+                    <h2 className="text-sm font-bold text-[#1A1917]">
                       Report Configuration
                     </h2>
                   </div>
@@ -2471,7 +2467,7 @@ export function Dashboard() {
                   <form onSubmit={startGeneration} className="space-y-5">
                     {/* Company name */}
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                      <label className="block text-[10px] font-semibold text-[#9C978B] uppercase tracking-widest mb-2">
                         Company Name
                       </label>
                       <input
@@ -2479,14 +2475,14 @@ export function Dashboard() {
                         value={companyName}
                         onChange={(e) => setCompanyName(e.target.value)}
                         placeholder="e.g. Tata Consultancy Services"
-                        className="w-full px-4 py-3 bg-[#0f0f13] border border-white/[0.08] rounded-xl text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all text-sm font-medium"
+                        className="w-full px-4 py-3 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl text-[#1A1917] placeholder-[#9C978B] focus:outline-none focus:border-[#1A1917] transition-all text-sm font-medium"
                         disabled={loading}
                       />
                     </div>
 
                     {/* File Upload */}
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                      <label className="block text-[10px] font-semibold text-[#9C978B] uppercase tracking-widest mb-2">
                         Financial Document
                       </label>
 
@@ -2499,22 +2495,20 @@ export function Dashboard() {
                           onClick={() => fileInputRef.current?.click()}
                           className={`border-2 border-dashed rounded-xl p-7 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
                             isDragActive
-                              ? "border-blue-500/60 bg-blue-500/5"
-                              : "border-white/[0.08] bg-[#0f0f13] hover:border-white/[0.16] hover:bg-white/[0.02]"
+                              ? "border-[#1A1917] bg-[#EFECE6]"
+                              : "border-[#E3DFD5] bg-[#FAF8F5] hover:border-[#1A1917] hover:bg-[#EFECE6]"
                           }`}
                         >
                           <div
-                            className={`p-3 rounded-xl mb-3 transition-all ${isDragActive ? "bg-blue-500/20" : "bg-white/[0.04]"}`}
+                            className={`p-3 rounded-xl mb-3 transition-all ${isDragActive ? "bg-[#1A1917] text-white" : "bg-[#EFECE6] text-[#1A1917]"}`}
                           >
-                            <Upload
-                              className={`w-5 h-5 transition-colors ${isDragActive ? "text-blue-400" : "text-slate-500"}`}
-                            />
+                            <Upload className="w-5 h-5" />
                           </div>
-                          <span className="text-sm font-semibold text-slate-400 text-center">
+                          <span className="text-sm font-semibold text-[#1A1917] text-center">
                             Drop file here or{" "}
-                            <span className="text-blue-400">browse</span>
+                            <span className="text-[#1A1917] underline">browse</span>
                           </span>
-                          <span className="text-[11px] text-slate-600 mt-1">
+                          <span className="text-[11px] text-[#59554A] mt-1">
                             PDF, CSV, TXT — up to 10 MB
                           </span>
                           <input
@@ -2526,15 +2520,15 @@ export function Dashboard() {
                           />
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3 p-3.5 bg-[#0f0f13] border border-white/[0.08] rounded-xl">
-                          <div className="p-2 bg-blue-500/15 rounded-lg">
-                            <FileText className="w-4 h-4 text-blue-400" />
+                        <div className="flex items-center gap-3 p-3.5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl">
+                          <div className="p-2 bg-[#1A1917] text-white rounded-lg">
+                            <FileText className="w-4 h-4 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold text-white truncate">
+                            <div className="text-xs font-semibold text-[#1A1917] truncate">
                               {file.name}
                             </div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">
+                            <div className="text-[10px] text-[#59554A] mt-0.5">
                               {(file.size / (1024 * 1024)).toFixed(2)} MB
                             </div>
                           </div>
@@ -2542,7 +2536,7 @@ export function Dashboard() {
                             type="button"
                             onClick={removeFile}
                             disabled={loading}
-                            className="p-1.5 hover:bg-white/[0.06] rounded-lg text-slate-500 hover:text-rose-400 transition-colors"
+                            className="p-1.5 hover:bg-[#EFECE6] rounded-lg text-[#59554A] hover:text-rose-600 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -2552,9 +2546,9 @@ export function Dashboard() {
 
                     {/* Error */}
                     {error && (
-                      <div className="flex items-start gap-2.5 p-3.5 bg-rose-950/40 border border-rose-800/40 rounded-xl">
-                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                        <span className="text-xs text-rose-300 font-medium">
+                      <div className="flex items-start gap-2.5 p-3.5 bg-[#FEF7E0] border border-[#FDE293] rounded-xl">
+                        <AlertTriangle className="w-4 h-4 text-[#B06000] shrink-0 mt-0.5" />
+                        <span className="text-xs text-[#B06000] font-medium">
                           {error}
                         </span>
                       </div>
@@ -2566,7 +2560,7 @@ export function Dashboard() {
                       disabled={
                         loading || steps.some((s) => s.status === "running")
                       }
-                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-white/[0.04] disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                      className="w-full py-3.5 bg-[#1A1917] hover:bg-[#2C2A26] disabled:opacity-40 text-white font-bold rounded-xl text-sm transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
                     >
                       {loading || steps.some((s) => s.status === "running") ? (
                         <>
@@ -2579,7 +2573,7 @@ export function Dashboard() {
                         </>
                       ) : (
                         <>
-                          <Sparkles className="w-4 h-4" />
+                          <Sparkles className="w-4 h-4 text-amber-400" />
                           Generate Equity Report
                         </>
                       )}
@@ -2589,8 +2583,8 @@ export function Dashboard() {
               </div>
 
               {/* Quick Info Card */}
-              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-5 space-y-3">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              <div className="bg-white border border-[#E3DFD5] rounded-2xl p-5 space-y-3 shadow-sm">
+                <p className="text-[10px] font-semibold text-[#9C978B] uppercase tracking-widest">
                   Pipeline Steps
                 </p>
                 <div className="space-y-2.5">
@@ -2601,10 +2595,10 @@ export function Dashboard() {
                     { label: "PDF Compile & Export", icon: "04" },
                   ].map((s) => (
                     <div key={s.icon} className="flex items-center gap-3">
-                      <span className="text-[9px] font-black text-slate-600 tabular-nums">
+                      <span className="text-[9px] font-bold text-[#9C978B] tabular-nums">
                         {s.icon}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
+                      <span className="text-[11px] text-[#59554A] font-medium">
                         {s.label}
                       </span>
                     </div>
@@ -2635,14 +2629,14 @@ export function Dashboard() {
               !reportData &&
               !steps.some((s) => s.status === "failed") &&
               !steps.some((s) => s.status === "running") && (
-                <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl p-16 flex flex-col items-center justify-center text-center min-h-[420px] my-auto">
-                  <div className="p-5 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-5">
-                    <BarChart3 className="w-10 h-10 text-slate-700" />
+                <div className="bg-white border border-[#E3DFD5] rounded-2xl p-16 flex flex-col items-center justify-center text-center min-h-[420px] my-auto shadow-sm">
+                  <div className="p-5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-2xl mb-5">
+                    <BarChart3 className="w-10 h-10 text-[#9C978B]" />
                   </div>
-                  <h3 className="text-base font-bold text-slate-300">
+                  <h3 className="text-base font-bold text-[#1A1917]">
                     No report generated yet
                   </h3>
-                  <p className="text-slate-600 text-xs mt-2 max-w-sm leading-relaxed">
+                  <p className="text-[#59554A] text-xs mt-2 max-w-sm leading-relaxed">
                     Configure a company name and upload a financial document to
                     start the AI extraction pipeline.
                   </p>
@@ -2650,9 +2644,9 @@ export function Dashboard() {
                     {["PDF Reports", "SWOT Analysis", "SEBI Ready"].map((f) => (
                       <div
                         key={f}
-                        className="p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl text-center"
+                        className="p-3 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl text-center"
                       >
-                        <div className="text-[10px] font-bold text-slate-500">
+                        <div className="text-[10px] font-bold text-[#59554A]">
                           {f}
                         </div>
                       </div>
@@ -2666,10 +2660,10 @@ export function Dashboard() {
               steps.some(
                 (s) => s.status === "failed" || s.status === "running",
               )) && (
-              <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden">
-                <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+              <div className="bg-white border border-[#E3DFD5] rounded-2xl overflow-hidden shadow-sm">
+                <div className="px-5 py-4 border-b border-[#E2DFD6] bg-[#FAF8F5] flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-white">
+                    <h3 className="text-sm font-bold text-[#1A1917]">
                       {throttleCountdown
                         ? `Throttled: Resuming in ${throttleCountdown}...`
                         : capacityWaitSeconds != null
@@ -2678,14 +2672,14 @@ export function Dashboard() {
                             ? "Executing pipeline..."
                             : "Pipeline paused"}
                     </h3>
-                    <p className="text-[10px] text-slate-600 font-mono mt-0.5">
+                    <p className="text-[10px] text-[#9C978B] font-mono mt-0.5">
                       {currentJobId
                         ? `JOB · ${currentJobId}`
                         : "Initializing..."}
                     </p>
                   </div>
                   {(loading || steps.some((s) => s.status === "running")) && (
-                    <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                    <Loader2 className="w-4 h-4 text-[#1A1917] animate-spin" />
                   )}
                 </div>
 
@@ -2695,44 +2689,44 @@ export function Dashboard() {
                       key={idx}
                       className={`flex items-center gap-4 p-3.5 rounded-xl transition-all ${
                         step.status === "running"
-                          ? "bg-blue-600/10 border border-blue-500/20"
+                          ? "bg-[#FEF7E0] border border-[#FDE293]"
                           : step.status === "completed"
-                            ? "bg-emerald-600/5 border border-emerald-800/20"
+                            ? "bg-[#E6F4EA] border border-[#CEEAD6]"
                             : step.status === "failed"
-                              ? "bg-rose-600/10 border border-rose-800/20"
-                              : "bg-white/[0.02] border border-transparent"
+                              ? "bg-rose-50 border border-rose-200"
+                              : "bg-[#FAF8F5] border border-transparent"
                       }`}
                     >
                       <div className="shrink-0">
                         {step.status === "completed" && (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <CheckCircle2 className="w-4 h-4 text-[#137333]" />
                         )}
                         {step.status === "running" && (
-                          <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                          <Loader2 className="w-4 h-4 text-[#B06000] animate-spin" />
                         )}
                         {step.status === "failed" && (
-                          <AlertTriangle className="w-4 h-4 text-rose-400 animate-pulse" />
+                          <AlertTriangle className="w-4 h-4 text-rose-600 animate-pulse" />
                         )}
                         {step.status === "idle" && (
-                          <div className="w-4 h-4 rounded-full border border-white/[0.1] bg-white/[0.03]" />
+                          <div className="w-4 h-4 rounded-full border border-[#D5D0C3] bg-white" />
                         )}
                       </div>
                       <span
                         className={`text-xs font-semibold flex-1 flex flex-col gap-0.5 ${
                           step.status === "running"
-                            ? "text-blue-300"
+                            ? "text-[#B06000]"
                             : step.status === "completed"
-                              ? "text-slate-500"
+                              ? "text-[#137333]"
                               : step.status === "failed"
-                                ? "text-rose-300"
-                                : "text-slate-600"
+                                ? "text-rose-700"
+                                : "text-[#59554A]"
                         }`}
                       >
                         <span>{step.label}</span>
                         {step.status === "running" &&
                           throttleCountdown &&
                           idx === currentStepIndex && (
-                            <span className="text-[10px] text-blue-400 font-bold animate-pulse">
+                            <span className="text-[10px] text-[#B06000] font-bold animate-pulse">
                               ⚠ Rate limit reached — Auto-resuming in{" "}
                               {throttleCountdown}
                             </span>
@@ -2741,7 +2735,7 @@ export function Dashboard() {
                           !throttleCountdown &&
                           capacityWaitSeconds != null &&
                           idx === currentStepIndex && (
-                            <span className="text-[10px] text-amber-400 font-bold animate-pulse">
+                            <span className="text-[10px] text-[#B06000] font-bold animate-pulse">
                               ⏳ AI model at capacity — auto-resuming in ~
                               {formatDuration(capacityWaitSeconds)}
                             </span>
@@ -2751,7 +2745,7 @@ export function Dashboard() {
                         <button
                           type="button"
                           onClick={resumeGeneration}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 font-bold rounded-lg text-[10px] transition-all active:scale-95"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1917] text-white font-bold rounded-lg text-[10px] transition-all active:scale-95 cursor-pointer shadow-sm"
                         >
                           <RefreshCw
                             className="w-2.5 h-2.5 text-emerald-400 animate-spin"
@@ -2766,10 +2760,10 @@ export function Dashboard() {
 
                 {/* Skeleton */}
                 {loading && (
-                  <div className="px-5 pb-5 space-y-2.5 border-t border-white/[0.06] pt-4">
-                    <div className="h-2.5 bg-white/[0.04] rounded-full w-full animate-pulse" />
-                    <div className="h-2.5 bg-white/[0.04] rounded-full w-4/5 animate-pulse" />
-                    <div className="h-2.5 bg-white/[0.04] rounded-full w-2/3 animate-pulse" />
+                  <div className="px-5 pb-5 space-y-2.5 border-t border-[#E2DFD6] pt-4">
+                    <div className="h-2.5 bg-[#FAF8F5] rounded-full w-full animate-pulse" />
+                    <div className="h-2.5 bg-[#FAF8F5] rounded-full w-4/5 animate-pulse" />
+                    <div className="h-2.5 bg-[#FAF8F5] rounded-full w-2/3 animate-pulse" />
                   </div>
                 )}
               </div>
@@ -2782,34 +2776,32 @@ export function Dashboard() {
                 <div
                   className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
                     activeReportStatus === "published"
-                      ? "bg-emerald-950/30 border-emerald-800/40"
-                      : "bg-[#16161a] border-white/[0.07]"
+                      ? "bg-[#E6F4EA] border-[#CEEAD6]"
+                      : "bg-white border-[#E3DFD5] shadow-sm"
                   }`}
                 >
                   <div className="flex items-center gap-3.5">
                     <div
-                      className={`p-2.5 rounded-xl ${activeReportStatus === "published" ? "bg-emerald-500/20" : "bg-blue-500/20"}`}
+                      className={`p-2.5 rounded-xl ${activeReportStatus === "published" ? "bg-[#137333] text-white" : "bg-[#1A1917] text-white"}`}
                     >
-                      <CheckCircle2
-                        className={`w-4 h-4 ${activeReportStatus === "published" ? "text-emerald-400" : "text-blue-400"}`}
-                      />
+                      <CheckCircle2 className="w-4 h-4 text-white" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white">
+                        <span className="text-sm font-bold text-[#1A1917]">
                           Report Compiled
                         </span>
                         <span
-                          className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md ${
+                          className={`px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full border ${
                             activeReportStatus === "published"
-                              ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-amber-500/20 text-amber-300"
+                              ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
+                              : "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
                           }`}
                         >
                           {activeReportStatus}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-[11px] text-[#59554A] mt-0.5">
                         {activeReportStatus === "published"
                           ? "Signed off by SEBI RA. Ready to publish."
                           : "AI-generated draft — pending SEBI review."}
@@ -2823,7 +2815,7 @@ export function Dashboard() {
                           onClick={() => {
                             setIsSignoffOpen(true);
                           }}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer shadow-md shadow-emerald-900/20"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#137333] hover:bg-[#0f5c29] text-white font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer shadow-sm"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Approve & Sign-off
@@ -2836,7 +2828,7 @@ export function Dashboard() {
                         )
                       }
                       disabled={isDownloading}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#1A1917] hover:bg-[#2C2A26] disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
                       {isDownloading ? (
                         <>
@@ -2857,16 +2849,16 @@ export function Dashboard() {
                         )
                       }
                       disabled={isDownloading}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-700/80 hover:bg-emerald-600 border border-emerald-500/30 disabled:opacity-50 text-emerald-100 font-bold text-xs rounded-xl transition-all shadow-lg shadow-emerald-900/20 active:scale-95"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-[#E3DFD5] hover:bg-[#EFECE6] disabled:opacity-40 text-[#1A1917] font-bold text-xs rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-3.5 h-3.5 text-[#1A1917]" />
                       Export Excel (.xlsx)
                     </button>
                   </div>
                 </div>
 
                 {/* Tabs Selector */}
-                <div className="flex border-b border-white/[0.07] gap-4 mb-2">
+                <div className="flex border-b border-[#E2DFD6] gap-4 mb-2">
                   {[
                     { id: "preview", label: "Report Preview" },
                     {
@@ -2882,13 +2874,13 @@ export function Dashboard() {
                       }
                       className={`pb-2.5 text-xs font-bold transition-all relative ${
                         activeTab === t.id
-                          ? "text-blue-400"
-                          : "text-slate-500 hover:text-slate-300"
+                          ? "text-[#1A1917]"
+                          : "text-[#9C978B] hover:text-[#1A1917]"
                       }`}
                     >
                       {t.label}
                       {activeTab === t.id && (
-                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#1A1917]" />
                       )}
                     </button>
                   ))}
@@ -2896,25 +2888,25 @@ export function Dashboard() {
 
                 {/* Tab 1: Preview */}
                 {activeTab === "preview" && (
-                  <div className="bg-[#16161a] border border-white/[0.07] rounded-2xl overflow-hidden relative">
+                  <div className="bg-white border border-[#E3DFD5] rounded-2xl overflow-hidden relative shadow-sm">
                     {/* Inline Draft Watermark Banner */}
                     {activeReportStatus !== "approved" &&
                       activeReportStatus !== "published" && (
-                        <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2 flex items-center gap-2 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
-                          <AlertTriangle className="w-3.5 h-3.5 animate-pulse" />
+                        <div className="bg-[#FEF7E0] border-b border-[#FDE293] px-6 py-2 flex items-center gap-2 text-[#B06000] text-[10px] font-bold uppercase tracking-wider">
+                          <AlertTriangle className="w-3.5 h-3.5 animate-pulse text-[#B06000]" />
                           AI-generated draft — pending RA review.
                         </div>
                       )}
-                    {/* Dark header */}
-                    <div className="bg-[#0f0f13] border-b border-white/[0.07] p-6 flex items-start justify-between">
+                    {/* Light warm header */}
+                    <div className="bg-[#FAF8F5] border-b border-[#E2DFD6] p-6 flex items-start justify-between">
                       <div>
-                        <div className="text-[9px] uppercase tracking-widest text-amber-500 font-bold mb-1">
+                        <div className="text-[9px] uppercase tracking-widest text-[#B06000] font-bold mb-1">
                           Equity Research Division
                         </div>
-                        <h3 className="text-xl font-bold text-white tracking-tight">
+                        <h3 className="text-xl font-bold text-[#1A1917] tracking-tight">
                           {reportData.company.name}
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1.5">
+                        <p className="text-xs text-[#59554A] mt-1.5">
                           {reportData.company.sector && (
                             <span>{reportData.company.sector}</span>
                           )}
@@ -2928,10 +2920,10 @@ export function Dashboard() {
                         </p>
                       </div>
                       <div className="text-right shrink-0 ml-4">
-                        <div className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1">
+                        <div className="text-[9px] text-[#9C978B] uppercase tracking-widest font-semibold mb-1">
                           Report Date
                         </div>
-                        <span className="text-xs font-semibold text-slate-300 bg-white/[0.06] px-2.5 py-1 rounded-lg border border-white/[0.06] inline-block">
+                        <span className="text-xs font-bold text-[#1A1917] bg-[#EFECE6] px-2.5 py-1 rounded-lg border border-[#E2DFD6] inline-block">
                           {reportData.company.reportDate}
                         </span>
                       </div>
@@ -2944,37 +2936,37 @@ export function Dashboard() {
                           {
                             label: "Recommendation",
                             value: reportData.recommendation.rating,
-                            valueClass: "text-emerald-400",
-                            bgClass: "bg-emerald-500/10 border-emerald-800/30",
+                            valueClass: "text-[#137333]",
+                            bgClass: "bg-[#E6F4EA] border-[#CEEAD6]",
                           },
                           {
                             label: "Target Price",
                             value: `₹${reportData.recommendation.targetPrice}`,
                             sub: `+${reportData.recommendation.upsidePotential}% upside`,
-                            subClass: "text-emerald-500",
-                            bgClass: "bg-white/[0.02] border-white/[0.06]",
+                            subClass: "text-[#137333]",
+                            bgClass: "bg-[#FAF8F5] border-[#E3DFD5]",
                           },
                           {
                             label: "CMP",
                             value: `₹${reportData.recommendation.currentPrice}`,
-                            bgClass: "bg-white/[0.02] border-white/[0.06]",
+                            bgClass: "bg-[#FAF8F5] border-[#E3DFD5]",
                           },
                         ].map((m) => (
                           <div
                             key={m.label}
                             className={`p-4 rounded-xl border ${m.bgClass}`}
                           >
-                            <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <div className="text-[9px] font-semibold text-[#9C978B] uppercase tracking-widest mb-2">
                               {m.label}
                             </div>
                             <div
-                              className={`text-lg font-black ${m.valueClass || "text-white"}`}
+                              className={`text-lg font-black ${m.valueClass || "text-[#1A1917]"}`}
                             >
                               {m.value}
                             </div>
                             {m.sub && (
                               <div
-                                className={`text-[10px] font-bold mt-0.5 ${m.subClass || "text-slate-500"}`}
+                                className={`text-[10px] font-bold mt-0.5 ${m.subClass || "text-[#59554A]"}`}
                               >
                                 {m.sub}
                               </div>
@@ -2985,10 +2977,10 @@ export function Dashboard() {
 
                       {/* Executive Summary */}
                       <div>
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">
+                        <h4 className="text-[10px] font-semibold text-[#9C978B] uppercase tracking-widest mb-3">
                           Executive Summary
                         </h4>
-                        <p className="text-slate-400 text-sm leading-relaxed">
+                        <p className="text-[#59554A] text-sm leading-relaxed">
                           {reportData.executiveSummary}
                         </p>
                       </div>
@@ -2997,13 +2989,13 @@ export function Dashboard() {
                       {reportData.competitors &&
                         reportData.competitors.length > 0 && (
                           <div>
-                            <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">
+                            <h4 className="text-[10px] font-semibold text-[#9C978B] uppercase tracking-widest mb-3">
                               Competitor Analysis
                             </h4>
-                            <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+                            <div className="overflow-x-auto rounded-xl border border-[#E3DFD5]">
                               <table className="w-full text-left text-[11px] min-w-[540px]">
                                 <thead>
-                                  <tr className="bg-white/[0.03] text-slate-500 text-[9px] uppercase tracking-widest">
+                                  <tr className="bg-[#FAF8F5] text-[#9C978B] text-[9px] uppercase tracking-widest">
                                     <th className="px-4 py-2.5 font-bold">
                                       Company
                                     </th>
@@ -3023,30 +3015,30 @@ export function Dashboard() {
                                     (c: CompetitorInfo, i: number) => (
                                       <tr
                                         key={i}
-                                        className={`border-t border-white/[0.05] ${i % 2 === 0 ? "bg-white/[0.01]" : ""}`}
+                                        className={`border-t border-[#E2DFD6] ${i % 2 === 0 ? "bg-white" : "bg-[#FAF8F5]"}`}
                                       >
-                                        <td className="px-4 py-2.5 text-slate-200 font-semibold">
+                                        <td className="px-4 py-2.5 text-[#1A1917] font-semibold">
                                           {c.name}
                                           {c.ticker && (
-                                            <span className="text-slate-500 font-medium text-[9px] ml-1.5">
+                                            <span className="text-[#9C978B] font-medium text-[9px] ml-1.5">
                                               {c.ticker}
                                             </span>
                                           )}
                                         </td>
-                                        <td className="px-4 py-2.5 text-slate-400">
+                                        <td className="px-4 py-2.5 text-[#59554A]">
                                           {c.industry || "-"}
                                         </td>
                                         <td className="px-4 py-2.5">
                                           {c.recommendation ? (
                                             <span
-                                              className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${
+                                              className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
                                                 String(c.recommendation) ===
                                                 "BUY"
-                                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-800/30"
+                                                  ? "bg-[#E6F4EA] text-[#137333] border border-[#CEEAD6]"
                                                   : String(c.recommendation) ===
                                                       "SELL"
-                                                    ? "bg-rose-500/10 text-rose-400 border border-rose-800/30"
-                                                    : "bg-amber-500/10 text-amber-400 border border-amber-800/30"
+                                                    ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                                    : "bg-[#FEF7E0] text-[#B06000] border border-[#FDE293]"
                                               }`}
                                             >
                                               {c.recommendation}
@@ -3055,7 +3047,7 @@ export function Dashboard() {
                                             "-"
                                           )}
                                         </td>
-                                        <td className="px-4 py-2.5 text-right text-slate-300 font-semibold">
+                                        <td className="px-4 py-2.5 text-right text-[#1A1917] font-semibold">
                                           {c.targetPrice != null
                                             ? `₹${Number(c.targetPrice).toLocaleString("en-IN")}`
                                             : "-"}
@@ -3075,17 +3067,17 @@ export function Dashboard() {
                           SWOT Analysis
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="p-4 bg-emerald-950/30 border border-emerald-800/25 rounded-xl">
-                            <div className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-2.5">
+                          <div className="p-4 bg-[#E6F4EA] border border-[#CEEAD6] rounded-xl shadow-sm">
+                            <div className="text-[10px] font-extrabold text-[#137333] uppercase tracking-widest mb-2.5">
                               Strengths
                             </div>
-                            <ul className="space-y-1.5">
+                            <ul className="space-y-2">
                               {reportData.swotAnalysis.strengths.map((s, i) => (
                                 <li
                                   key={i}
-                                  className="flex gap-2 items-start text-[11px] text-emerald-300/80"
+                                  className="flex gap-2 items-start text-xs text-[#0F5229] font-medium leading-relaxed"
                                 >
-                                  <span className="text-emerald-500 mt-0.5 shrink-0">
+                                  <span className="text-[#137333] font-bold mt-0.5 shrink-0">
                                     ✓
                                   </span>
                                   <span>{s}</span>
@@ -3093,18 +3085,18 @@ export function Dashboard() {
                               ))}
                             </ul>
                           </div>
-                          <div className="p-4 bg-rose-950/30 border border-rose-800/25 rounded-xl">
-                            <div className="text-[9px] font-bold text-rose-500 uppercase tracking-widest mb-2.5">
+                          <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl shadow-sm">
+                            <div className="text-[10px] font-extrabold text-rose-800 uppercase tracking-widest mb-2.5">
                               Weaknesses & Risks
                             </div>
-                            <ul className="space-y-1.5">
+                            <ul className="space-y-2">
                               {reportData.swotAnalysis.weaknesses.map(
                                 (w, i) => (
                                   <li
                                     key={i}
-                                    className="flex gap-2 items-start text-[11px] text-rose-300/80"
+                                    className="flex gap-2 items-start text-xs text-rose-900 font-medium leading-relaxed"
                                   >
-                                    <span className="text-rose-500 mt-0.5 shrink-0">
+                                    <span className="text-rose-700 font-bold mt-0.5 shrink-0">
                                       ⚠
                                     </span>
                                     <span>{w}</span>
@@ -3279,46 +3271,46 @@ export function Dashboard() {
           )}
           {reportData && isChatOpen && !loading && (
             <div
-              className="w-full lg:w-[var(--chat-w)] shrink-0 border-l border-white/[0.06] bg-[#141417]/80 backdrop-blur-xl flex flex-col h-full overflow-hidden shadow-2xl"
+              className="w-full lg:w-[var(--chat-w)] shrink-0 border-l border-[#E2DFD6] bg-[#EFECE6] flex flex-col h-full overflow-hidden shadow-md"
               style={
                 { "--chat-w": `${panelWidths.chat}px` } as React.CSSProperties
               }
             >
               {/* Premium Header */}
-              <div className="p-4 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-[#0f0f13] to-[#141418]">
+              <div className="p-4 border-b border-[#E2DFD6] flex items-center justify-between bg-[#FAF8F5]">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                  <div className="w-6 h-6 rounded-lg bg-[#1A1917] text-white flex items-center justify-center">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold text-white tracking-widest uppercase">
+                    <h3 className="text-xs font-bold text-[#1A1917] tracking-widest uppercase">
                       AI Co-Pilot
                     </h3>
-                    <p className="text-[9px] text-slate-500 font-medium">
+                    <p className="text-[9px] text-[#59554A] font-medium">
                       Recompute & Analysis Agent
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsChatOpen(false)}
-                  className="text-slate-500 hover:text-white p-1.5 hover:bg-white/[0.05] rounded-lg transition-colors"
+                  className="text-[#59554A] hover:text-[#1A1917] p-1.5 hover:bg-[#E4E0D6] rounded-lg transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Chat feed */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-transparent to-[#0d0d10]/40 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[#FAF8F5] scrollbar-thin">
                 {chatMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-6">
-                    <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-2xl">
-                      <Activity className="w-8 h-8 text-blue-400/80" />
+                    <div className="p-4 bg-white border border-[#E3DFD5] rounded-2xl shadow-sm">
+                      <Activity className="w-8 h-8 text-[#1A1917]" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2">
+                      <h4 className="text-xs font-bold text-[#1A1917] uppercase tracking-wider mb-2">
                         Interactive AI Co-Pilot
                       </h4>
-                      <p className="text-[11px] text-slate-500 leading-relaxed max-w-[240px]">
+                      <p className="text-[11px] text-[#59554A] leading-relaxed max-w-[240px]">
                         Ask the agent to recompute ratios, change financial
                         values, or compile peer valuations.
                       </p>
@@ -3336,7 +3328,7 @@ export function Dashboard() {
                           key={suggest}
                           type="button"
                           onClick={() => setChatInput(suggest)}
-                          className="w-full text-left p-2.5 bg-white/[0.02] hover:bg-blue-600/10 border border-white/[0.05] hover:border-blue-500/30 text-[10px] text-slate-400 hover:text-blue-300 rounded-xl transition-all font-semibold"
+                          className="w-full text-left p-2.5 bg-white hover:bg-[#EFECE6] border border-[#E3DFD5] text-[10px] text-[#1A1917] rounded-xl transition-all font-semibold shadow-sm"
                         >
                           💡 &ldquo;{suggest}&rdquo;
                         </button>
@@ -3350,7 +3342,7 @@ export function Dashboard() {
                     className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
                   >
                     {/* Role label */}
-                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">
+                    <span className="text-[8px] font-bold text-[#9C978B] uppercase tracking-widest mb-1 px-1">
                       {msg.role === "user"
                         ? "You"
                         : msg.isError
@@ -3358,12 +3350,12 @@ export function Dashboard() {
                           : "Co-Pilot Agent"}
                     </span>
                     <div
-                      className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-md leading-relaxed ${
+                      className={`max-w-[90%] rounded-2xl px-4 py-3 text-xs shadow-sm leading-relaxed ${
                         msg.role === "user"
-                          ? "bg-blue-600 text-white rounded-tr-none border border-blue-500/20"
+                          ? "bg-[#1A1917] text-white rounded-tr-none"
                           : msg.isError
-                            ? "bg-rose-500/[0.06] border border-rose-500/25 text-rose-300 rounded-tl-none"
-                            : "bg-white/[0.03] border border-white/[0.08] text-slate-300 rounded-tl-none"
+                            ? "bg-rose-50 border border-rose-200 text-rose-800 rounded-tl-none"
+                            : "bg-white border border-[#E3DFD5] text-[#1A1917] rounded-tl-none"
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -3373,7 +3365,7 @@ export function Dashboard() {
                         type="button"
                         onClick={() => executeChatMessage(msg.retryPrompt!)}
                         disabled={chatLoading}
-                        className="mt-1.5 px-2.5 py-1 bg-white/[0.04] hover:bg-blue-600/15 border border-white/[0.08] hover:border-blue-500/30 text-[9px] font-bold text-slate-400 hover:text-blue-300 rounded-lg transition-all disabled:opacity-40"
+                        className="mt-1.5 px-2.5 py-1 bg-[#1A1917] text-white text-[9px] font-bold rounded-lg transition-all disabled:opacity-40 shadow-sm"
                       >
                         ↻ Retry
                       </button>
@@ -3382,12 +3374,12 @@ export function Dashboard() {
                 ))}
                 {chatLoading && (
                   <div className="flex flex-col items-start">
-                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1 px-1">
+                    <span className="text-[8px] font-bold text-[#9C978B] uppercase tracking-widest mb-1 px-1">
                       Co-Pilot Agent
                     </span>
-                    <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl rounded-tl-none px-4.5 py-3 flex items-center gap-2.5 shadow-sm">
-                      <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-                      <span className="text-[10px] text-slate-500 font-semibold">
+                    <div className="bg-white border border-[#E3DFD5] rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2.5 shadow-sm">
+                      <Loader2 className="w-3.5 h-3.5 text-[#1A1917] animate-spin" />
+                      <span className="text-[10px] text-[#59554A] font-semibold">
                         Agent running tools...
                       </span>
                     </div>
@@ -3398,7 +3390,7 @@ export function Dashboard() {
               {/* Input container */}
               <form
                 onSubmit={sendChatMessage}
-                className="p-4 border-t border-white/[0.06] bg-[#0c0c10] flex gap-2"
+                className="p-4 border-t border-[#E2DFD6] bg-[#EFECE6] flex gap-2"
               >
                 <input
                   type="text"
@@ -3406,14 +3398,14 @@ export function Dashboard() {
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Ask the co-pilot or run a tool..."
                   disabled={chatLoading}
-                  className="flex-1 px-4 py-3 bg-black/60 border border-white/[0.08] rounded-xl text-xs font-semibold text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all"
+                  className="flex-1 px-4 py-3 bg-white border border-[#E3DFD5] rounded-xl text-xs font-semibold text-[#1A1917] placeholder-[#9C978B] focus:outline-none focus:border-[#1A1917] transition-all"
                 />
                 <button
                   type="submit"
                   disabled={chatLoading || !chatInput.trim()}
-                  className="px-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 flex items-center gap-1.5 shrink-0"
+                  className="px-3 bg-[#1A1917] hover:bg-[#2C2A26] disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-all shadow-sm active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   <span>Send</span>
                 </button>
               </form>
