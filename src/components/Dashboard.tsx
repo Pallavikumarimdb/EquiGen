@@ -1026,13 +1026,19 @@ export function Dashboard() {
     setReportData(null);
     setReportPdfBase64(null);
     setActiveReportId(null);
+    setActiveSessionId(null);
     setActiveReportStatus("draft");
     setError(null);
     setLoading(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-    showToast("Ready for a new analysis!", "info");
+    showToast(
+      dashboardMode === "autonomous"
+        ? "Ready for a new research goal!"
+        : "Ready for a new analysis!",
+      "info",
+    );
   };
 
   const approveReport = async (reviewer: string, regNo: string) => {
@@ -1965,6 +1971,20 @@ export function Dashboard() {
                 onClick={() => {
                   setDashboardMode("autonomous");
                   setHistoryFilter("autonomous");
+                  // Clear manual PDF report ID if one was previously selected
+                  const currentItem = history.find(h => h.id === activeReportId);
+                  const isAuto = currentItem && (
+                    (currentItem as any).sourceType === "autonomous" ||
+                    (currentItem as any).reportData?.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research"
+                  );
+                  if (!isAuto) {
+                    setActiveReportId(null);
+                    setActiveSessionId(null);
+                    setCompanyName("");
+                    setReportData(null);
+                    setReportPdfBase64(null);
+                  }
                 }}
                 className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
                   dashboardMode === "autonomous"
@@ -1979,6 +1999,20 @@ export function Dashboard() {
                 onClick={() => {
                   setDashboardMode("upload");
                   setHistoryFilter("manual");
+                  // Clear autonomous plan ID if one was previously selected
+                  const currentItem = history.find(h => h.id === activeReportId);
+                  const isAuto = currentItem && (
+                    (currentItem as any).sourceType === "autonomous" ||
+                    (currentItem as any).reportData?.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research"
+                  );
+                  if (isAuto) {
+                    setActiveReportId(null);
+                    setActiveSessionId(null);
+                    setCompanyName("");
+                    setReportData(null);
+                    setReportPdfBase64(null);
+                  }
                 }}
                 className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
                   dashboardMode === "upload"
@@ -2079,6 +2113,25 @@ export function Dashboard() {
                   const nextMode = dashboardMode === "autonomous" ? "upload" : "autonomous";
                   setDashboardMode(nextMode);
                   setHistoryFilter(nextMode === "autonomous" ? "autonomous" : "manual");
+                  const currentItem = history.find(h => h.id === activeReportId);
+                  const isAuto = currentItem && (
+                    (currentItem as any).sourceType === "autonomous" ||
+                    (currentItem as any).reportData?.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research"
+                  );
+                  if (nextMode === "autonomous" && !isAuto) {
+                    setActiveReportId(null);
+                    setActiveSessionId(null);
+                    setCompanyName("");
+                    setReportData(null);
+                    setReportPdfBase64(null);
+                  } else if (nextMode === "upload" && isAuto) {
+                    setActiveReportId(null);
+                    setActiveSessionId(null);
+                    setCompanyName("");
+                    setReportData(null);
+                    setReportPdfBase64(null);
+                  }
                 }}
                 title={dashboardMode === "autonomous" ? "Switch to PDF Uploads" : "Switch to Auto Research"}
                 className={`w-8 h-8 rounded-xl mx-auto flex items-center justify-center border transition-all ${
@@ -2439,9 +2492,11 @@ export function Dashboard() {
           {dashboardMode === "autonomous" ? (
             <div className="flex-1 flex overflow-hidden bg-[#FAF8F5]">
               <AgentWorkspace
+                key={activeReportId || "fresh-goal"}
                 sessionId={activeSessionId || "session-demo"}
                 activePlanId={activeReportId}
                 userId={user?.id}
+                onNewGoal={startNewAnalysis}
               />
             </div>
           ) : (

@@ -13,23 +13,33 @@ import {
   Maximize2,
   Minimize2,
   Split,
+  Sparkles,
 } from "lucide-react";
 
 interface AgentWorkspaceProps {
   sessionId: string;
   activePlanId?: string | null;
   userId?: string;
+  onNewGoal?: () => void;
 }
 
 type RightPanelTab = "copilot" | "trajectory" | "milestones";
 type ViewLayout = "focused" | "split";
 
-export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspaceProps) {
+export function AgentWorkspace({ sessionId, activePlanId, userId, onNewGoal }: AgentWorkspaceProps) {
   const [activePlan, setActivePlan] = useState<ResearchPlanRecord | null>(null);
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [rightTab, setRightTab] = useState<RightPanelTab>("copilot");
   const [viewLayout, setViewLayout] = useState<ViewLayout>("focused");
   const [isReportMaximized, setIsReportMaximized] = useState(false);
+
+  const handleStartNewGoal = () => {
+    setActivePlan(null);
+    setSections([]);
+    if (onNewGoal) {
+      onNewGoal();
+    }
+  };
 
   // Generates honest pending placeholders while research agents run (NO FAKE NUMBERS)
   const getInitialPendingSections = (compName: string, tick: string): ReportSection[] => [
@@ -77,7 +87,7 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
     },
   ];
 
-  // Effect to load active plan when activePlanId prop changes
+  // Effect to load active plan when activePlanId prop changes (with AbortController to prevent stale overwrites)
   useEffect(() => {
     if (!activePlanId) {
       setActivePlan(null);
@@ -85,11 +95,16 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
       return;
     }
 
+    let isCancelled = false;
+    const controller = new AbortController();
     const cleanPlanId = activePlanId.replace(/^rep_/, "");
 
-    fetch(`/api/agent/plan?planId=${encodeURIComponent(cleanPlanId)}`)
+    fetch(`/api/agent/plan?planId=${encodeURIComponent(cleanPlanId)}`, {
+      signal: controller.signal,
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        if (isCancelled) return;
         if (data && data.plan) {
           setActivePlan(data.plan);
           if (Array.isArray(data.sections) && data.sections.length > 0) {
@@ -109,10 +124,16 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
           setSections([]);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        if (isCancelled || err?.name === "AbortError") return;
         setActivePlan(null);
         setSections([]);
       });
+
+    return () => {
+      isCancelled = true;
+      controller.abort();
+    };
   }, [activePlanId, sessionId]);
 
   // Subscribe to real-time SSE stream in AgentWorkspace to update report sections & plan status live
@@ -182,6 +203,7 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
             activePlanId={activePlanId}
             activePlan={null}
             onPlanApproved={handlePlanApproved}
+            onNewGoal={handleStartNewGoal}
           />
         </div>
       </div>
@@ -216,6 +238,14 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
           >
             {activePlan.status}
           </span>
+          <button
+            onClick={handleStartNewGoal}
+            title="Start a new autonomous research goal"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1A1917] hover:bg-[#2C2A26] text-white text-[11px] font-bold transition-all shadow-sm active:scale-95 ml-1 shrink-0"
+          >
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>+ New Research Goal</span>
+          </button>
         </div>
 
         {/* Right: Inspector Tabs & Layout Switcher */}
@@ -340,6 +370,7 @@ export function AgentWorkspace({ sessionId, activePlanId, userId }: AgentWorkspa
                     activePlanId={activePlan?.id || activePlanId}
                     activePlan={activePlan}
                     onPlanApproved={handlePlanApproved}
+                    onNewGoal={handleStartNewGoal}
                   />
                 </div>
               </div>

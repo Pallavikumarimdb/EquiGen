@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
         select: {
           id: true,
           companyName: true,
+          fileName: true,
           status: true,
           reportData: true,
           createdAt: true,
@@ -105,24 +106,36 @@ export async function GET(req: NextRequest) {
       }).catch(() => null);
 
       // If plan wasn't directly found, check if the report links to a planId
+      let linkedPlanId: string | undefined;
       if (!plan && report) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const linkedPlanId = (report.reportData as any)?.planId;
+        linkedPlanId = (report.reportData as any)?.planId;
         if (linkedPlanId) {
           plan = await masterPlannerAgent.getPlan(linkedPlanId);
         }
       }
 
-      // If neither plan nor report exists in database, return 404
-      if (!plan && !report) {
+      // Check if this ReportHistory item is an autonomous research run vs a manual PDF upload
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const repDataObj = report?.reportData as any;
+      const isAutonomousReport = Boolean(
+        report && (
+          report.fileName === "Autonomous Research" ||
+          repDataObj?.sourceType === "autonomous" ||
+          linkedPlanId
+        )
+      );
+
+      // If neither plan exists nor is it an autonomous report, return 404 (prevents manual PDF reports from leaking into agent workspace)
+      if (!plan && (!report || !isAutonomousReport)) {
         return NextResponse.json({ message: "Plan not found." }, { status: 404 });
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sections = (report?.reportData as any)?.sections ?? null;
 
-      // If this is a historical report without a researchPlan entry, construct a synthetic plan record
-      if (!plan && report) {
+      // If this is an autonomous report without a separate researchPlan entry, construct a synthetic plan record
+      if (!plan && report && isAutonomousReport) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const repData = report.reportData as any;
         const comp = report.companyName || repData?.companyName || "Target Company";

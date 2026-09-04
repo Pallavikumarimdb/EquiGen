@@ -57,7 +57,7 @@ interface GoalTerminalProps {
   onNewGoal?: () => void;
 }
 
-export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApproved, onNewGoal: _onNewGoal }: GoalTerminalProps) {
+export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApproved, onNewGoal }: GoalTerminalProps) {
   const [goalText, setGoalText] = useState("");
   const [ticker, setTicker] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -406,15 +406,26 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 Active Research Goal
               </span>
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
-                plan.status === "completed"
-                  ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
-                  : plan.status === "running"
-                  ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
-                  : "bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]"
-              }`}>
-                {plan.status || "completed"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                  plan.status === "completed"
+                    ? "bg-[#E6F4EA] border-[#CEEAD6] text-[#137333]"
+                    : plan.status === "running"
+                    ? "bg-[#FEF7E0] border-[#FDE293] text-[#B06000]"
+                    : "bg-[#E8F0FE] border-[#D2E3FC] text-[#1A73E8]"
+                }`}>
+                  {plan.status || "completed"}
+                </span>
+                {onNewGoal && (
+                  <button
+                    onClick={onNewGoal}
+                    title="Start a new research goal"
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#1A1917] hover:bg-[#2C2A26] text-white transition-all shadow-sm active:scale-95"
+                  >
+                    + New Goal
+                  </button>
+                )}
+              </div>
             </div>
             <p className="text-xs font-semibold text-[#1A1917] leading-snug">
               {plan.goalText}
