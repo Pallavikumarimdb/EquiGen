@@ -506,40 +506,71 @@ export function Dashboard() {
         if (res && res.ok) {
           const data = await res.json();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          historyItems = data.map((item: any) => ({
-            id: item.id,
-            companyName: item.companyName,
-            fileName: item.fileName,
-            createdAt: new Date(item.createdAt).toLocaleDateString("en-IN", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            reportData: item.reportData,
-            reportPdfBase64: item.pdfBase64,
-            status: item.status || "draft",
-            reviewerName: item.reviewerName,
-            sebiRegNo: item.sebiRegNo,
-            approvedAt: item.approvedAt,
-            modelUsedForFinancials: item.modelUsedForFinancials || null,
-            sourceType: "manual",
-          }));
+          historyItems = data.map((item: any) => {
+            const isAuto =
+              item.sourceType === "autonomous" ||
+              item.reportData?.sourceType === "autonomous" ||
+              item.fileName === "Autonomous Research";
+            return {
+              id: item.id,
+              companyName: item.companyName,
+              fileName: item.fileName,
+              createdAt: new Date(item.createdAt).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              reportData: item.reportData,
+              reportPdfBase64: item.pdfBase64,
+              status: item.status || "draft",
+              reviewerName: item.reviewerName,
+              sebiRegNo: item.sebiRegNo,
+              approvedAt: item.approvedAt,
+              modelUsedForFinancials: item.modelUsedForFinancials || null,
+              sourceType: isAuto ? "autonomous" : "manual",
+            };
+          });
+        }
+
+        // Collect all IDs associated with reports already loaded from reportHistory
+        const knownReportPlanIds = new Set<string>();
+        for (const h of historyItems) {
+          knownReportPlanIds.add(h.id);
+          const rawId = h.id.replace(/^rep_/, "");
+          knownReportPlanIds.add(rawId);
+          knownReportPlanIds.add(`rep_${rawId}`);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const pId = (h.reportData as any)?.planId;
+          if (pId) {
+            knownReportPlanIds.add(pId);
+            knownReportPlanIds.add(`rep_${pId}`);
+          }
         }
 
         if (planRes && planRes.ok) {
           const planData = await planRes.json();
           if (Array.isArray(planData.plans)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const planItems: HistoryItem[] = planData.plans.map((p: any) => {
+            for (const p of planData.plans) {
+              const rawPlanId = p.id;
+              const repId = `rep_${rawPlanId}`;
+
+              // If a completed report for this plan already exists in reportHistory, DO NOT duplicate it
+              if (knownReportPlanIds.has(rawPlanId) || knownReportPlanIds.has(repId)) {
+                continue;
+              }
+
               // Extract clean company name or goal summary
-              const cleanTitle = p.goalText
-                ? p.goalText.replace(/^(Initiation coverage on|Deep dive on|Research on)\s*/i, "").trim()
+              const cleanTitle = p.companyName
+                ? p.companyName.trim()
+                : p.goalText
+                ? p.goalText.replace(/^(?:Initiation(?:\s+of)?\s+coverage(?:\s+on)?|Deep dive on|Research on)\s*/i, "").split(/[—–-]/)[0].trim()
                 : "Autonomous Research";
               const title = cleanTitle.length > 30 ? cleanTitle.slice(0, 30) + "…" : cleanTitle;
 
-              return {
+              historyItems.push({
                 id: p.id,
                 companyName: title,
                 fileName: "Autonomous Research",
@@ -551,21 +582,18 @@ export function Dashboard() {
                   minute: "2-digit",
                 }),
                 reportData: {
-                  company: { name: cleanTitle, ticker: p.id, sector: "Autonomous" },
+                  company: { name: cleanTitle, ticker: p.ticker || p.id, sector: "Autonomous" },
                   executiveSummary: p.goalText,
+                  sourceType: "autonomous",
+                  planId: p.id,
                 } as unknown as EquityResearchData,
                 reportPdfBase64: null,
                 status: p.status || "pending",
                 sourceType: "autonomous",
-              };
-            });
+              });
 
-            // Merge items without duplicates
-            const existingIds = new Set(historyItems.map((h) => h.id));
-            for (const item of planItems) {
-              if (!existingIds.has(item.id)) {
-                historyItems.push(item);
-              }
+              knownReportPlanIds.add(rawPlanId);
+              knownReportPlanIds.add(repId);
             }
           }
         }
@@ -587,7 +615,17 @@ export function Dashboard() {
         const userKey = user?.id || user?.email || "guest";
         const stored = localStorage.getItem(`equigen_history_${userKey}`);
         if (stored) {
-          setHistory(JSON.parse(stored));
+          const parsed = JSON.parse(stored) as HistoryItem[];
+          const seen = new Set<string>();
+          const deduped: HistoryItem[] = [];
+          for (const item of parsed) {
+            const rawId = item.id.replace(/^rep_/, "");
+            if (!seen.has(rawId)) {
+              seen.add(rawId);
+              deduped.push(item);
+            }
+          }
+          setHistory(deduped);
         } else {
           setHistory([]);
         }
@@ -954,33 +992,64 @@ export function Dashboard() {
       const historyRes = await fetch("/api/history");
       if (!historyRes.ok) return null;
       const list = (await historyRes.json()) as HistoryApiItem[];
-      const mapped = list.map((item) => ({
-        id: item.id,
-        companyName: item.companyName,
-        fileName: item.fileName,
-        createdAt: new Date(item.createdAt).toLocaleDateString("en-IN", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        reportData: item.reportData,
-        reportPdfBase64: item.pdfBase64,
-        status: item.status || "draft",
-        reviewerName: item.reviewerName,
-        sebiRegNo: item.sebiRegNo,
-        approvedAt: item.approvedAt,
-        modelUsedForFinancials: item.modelUsedForFinancials || null,
-      }));
-      setHistory(mapped);
+      const mapped: HistoryItem[] = list.map((item) => {
+        const isAuto =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (item as any).sourceType === "autonomous" ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (item.reportData as any)?.sourceType === "autonomous" ||
+          item.fileName === "Autonomous Research";
+        return {
+          id: item.id,
+          companyName: item.companyName,
+          fileName: item.fileName,
+          createdAt: new Date(item.createdAt).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          reportData: item.reportData,
+          reportPdfBase64: item.pdfBase64,
+          status: item.status || "draft",
+          reviewerName: item.reviewerName,
+          sebiRegNo: item.sebiRegNo,
+          approvedAt: item.approvedAt,
+          modelUsedForFinancials: item.modelUsedForFinancials || null,
+          sourceType: isAuto ? "autonomous" : "manual",
+        };
+      });
+
+      const mappedIds = new Set(mapped.map((m) => m.id));
+      for (const m of mapped) {
+        const rawId = m.id.replace(/^rep_/, "");
+        mappedIds.add(rawId);
+        mappedIds.add(`rep_${rawId}`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pId = (m.reportData as any)?.planId;
+        if (pId) {
+          mappedIds.add(pId);
+          mappedIds.add(`rep_${pId}`);
+        }
+      }
+
+      setHistory((prev) => {
+        const nonDuplicatePrev = prev.filter(
+          (p) =>
+            !mappedIds.has(p.id) &&
+            !mappedIds.has(p.id.replace(/^rep_/, "")) &&
+            !mappedIds.has(`rep_${p.id}`),
+        );
+        return [...mapped, ...nonDuplicatePrev];
+      });
       const targetId = preferId || activeReportId;
       const currentItem = mapped.find((h) => h.id === targetId);
       if (currentItem) {
-        setCompanyName(currentItem.companyName);
+        setCompanyName(currentItem.companyName || "");
         setReportData(currentItem.reportData);
         setReportPdfBase64(currentItem.reportPdfBase64);
-        setActiveReportStatus(currentItem.status);
+        setActiveReportStatus(currentItem.status || "draft");
       }
       return currentItem || null;
     } catch (e) {
@@ -1102,22 +1171,41 @@ export function Dashboard() {
 
     // Delete from Database
     try {
-      if (targetItem?.fileName === "Autonomous Research") {
-        await fetch(`/api/agent/plan?planId=${id}`, { method: "DELETE" }).catch(() => {});
+      const isAuto =
+        targetItem?.fileName === "Autonomous Research" ||
+        targetItem?.sourceType === "autonomous" ||
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (targetItem?.reportData as any)?.sourceType === "autonomous";
+
+      if (isAuto) {
+        const rawPlanId = id.replace(/^rep_/, "");
+        await Promise.all([
+          fetch(`/api/agent/plan?planId=${encodeURIComponent(rawPlanId)}`, { method: "DELETE" }).catch(() => {}),
+          fetch(`/api/history?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {}),
+          fetch(`/api/history?id=${encodeURIComponent(`rep_${rawPlanId}`)}`, { method: "DELETE" }).catch(() => {}),
+        ]);
       } else {
-        await fetch(`/api/history?id=${id}`, { method: "DELETE" }).catch(() => {});
+        await fetch(`/api/history?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
       }
     } catch (e) {
       console.warn("Failed to delete from database history:", e);
     }
 
     // Delete from state and local storage
-    const updated = history.filter((item) => item.id !== id);
+    const rawId = id.replace(/^rep_/, "");
+    const updated = history.filter(
+      (item) => item.id !== id && item.id !== rawId && item.id !== `rep_${rawId}`
+    );
     setHistory(updated);
     saveHistoryToLocalStorage(updated);
 
     showToast("Report removed from history.", "info");
-    if (reportData?.company?.ticker === id) {
+    if (
+      activeReportId === id ||
+      activeReportId === rawId ||
+      activeReportId === `rep_${rawId}` ||
+      reportData?.company?.ticker === id
+    ) {
       startNewAnalysis();
     }
   };
