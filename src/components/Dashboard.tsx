@@ -552,7 +552,6 @@ export function Dashboard() {
         if (planRes && planRes.ok) {
           const planData = await planRes.json();
           if (Array.isArray(planData.plans)) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             for (const p of planData.plans) {
               const rawPlanId = p.id;
               const repId = `rep_${rawPlanId}`;
@@ -2062,9 +2061,9 @@ export function Dashboard() {
                   // Clear manual PDF report ID if one was previously selected
                   const currentItem = history.find(h => h.id === activeReportId);
                   const isAuto = currentItem && (
-                    (currentItem as any).sourceType === "autonomous" ||
-                    (currentItem as any).reportData?.sourceType === "autonomous" ||
-                    currentItem.fileName === "Autonomous Research"
+                    currentItem.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research" ||
+                    (currentItem.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous"
                   );
                   if (!isAuto) {
                     setActiveReportId(null);
@@ -2090,9 +2089,9 @@ export function Dashboard() {
                   // Clear autonomous plan ID if one was previously selected
                   const currentItem = history.find(h => h.id === activeReportId);
                   const isAuto = currentItem && (
-                    (currentItem as any).sourceType === "autonomous" ||
-                    (currentItem as any).reportData?.sourceType === "autonomous" ||
-                    currentItem.fileName === "Autonomous Research"
+                    currentItem.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research" ||
+                    (currentItem.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous"
                   );
                   if (isAuto) {
                     setActiveReportId(null);
@@ -2203,9 +2202,9 @@ export function Dashboard() {
                   setHistoryFilter(nextMode === "autonomous" ? "autonomous" : "manual");
                   const currentItem = history.find(h => h.id === activeReportId);
                   const isAuto = currentItem && (
-                    (currentItem as any).sourceType === "autonomous" ||
-                    (currentItem as any).reportData?.sourceType === "autonomous" ||
-                    currentItem.fileName === "Autonomous Research"
+                    currentItem.sourceType === "autonomous" ||
+                    currentItem.fileName === "Autonomous Research" ||
+                    (currentItem.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous"
                   );
                   if (nextMode === "autonomous" && !isAuto) {
                     setActiveReportId(null);

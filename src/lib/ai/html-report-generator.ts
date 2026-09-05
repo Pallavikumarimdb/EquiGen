@@ -1745,12 +1745,12 @@ export interface AutonomousReportInput {
   planId?: string;
   sections: AutonomousReportSection[];
   completedAt?: string;
-  modelingData?: any;
+  modelingData?: Record<string, unknown> | null;
   marketIntelData?: {
-    peerProfiles?: any[];
-    creditRatings?: any;
+    peerProfiles?: Record<string, unknown>[];
+    creditRatings?: Record<string, unknown> | null;
     benchmarkMarkdown?: string;
-    newsDigest?: any;
+    newsDigest?: Record<string, unknown> | null;
   } | null;
   dataSources?: Record<string, { isLive?: boolean; count?: number; found?: boolean; source?: string; isDerivedFromRealData?: boolean; quotesFound?: number }> | null;
 }
@@ -1907,13 +1907,15 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const sections = data.sections || [];
   const fullText = sections.map((s) => s.content || "").join("\n");
   const modData = data.modelingData;
+  const dcfObj = modData?.dcf as Record<string, unknown> | undefined;
+  const forecastObj = modData?.forecast as Record<string, unknown> | undefined;
 
   // 1. Target Price & Scenarios
   let targetPrice =
     typeof modData?.baseTargetPrice === "number"
-      ? modData.baseTargetPrice
-      : typeof modData?.dcf?.targetPriceBase === "number"
-      ? modData.dcf.targetPriceBase
+      ? (modData.baseTargetPrice as number)
+      : typeof dcfObj?.targetPriceBase === "number"
+      ? (dcfObj.targetPriceBase as number)
       : 0;
 
   if (!targetPrice) {
@@ -1924,9 +1926,9 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
 
   let bullPrice =
     typeof modData?.bullCasePrice === "number"
-      ? modData.bullCasePrice
-      : typeof modData?.dcf?.targetPriceBull === "number"
-      ? modData.dcf.targetPriceBull
+      ? (modData.bullCasePrice as number)
+      : typeof dcfObj?.targetPriceBull === "number"
+      ? (dcfObj.targetPriceBull as number)
       : 0;
   if (!bullPrice) {
     const bullMatch = fullText.match(/bull\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
@@ -1935,9 +1937,9 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
 
   let bearPrice =
     typeof modData?.bearCasePrice === "number"
-      ? modData.bearCasePrice
-      : typeof modData?.dcf?.targetPriceBear === "number"
-      ? modData.dcf.targetPriceBear
+      ? (modData.bearCasePrice as number)
+      : typeof dcfObj?.targetPriceBear === "number"
+      ? (dcfObj.targetPriceBear as number)
       : 0;
   if (!bearPrice) {
     const bearMatch = fullText.match(/bear\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
@@ -1949,7 +1951,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const mcapMatch = fullText.match(/market capitalisation at\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i) || fullText.match(/Market Cap:\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
   if (mcapMatch) marketCapCr = parseFloat(mcapMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.marketCapCr) {
-    marketCapCr = data.marketIntelData.peerProfiles[0].marketCapCr;
+    marketCapCr = data.marketIntelData.peerProfiles[0].marketCapCr as number;
   } else {
     marketCapCr = 250000;
   }
@@ -1958,7 +1960,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const peMatch = fullText.match(/P\/E\s*(?:of|multiple of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i);
   if (peMatch) peRatio = parseFloat(peMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.peRatio) {
-    peRatio = data.marketIntelData.peerProfiles[0].peRatio;
+    peRatio = data.marketIntelData.peerProfiles[0].peRatio as number;
   } else {
     peRatio = 21.5;
   }
@@ -1967,7 +1969,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const pbMatch = fullText.match(/(?:price\/book|Price\/Book|P\/B)\s*(?:of|ratio of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i);
   if (pbMatch) priceToBook = parseFloat(pbMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.pbRatio) {
-    priceToBook = data.marketIntelData.peerProfiles[0].pbRatio;
+    priceToBook = data.marketIntelData.peerProfiles[0].pbRatio as number;
   } else {
     priceToBook = 2.85;
   }
@@ -1976,7 +1978,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const roeMatch = fullText.match(/return on equity of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/ROE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
   if (roeMatch) roe = parseFloat(roeMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.roePercent) {
-    roe = data.marketIntelData.peerProfiles[0].roePercent;
+    roe = data.marketIntelData.peerProfiles[0].roePercent as number;
   } else {
     roe = 15.8;
   }
@@ -1985,7 +1987,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const roceMatch = fullText.match(/return on capital employed of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/ROCE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
   if (roceMatch) roce = parseFloat(roceMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.rocePercent) {
-    roce = data.marketIntelData.peerProfiles[0].rocePercent;
+    roce = data.marketIntelData.peerProfiles[0].rocePercent as number;
   } else {
     roce = 12.4;
   }
@@ -1994,7 +1996,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const dyMatch = fullText.match(/dividend yield of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/Dividend Yield:\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
   if (dyMatch) dividendYield = parseFloat(dyMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.dividendYieldPercent) {
-    dividendYield = data.marketIntelData.peerProfiles[0].dividendYieldPercent;
+    dividendYield = data.marketIntelData.peerProfiles[0].dividendYieldPercent as number;
   } else {
     dividendYield = 0.85;
   }
@@ -2004,7 +2006,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   const cmpMatch = fullText.match(/(?:trading at|CMP:|CMP|current price of)\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
   if (cmpMatch) cmp = parseFloat(cmpMatch[1].replace(/,/g, ""));
   else if (data.marketIntelData?.peerProfiles?.[0]?.currentPrice) {
-    cmp = data.marketIntelData.peerProfiles[0].currentPrice;
+    cmp = data.marketIntelData.peerProfiles[0].currentPrice as number;
   } else {
     cmp = targetPrice > 50 ? Math.round(targetPrice / 1.16) : Math.max(1, Math.round(targetPrice * 0.85));
   }
@@ -2036,13 +2038,13 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   let wacc = 0;
   const waccMatch = fullText.match(/([0-9,]+(?:\.[0-9]+)?)\s*%\s*WACC/i);
   if (waccMatch) wacc = parseFloat(waccMatch[1].replace(/,/g, ""));
-  else if (modData?.dcf?.wacc) wacc = modData.dcf.wacc <= 1 ? modData.dcf.wacc * 100 : modData.dcf.wacc;
+  else if (typeof dcfObj?.wacc === "number") wacc = dcfObj.wacc <= 1 ? dcfObj.wacc * 100 : dcfObj.wacc;
   else wacc = 11.0;
 
   let terminalGrowth = 0;
   const tgMatch = fullText.match(/([0-9,]+(?:\.[0-9]+)?)\s*%\s*terminal growth/i);
   if (tgMatch) terminalGrowth = parseFloat(tgMatch[1].replace(/,/g, ""));
-  else if (modData?.dcf?.terminalGrowthRate) terminalGrowth = modData.dcf.terminalGrowthRate <= 1 ? modData.dcf.terminalGrowthRate * 100 : modData.dcf.terminalGrowthRate;
+  else if (typeof dcfObj?.terminalGrowthRate === "number") terminalGrowth = dcfObj.terminalGrowthRate <= 1 ? dcfObj.terminalGrowthRate * 100 : dcfObj.terminalGrowthRate;
   else terminalGrowth = 4.0;
 
   let netDebtCr = 0;
@@ -2064,22 +2066,22 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   // 5. Build 5-Year Financial Projection Table
   let financialYears: Array<{ year: string; revenue: number; growthPct: number; ebitda: number; marginPct: number; pat: number; eps: number }> = [];
 
-  if (modData?.forecast?.years && Array.isArray(modData.forecast.years) && modData.forecast.years.length > 0) {
-    const fYears: string[] = modData.forecast.years;
-    const fRevs: number[] = modData.forecast.revenue || [];
-    const fMargins: number[] = modData.forecast.ebitdaMargin || [];
-    const fPats: number[] = modData.forecast.pat || [];
-    const fEps: number[] = modData.forecast.eps || [];
+  const fYears = forecastObj?.years as string[] | undefined;
+  const fRevs = forecastObj?.revenue as number[] | undefined;
+  const fMargins = forecastObj?.ebitdaMargin as number[] | undefined;
+  const fPats = forecastObj?.pat as number[] | undefined;
+  const fEps = forecastObj?.eps as number[] | undefined;
 
+  if (fYears && Array.isArray(fYears) && fYears.length > 0) {
     financialYears = fYears.map((yr, idx) => {
-      const rev = fRevs[idx] ?? Math.round(baseRevenue * Math.pow(1 + revenueGrowth / 100, idx));
-      const prevRev = idx === 0 ? rev * 0.9 : (fRevs[idx - 1] ?? rev * 0.9);
+      const rev = fRevs?.[idx] ?? Math.round(baseRevenue * Math.pow(1 + revenueGrowth / 100, idx));
+      const prevRev = idx === 0 ? rev * 0.9 : (fRevs?.[idx - 1] ?? rev * 0.9);
       const growthPct = parseFloat((((rev - prevRev) / prevRev) * 100).toFixed(1));
-      const marginPct = fMargins[idx] ?? ebitdaMargin;
+      const marginPct = fMargins?.[idx] ?? ebitdaMargin;
       const ebitda = Math.round((rev * marginPct) / 100);
-      const pat = fPats[idx] ?? Math.round(ebitda * 0.65);
+      const pat = fPats?.[idx] ?? Math.round(ebitda * 0.65);
       const sharesCr = marketCapCr > 0 && cmp > 0 ? marketCapCr / cmp : 500;
-      const eps = fEps[idx] ?? (sharesCr > 0 ? parseFloat((pat / sharesCr).toFixed(1)) : 12.5);
+      const eps = fEps?.[idx] ?? (sharesCr > 0 ? parseFloat((pat / sharesCr).toFixed(1)) : 12.5);
 
       return {
         year: yr,
@@ -2136,18 +2138,18 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   let peers: Array<{ ticker: string; name: string; cmp: number; pe: number; pb: number; roe: number; marketCapCr: number }> = [];
 
   const currentTicker = (data.ticker || "").toUpperCase();
-  const validPeers = rawPeers.filter((p: any) => (p.ticker || "").toUpperCase() !== currentTicker);
+  const validPeers = rawPeers.filter((p: Record<string, unknown>) => ((p.ticker as string) || "").toUpperCase() !== currentTicker);
   const peersToUse = validPeers.length > 0 ? validPeers : (rawPeers.length > 1 ? rawPeers.slice(1) : rawPeers);
 
   if (peersToUse.length > 0) {
-    peers = peersToUse.slice(0, 4).map((p: any) => ({
-      ticker: p.ticker || "PEER",
-      name: p.companyName || p.name || p.ticker || "Sector Peer",
-      cmp: p.currentPrice || p.cmp || 0,
-      pe: p.peRatio || p.pe || 15.0,
-      pb: p.pbRatio ?? p.priceToBook ?? p.pb ?? 1.8,
-      roe: p.roePercent ?? p.roe ?? 14.0,
-      marketCapCr: p.marketCapCr || p.marketCap || 100000,
+    peers = peersToUse.slice(0, 4).map((p: Record<string, unknown>) => ({
+      ticker: (p.ticker as string) || "PEER",
+      name: (p.companyName as string) || (p.name as string) || (p.ticker as string) || "Sector Peer",
+      cmp: (p.currentPrice as number) || (p.cmp as number) || 0,
+      pe: (p.peRatio as number) || (p.pe as number) || 15.0,
+      pb: (p.pbRatio as number) ?? (p.priceToBook as number) ?? (p.pb as number) ?? 1.8,
+      roe: (p.roePercent as number) ?? (p.roe as number) ?? 14.0,
+      marketCapCr: (p.marketCapCr as number) || (p.marketCap as number) || 100000,
     }));
   } else {
     // Check if peer mentions exist in text (e.g. SBIN, PNB)
@@ -2168,8 +2170,8 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   // 7. Sensitivity Matrix (Gordon Growth: P(w,g) = Target * (w0 - g0) / (w - g))
   let sensitivityMatrix: { waccs: number[]; growths: number[]; grid: number[][] };
 
-  if (modData?.dcf?.sensitivityMatrix?.waccRange && modData?.dcf?.sensitivityMatrix?.priceGrid) {
-    const sMat = modData.dcf.sensitivityMatrix;
+  const sMat = dcfObj?.sensitivityMatrix as { waccRange?: number[]; growthRange?: number[]; priceGrid?: number[][] } | undefined;
+  if (sMat?.waccRange && sMat?.priceGrid) {
     sensitivityMatrix = {
       waccs: sMat.waccRange.map((w: number) => (w <= 1 ? parseFloat((w * 100).toFixed(1)) : w)),
       growths: (sMat.growthRange || [0.04, 0.045, 0.05, 0.055, 0.06]).map((g: number) => (g <= 1 ? parseFloat((g * 100).toFixed(1)) : g)),
@@ -2344,8 +2346,6 @@ function buildAutonomousHtml(
 
   const execSummary = getSec("executive_summary");
   const bizDesc = getSec("business_description");
-  const finAnalysis = getSec("financial_analysis");
-  const valuation = getSec("valuation");
   const risks = getSec("key_risks");
   const concall = getSec("management_qa_highlights");
   const disclosures = getSec("disclosures");

@@ -18,6 +18,7 @@ import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 
 export interface OrchestrationResult {
   planId: string;
@@ -383,11 +384,35 @@ export class MasterOrchestrator {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const finalSections = (complianceOutput as any)?.updatedSections ?? (synthesisOutput as any)?.sections ?? [];
 
+    const modOut = modelingOutput as Record<string, unknown> | null;
+    const mktOut = marketIntelOutput as Record<string, unknown> | null;
+    const synthOut = synthesisOutput as Record<string, unknown> | null;
+
+    const modelingData = (modOut?.modelOutput as Record<string, unknown>) ?? null;
+    const marketIntelData = {
+      peerProfiles: (mktOut?.peerProfiles as unknown[]) ?? [],
+      creditRatings: mktOut?.creditRatings ?? null,
+      benchmarkMarkdown: (mktOut?.benchmarkMarkdown as string) ?? "",
+    };
+    const reportDataSources = synthOut?.dataSources ?? null;
+
     // Save/Upsert completed report into ReportHistory for sidebar history tracking
     if (finalStatus === "completed") {
       const reportId = `rep_${planId}`;
       const activeOrgId = plan.session?.orgId || "default-org";
       const activeCreatedById = plan.session?.createdBy && plan.session.createdBy !== "analyst" ? plan.session.createdBy : null;
+
+      const reportPayload = JSON.parse(JSON.stringify({
+        sourceType: "autonomous",
+        ticker,
+        companyName,
+        planId,
+        sections: finalSections,
+        modelingData,
+        marketIntelData,
+        dataSources: reportDataSources,
+        completedAt: new Date().toISOString(),
+      })) as Prisma.InputJsonValue;
 
       await prisma.reportHistory.upsert({
         where: { id: reportId },
@@ -399,40 +424,12 @@ export class MasterOrchestrator {
           fileName: "Autonomous Research",
           status: "published",
           modelUsedForFinancials: "Groq Llama 3.3 / OpenRouter Free",
-          reportData: {
-            sourceType: "autonomous",
-            ticker,
-            companyName,
-            planId,
-            sections: finalSections,
-            modelingData: (modelingOutput as any)?.modelOutput ?? null,
-            marketIntelData: {
-              peerProfiles: (marketIntelOutput as any)?.peerProfiles ?? [],
-              creditRatings: (marketIntelOutput as any)?.creditRatings ?? null,
-              benchmarkMarkdown: (marketIntelOutput as any)?.benchmarkMarkdown ?? "",
-            },
-            dataSources: (synthesisOutput as any)?.dataSources ?? null,
-            completedAt: new Date().toISOString(),
-          },
+          reportData: reportPayload,
         },
         update: {
           orgId: activeOrgId,
           status: "published",
-          reportData: {
-            sourceType: "autonomous",
-            ticker,
-            companyName,
-            planId,
-            sections: finalSections,
-            modelingData: (modelingOutput as any)?.modelOutput ?? null,
-            marketIntelData: {
-              peerProfiles: (marketIntelOutput as any)?.peerProfiles ?? [],
-              creditRatings: (marketIntelOutput as any)?.creditRatings ?? null,
-              benchmarkMarkdown: (marketIntelOutput as any)?.benchmarkMarkdown ?? "",
-            },
-            dataSources: (synthesisOutput as any)?.dataSources ?? null,
-            completedAt: new Date().toISOString(),
-          },
+          reportData: reportPayload,
         },
       }).catch((err) => {
         console.warn("[MasterOrchestrator] Failed to save ReportHistory record:", err);
