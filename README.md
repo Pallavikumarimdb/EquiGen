@@ -1,59 +1,74 @@
-# ⚡ EquiGen — AI-Powered Equity Research Engine
+# ⚡ EquiGen — Autonomous AI Equity Research Analyst
 
 [![Next.js](https://img.shields.io/badge/Next.js-15.1.11-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Groq](https://img.shields.io/badge/LLM-GPT%20OSS%20120B%20(Groq)-orange?style=flat-square)](https://groq.com/)
+[![Autonomous Agents](https://img.shields.io/badge/Architecture-Multi--Agent%20Swarm-emerald?style=flat-square)](./Architecture.md)
+[![Groq](https://img.shields.io/badge/LLM-Groq%20Llama%203.3%20%2F%20GPT--4o-orange?style=flat-square)](https://groq.com/)
 [![Puppeteer](https://img.shields.io/badge/PDF-Puppeteer%20(Headless)-green?style=flat-square)](https://pptr.dev/)
-[![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2016-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
+[![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2016%20Prisma-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
 
-EquiGen is an enterprise-grade AI engine that automates the generation of publication-ready, Geojit-style equity research reports. By combining local document extraction, Groq GPT OSS 120B / Qwen 3.6, server-side SVG charting, and Puppeteer headless rendering, EquiGen translates raw financial structures into institutional A4 PDFs.
-
----
-
-## 🚀 Key Features
-
-*   **Multiformat Ingestion**: Instantly parse `.pdf` and `.txt` files containing raw balance sheets, earnings call transcripts, or financial reports (with experimental `.csv` support built-in).
-*   **Self-Correcting LLM Extraction**: Queries `openai/gpt-oss-120b` over Groq with strict JSON schemas enforced via LangChain `.withStructuredOutput()`. If extracted financials fail mathematical validation (e.g. EBITDA > Revenue), a **self-correction retry loop** feeds the errors back to the model.
-*   **Stateful Background Jobs**: Extraction runs as a background job stored in PostgreSQL (`ExtractionJob` table). The frontend polls `/api/extract/status`. If Groq rate-limits mid-job, the job saves its step checkpoint and auto-resumes from that exact point.
-*   **Multi-Provider AI Support**: Switch between **Groq** (GPT OSS 120B) and **OpenAI** (GPT-4o Mini) from the settings panel. BYOK (bring-your-own-key) keys are AES-256-GCM encrypted before being stored in the database.
-*   **Print-Ready HTML & SVG Charts**: Dynamically constructs publication-grade layouts with SVG combo charts (bars and line charts) embedded directly in HTML and rendered via Puppeteer.
-*   **AI Co-Pilot & Interactive Chat**: Multi-turn agentic chat session linked to the report where users can interactively ask questions, search original source pages, request recalculations, and approve/reject proposed corrections.
-*   **State-Gated Corrections & Audit Logs**: Detailed append-only audit trail logging state transitions, sign-off events, and field corrections. Proposes corrections that can be approved/applied to automatically fork draft baselines, ensuring compliance.
-*   **Fail-Safe Page Ingestion**: Scanned or image-heavy PDF pages fall back to either Groq Vision (`llama-3.2-11b-vision-preview`) for charts/graphics, or local Tesseract OCR for plain-text scans.
-*   **SEBI RA Sign-off Flow**: Reviewers can enter their SEBI Research Analyst registration number to publish a report. Published reports get an attestation block embedded in the PDF.
-*   **Report History**: All generated reports are persisted to PostgreSQL with full search and restore support, with localStorage as an offline fallback.
+**EquiGen** is an enterprise-grade AI Equity Research platform designed for institutional brokerages, research desks, and SEBI-registered analysts. It autonomously plans, executes, and synthesizes institutional-quality equity research reports by scraping live exchange filings (BSE/NSE), running quantitative 3-tier DCF valuation models, monitoring live sector news feeds, and performing statutory SEBI RA (2014) compliance audits.
 
 ---
 
-## 🏗️ Architecture & Core Pipeline
+## 🚀 Key Capabilities
 
-For full details on the system architecture, Map-Reduce chunking pipeline, visual-first page extraction fallbacks, and the LangGraph orchestrator, please refer to:
-👉 **[Architecture.md](file:///d:/13.my-startups/EquiGen/Architecture.md)**
+### 1. 🤖 Autonomous Multi-Agent Swarm
+* **Natural-Language Research Intent**: Enter intents such as *"Initiation of coverage on Eternal Limited — 5-year DCF, compare margins vs M&M, fetch Q3 concall guidance on margin recovery."*
+* **Master Planner Decomposition**: Breaks intents into 6 ordered execution milestones:
+  1. `Fetch Documents`: Scrapes audited annual reports, investor presentations, and concalls from BSE/NSE.
+  2. `Extract Financials`: Parses revenue, EBITDA, PAT, debt, and cash flow historicals.
+  3. `Build Financial Model`: 5-year DCF projection, WACC computation, and Bull/Base/Bear scenarios.
+  4. `Peer Benchmark`: Aggregates live Google News RSS, ET Markets feeds, and sector valuation multiples.
+  5. `Synthesise`: Assembles the living draft note across 7 institutional sections.
+  6. `Compliance Audit`: Enforces SEBI (Research Analysts) Regulations 2014 disclaimers and checks.
+* **Human-in-the-Loop Analyst Steering**: Pause, redirect, adjust valuation assumptions (e.g. WACC, growth rates), or skip milestones mid-flight via the **Steering Panel**.
+* **Real-Time Telemetry Stream**: Server-Sent Events (SSE) stream tool calls, execution progress (17% → 100%), and draft updates live to the UI without page refreshes.
+
+### 2. 🛡️ Data Integrity & Transparency
+* **No Synthetic Data in Researched Reports**: Completed reports are compiled directly from audited exchange filings and live models stored in `ReportHistory`.
+* **Terminal Data Quality Report**: Each pipeline execution outputs an audit block detailing live vs fallback status across all 6 data sources.
+* **Transparent Fallbacks**: If live filings are restricted or unavailable, models explicitly flag `isDerivedFromRealData: false` and inject statutory disclaimers.
+
+### 3. 📄 Publication-Grade PDF Engine
+* **A4 Print Layout**: Generates institutional A4 research notes with executive summaries, DCF valuation grids, concall highlights, and SEBI certification blocks.
+* **Puppeteer Headless Compilation**: Server-side rendering using Puppeteer with exact print CSS and inline SVG charts.
+* **SEBI RA Sign-Off**: Reviewers can review, digitally certify, and stamp reports with their official SEBI registration credentials before publishing.
+
+### 4. 📑 Assisted Document Ingestion (Mode 2)
+* **Drag-and-Drop Prospectus Processing**: Ingest raw `.pdf` or `.txt` financial reports.
+* **Vision & OCR Fallback**: Automatically invokes Groq Vision (`llama-3.2-11b-vision-preview`) for charts/graphics or Tesseract OCR for scanned pages when raw text yields fewer than 100 characters.
+* **Math Auditor Node**: Automatically validates extracted financial statements (e.g. EBITDA ≤ Revenue, PAT ≤ EBITDA) and feeds discrepancies back into a self-correction retry loop.
 
 ---
 
-## ⚡ Setup & Installation
+## 🏗️ System Architecture
+
+For in-depth architectural diagrams, subagent specifications, SSE event schemas, and data provenance safeguards, please see:
+👉 **[Architecture.md](./Architecture.md)**
+
+---
+
+## ⚡ Quick Start & Installation
 
 ### Prerequisites
-
-*   **Node.js 20+** and **pnpm** (version 9 or 10) installed globally.
-*   **PostgreSQL** (version 15 or 16) running locally or via Docker.
-*   A **Groq API key** from [console.groq.com](https://console.groq.com) (for GPT OSS / Qwen extraction) or an **OpenAI API key** (for GPT fallback).
-*   **OpenRouter API key** (optional, for free fallback model routing).
+* **Node.js 20+** and **pnpm 9+** installed globally.
+* **PostgreSQL 15 or 16** running locally or via Docker.
+* A **Groq API key** from [console.groq.com](https://console.groq.com) and/or an **OpenAI API key**.
+* An **OpenRouter API key** (optional, used as an auxiliary free fallback).
 
 ```bash
 npm install -g pnpm
 ```
 
-### Installation
+### Installation Steps
 
 1. **Clone the repository and install dependencies**:
    ```bash
    pnpm install
    ```
 
-2. **Rebuild native packages**:
-   Some PDF canvas rendering libraries require local node-gyp rebuilding:
+2. **Rebuild native PDF canvas bindings**:
    ```bash
    pnpm rebuild @napi-rs/canvas
    ```
@@ -62,61 +77,71 @@ npm install -g pnpm
    ```bash
    cp .env.example .env
    ```
-   Open `.env` and fill in the required variables:
+   Configure the following variables in `.env`:
    ```env
-   GROQ_API_KEY=gsk_YOUR_KEY_HERE
-   DATABASE_URL="postgresql://postgres:password@localhost:5432/equigen?sslmode=disable"
-   ENCRYPTION_KEY="exactly-32-chars-random-secret"
+   # LLM Provider Keys
+   GROQ_API_KEY="gsk_your_groq_api_key"
+   OPENAI_API_KEY="sk-your_openai_api_key"
+   OPENROUTER_API_KEY="sk-or-your_openrouter_api_key"
+
+   # Database Connection (PostgreSQL 16)
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/equigen_db?sslmode=disable"
+
+   # BYOK Key Encryption (Must be exactly 32 alphanumeric characters)
+   ENCRYPTION_KEY="your-32-character-secret-key-12"
+
+   # Application URL
    NEXT_PUBLIC_APP_URL="http://localhost:3000"
    ```
-   *Note: `ENCRYPTION_KEY` must be exactly 32 characters long. It is used to securely encrypt Bring-Your-Own-Key values in the database via AES-256-GCM.*
 
-4. **Initialize the Database**:
-   Generate the Prisma client and push the schema to the database:
+4. **Initialize Database & Run Migrations**:
    ```bash
    pnpm exec prisma generate
-   pnpm exec prisma migrate dev
+   pnpm exec prisma db push
    ```
 
-5. **Download OCR Tessdata (Optional)**:
-   If parsing scanned PDFs, download the English OCR training data into the root directory:
+5. **Start Development Server**:
    ```bash
-   # curl
-   curl -L https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -o eng.traineddata
+   pnpm run dev
    ```
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 💻 Developer Workflow & Local Development
+## 💻 Developer Commands
 
-This section outlines standard developer workflows for developing, running, database management, and testing the EquiGen workspace.
+| Command | Description |
+| :--- | :--- |
+| `pnpm run dev` | Starts Next.js development server with hot module reload on port 3000. |
+| `pnpm run build` | Builds the production Next.js bundle. |
+| `pnpm run start` | Runs the compiled production application. |
+| `pnpm run lint` | Runs ESLint over the codebase (0 errors, 0 warnings enforced). |
+| `pnpm exec prisma studio` | Launches Prisma web GUI to inspect database tables and records. |
+| `pnpm exec prisma db push` | Pushes schema changes in `schema.prisma` directly to PostgreSQL. |
+| `docker compose up -d db` | Launches a local PostgreSQL 16 container via Docker Compose. |
 
-### 1. Database Operations & Management
-If you do not have a PostgreSQL server running natively, spin one up via Docker:
-```bash
-docker compose up -d db
-```
+---
 
-#### Handy DB Commands:
-*   **Open Prisma Studio**: Inspect and modify database records (jobs, histories, keys) via a GUI:
-    ```bash
-    pnpm exec prisma studio
-    ```
-*   **Sync Database Schema**: If you modify `schema.prisma`, sync the changes directly without creating a migration:
-    ```bash
-    pnpm exec prisma db push
-    ```
-*   **Reset the Database**: Wipe all tables, run migrations, and start fresh:
-    ```bash
-    pnpm exec prisma migrate reset
-    ```
+## 🗺️ API Route Overview
 
-### 2. Running the Local Server
-Start the Next.js development server:
-```bash
-pnpm dev
-```
-Open [http://localhost:3000](http://localhost:3000) to view the application. The dev server features Hot Module Replacement (HMR) and prints detailed rate-limiting and model-routing telemetry directly to the console.
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/agent/plan` | `POST`, `GET` | Decomposes goals into milestones; retrieves plan and report sections. |
+| `/api/agent/execute` | `POST` | Dispatches the `MasterOrchestrator` to execute the multi-agent DAG. |
+| `/api/agent/stream` | `GET` | Server-Sent Events (SSE) streaming live trajectory and subagent events. |
+| `/api/agent/steering` | `POST` | Submits analyst steering commands (`pause`, `resume`, `redirect`, `skip`). |
+| `/api/agent/plan/[id]/approve` | `PUT` | Analyst plan approval before execution kicks off. |
+| `/api/download` | `GET` | Compiles or serves publication-grade A4 PDF reports via Puppeteer. |
+| `/api/extract` | `POST` | Submits raw files for assisted document extraction (Mode 2). |
+| `/api/extract/status` | `GET` | Polls progress and state checkpoints of manual extraction jobs. |
+| `/api/history` | `GET` | Returns list of completed reports for the authenticated organization. |
+| `/api/settings/keys` | `GET`, `POST` | Manages AES-256-GCM encrypted Bring-Your-Own-Key (BYOK) API credentials. |
+
+---
+
+## 📄 Regulatory & Compliance Note
+
+EquiGen reports include statutory disclosure sections compliant with the **SEBI (Research Analysts) Regulations, 2014**. Research notes include analyst certifications, standard risk warnings, and conflict-of-interest declarations. The platform provides digital sign-off gating where certified reviewers can review findings and append their official SEBI registration number prior to final PDF publication.
 
 ---
 

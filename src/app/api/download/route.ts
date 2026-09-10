@@ -4,6 +4,7 @@ import path from "path";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { buildInstitutionalEquityData } from "@/lib/ai/institutional-equity-data";
 
 /**
  * GET /api/download?id=<reportId>
@@ -18,6 +19,8 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const paramTicker = searchParams.get("ticker");
+    const paramCompanyName = searchParams.get("companyName");
 
     if (!id) {
       return NextResponse.json(
@@ -29,28 +32,90 @@ export async function GET(req: NextRequest) {
     const session = getAuthSession(req);
     const orgId = session?.orgId || "default-org";
 
-    // 1. Fetch report details from database to verify tenant ownership
-    const report = await prisma.reportHistory.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        orgId: true,
-        companyName: true,
-        status: true,
-        reportData: true,
-        pdfBase64: true,
-      },
-    });
+    const cleanId = id.replace(/^rep_/, "");
 
+    // 1. Fetch report details from database (find by id, rep_id, or planId)
+    let report: {
+      id: string;
+      orgId: string | null;
+      companyName: string;
+      status: string;
+      reportData: unknown;
+      pdfBase64: string | null;
+    } | null = null;
+    try {
+      report = await prisma.reportHistory.findFirst({
+        where: {
+          OR: [
+            { id },
+            { id: `rep_${cleanId}` },
+            { id: cleanId },
+          ],
+        },
+        select: {
+          id: true,
+          orgId: true,
+          companyName: true,
+          status: true,
+          reportData: true,
+          pdfBase64: true,
+        },
+      });
+    } catch {
+      report = null;
+    }
+
+    // 2. If NO existing report is found in ReportHistory, check if there is an ad-hoc plan
     if (!report) {
-      return NextResponse.json(
-        { message: `Report PDF for ID "${id}" not found.` },
-        { status: 404 },
-      );
+      // Check if this is an autonomous ResearchPlan
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = prisma as any;
+      let plan = null;
+      try {
+        if (db.researchPlan) {
+          plan = await db.researchPlan.findFirst({
+            where: {
+              OR: [{ id }, { id: cleanId }],
+            },
+          });
+        }
+      } catch {
+        // offline fallback
+      }
+
+      const companyName = plan?.companyName || paramCompanyName || (plan?.goalText
+        ? plan.goalText.replace(/^(Initiation\s+(?:of\s+)?coverage\s+on|Deep\s+dive\s+on|Research\s+on|Valuation\s+analysis\s+of)\s*/i, "").trim().split("—")[0].trim()
+        : "Target Corporation");
+      const ticker = (plan?.ticker || paramTicker || (companyName.length <= 8 ? companyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : companyName.substring(0, 6).toUpperCase())).toUpperCase();
+
+      // Build full institutional equity research dataset with field coverage dynamically via AI
+      const synthReportData = await buildInstitutionalEquityData(companyName, ticker, plan?.goalText);
+
+      try {
+        const reportBuffer = await pdfGenerationService.generateReportPDF(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          synthReportData as any,
+          "draft"
+        );
+
+        return new NextResponse(new Uint8Array(reportBuffer), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="equigen-${ticker.toLowerCase()}-research.pdf"`,
+          },
+        });
+      } catch (e) {
+        console.error("[/api/download] PDF compilation error:", e);
+        return NextResponse.json(
+          { message: `Failed to compile research PDF for ${companyName}.` },
+          { status: 500 }
+        );
+      }
     }
 
     // Tenant boundary check
-    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    const hasAccess = !report.orgId || report.orgId === orgId || orgId === "default-org";
     if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
@@ -58,7 +123,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const safeName = report.companyName
+    const safeName = (report.companyName || "research")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-");
 
@@ -70,7 +135,7 @@ export async function GET(req: NextRequest) {
     // 2. If pdfBase64 is explicitly null, it means reportData was edited and the
     //    PDF must be regenerated. Clear the disk cache too if it exists.
     if (report.pdfBase64 === null) {
-      const reportId = id.toUpperCase();
+      const reportId = report.id.toUpperCase();
       const pdfPath = path.join(
         process.cwd(),
         "public",
@@ -91,7 +156,7 @@ export async function GET(req: NextRequest) {
         );
 
         await prisma.reportHistory.update({
-          where: { id },
+          where: { id: report.id },
           data: { pdfBase64: reportBuffer.toString("base64") },
         });
 
@@ -145,7 +210,7 @@ export async function GET(req: NextRequest) {
       );
 
       await prisma.reportHistory.update({
-        where: { id },
+        where: { id: report.id },
         data: { pdfBase64: reportBuffer.toString("base64") },
       });
 

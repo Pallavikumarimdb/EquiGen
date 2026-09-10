@@ -1,4 +1,3 @@
-import { EquityResearchData } from "@/types";
 import { HtmlReportGenerator } from "@/lib/ai/html-report-generator";
 import fs from "fs";
 import path from "path";
@@ -15,23 +14,37 @@ import path from "path";
 
 export class PDFGenerationService {
   public async generateReportPDF(
-    data: EquityResearchData,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: any,
     status = "draft",
     metadata?: { reviewerName: string; sebiRegNo: string; approvedAt: Date },
   ): Promise<Buffer> {
-    // 1. Ask the AI to generate the full HTML report
-    console.log("[PDF] Generating AI HTML report...");
-    const html = await HtmlReportGenerator.generateHTML(data, {
-      status: status as "draft" | "published",
-      reviewerName: metadata?.reviewerName,
-      sebiRegNo: metadata?.sebiRegNo,
-      approvedAt: metadata?.approvedAt,
-    });
+    const isAutonomous = data?.sourceType === "autonomous" || Array.isArray(data?.sections);
+
+    // 1. Generate the full HTML report
+    console.log(`[PDF] Generating ${isAutonomous ? "Autonomous" : "Standard"} HTML report...`);
+    const html = isAutonomous
+      ? HtmlReportGenerator.generateAutonomousHTML(data, {
+          status: status as "draft" | "published",
+          reviewerName: metadata?.reviewerName,
+          sebiRegNo: metadata?.sebiRegNo,
+          approvedAt: metadata?.approvedAt,
+        })
+      : await HtmlReportGenerator.generateHTML(data, {
+          status: status as "draft" | "published",
+          reviewerName: metadata?.reviewerName,
+          sebiRegNo: metadata?.sebiRegNo,
+          approvedAt: metadata?.approvedAt,
+        });
 
     // Optional: cache the HTML alongside the PDF for debugging
     try {
       const ticker =
-        data.company.ticker ?? data.company.name.substring(0, 4).toUpperCase();
+        data?.ticker ??
+        data?.company?.ticker ??
+        data?.companyName?.substring(0, 4)?.toUpperCase() ??
+        data?.company?.name?.substring(0, 4)?.toUpperCase() ??
+        "REPORT";
       const htmlPath = path.join(
         process.cwd(),
         "public",

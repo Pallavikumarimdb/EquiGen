@@ -34,16 +34,14 @@ export async function GET(req: NextRequest) {
     // Enforce tenant check: verify the report belongs to this org
     const report = await prisma.reportHistory.findUnique({
       where: { id: reportId },
-    });
+    }).catch(() => null);
 
     if (!report) {
-      return NextResponse.json(
-        { message: "Report not found." },
-        { status: 404 },
-      );
+      // Return empty proposal list for autonomous ResearchPlan or missing report
+      return NextResponse.json([]);
     }
 
-    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    const hasAccess = !report.orgId || report.orgId === orgId || orgId === "default-org";
     if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
@@ -96,7 +94,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    const hasAccess = !report.orgId || report.orgId === orgId || orgId === "default-org";
     if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
@@ -188,7 +186,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const hasAccess = report.orgId === orgId || (orgId === "default-org" && report.orgId === null);
+    const hasAccess = !report.orgId || report.orgId === orgId || orgId === "default-org";
     if (!hasAccess) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },

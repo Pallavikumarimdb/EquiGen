@@ -46,6 +46,7 @@ next-env.d.ts
 
 # local generated assets
 /public/temp/
+/scratch/
 
 # Tesseract OCR language data (large binary files — download separately, see README)
 *.traineddata

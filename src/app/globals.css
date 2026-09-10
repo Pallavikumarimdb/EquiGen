@@ -3,21 +3,90 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222.2 47.4% 11.2%;
-  --border: 214.3 31.8% 91.4%;
-  --primary: 204 79% 21%;
-  --secondary: 202 59% 48%;
-  --accent: 48 83% 46%;
+  --bg-canvas: #F6F4EE;
+  --bg-sidebar: #EFECE6;
+  --border-sidebar: #E2DFD6;
+  --bg-card: #FFFFFF;
+  --border-card: #E3DFD5;
+  --text-main: #1A1917;
+  --text-muted: #59554A;
+  --text-label: #9C978B;
+  --accent-black: #1A1917;
+  --dark-notch-bg: #121110;
+  --dark-notch-border: #262420;
 }
 
 body {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--bg-canvas);
+  color: var(--text-main);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   min-height: 100vh;
 }
 
+/* Custom scrollbars for clean warm theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8D4C9;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B8B3A6;
+}
+
 @layer utilities {
+  .bg-heard-canvas {
+    background-color: #F6F4EE;
+  }
+  .bg-heard-sidebar {
+    background-color: #EFECE6;
+  }
+  .border-heard-sidebar {
+    border-color: #E2DFD6;
+  }
+  .bg-heard-card {
+    background-color: #FFFFFF;
+  }
+  .border-heard-card {
+    border-color: #E3DFD5;
+  }
+  .text-heard-main {
+    color: #1A1917;
+  }
+  .text-heard-muted {
+    color: #59554A;
+  }
+  .text-heard-label {
+    color: #9C978B;
+  }
+
+  .badge-working {
+    background-color: #E6F4EA;
+    color: #137333;
+    border: 1px solid #CEEAD6;
+  }
+  .badge-ready {
+    background-color: #E8F0FE;
+    color: #1A73E8;
+    border: 1px solid #D2E3FC;
+  }
+  .badge-needs-you {
+    background-color: #FEF7E0;
+    color: #B06000;
+    border: 1px solid #FDE293;
+  }
+
+  .dark-notch-container {
+    background-color: #121110;
+    border: 1px solid #262420;
+    color: #FFFFFF;
+  }
+
   .animate-fadeIn {
     animation: fadeIn 0.4s ease-out forwards;
   }

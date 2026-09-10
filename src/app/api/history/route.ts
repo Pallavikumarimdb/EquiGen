@@ -20,17 +20,23 @@ export async function GET(req: NextRequest) {
     }
 
     const session = getAuthSession(req);
+    const userId = session?.userId;
     const orgId = session?.orgId || "default-org";
 
+    const whereClause = orgId
+      ? {
+          OR: [
+            { orgId },
+            ...(userId && userId !== "system-test-user" ? [{ createdById: userId }] : []),
+            ...(orgId === "default-org" ? [{ orgId: null }, { orgId: "default-org" }] : []),
+          ],
+        }
+      : userId
+      ? { createdById: userId }
+      : {};
+
     const reports = await prisma.reportHistory.findMany({
-      where: orgId === "default-org"
-        ? {
-            OR: [
-              { orgId: "default-org" },
-              { orgId: null },
-            ],
-          }
-        : { orgId },
+      where: whereClause,
       orderBy: { createdAt: "desc" },
       take: 100,
       select: {
