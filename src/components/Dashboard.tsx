@@ -130,8 +130,8 @@ export default function Dashboard() {
   const [reportData, setReportData] = useState<EquityResearchData | null>(DEFAULT_SAMPLE_REPORT);
   const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
   const [activeReportStatus, setActiveReportStatus] = useState<string>("draft");
-  const [reviewerName, setReviewerName] = useState<string>("Pallavi Kumari");
-  const [sebiRegNo, setSebiRegNo] = useState<string>("INH000012345");
+  const [reviewerName, setReviewerName] = useState<string>("");
+  const [sebiRegNo, setSebiRegNo] = useState<string>("");
   const [approvedAt, setApprovedAt] = useState<string | null>(null);
 
   // Status & Notifications
@@ -278,8 +278,8 @@ export default function Dashboard() {
     setReportData(item.reportData);
     setReportPdfBase64(item.reportPdfBase64);
     setActiveReportStatus(item.status || "draft");
-    setReviewerName(item.reviewerName || user?.name || "Pallavi Kumari");
-    setSebiRegNo(item.sebiRegNo || user?.sebiRegNo || "INH000012345");
+    setReviewerName(item.reviewerName || user?.name || "");
+    setSebiRegNo(item.sebiRegNo || user?.sebiRegNo || "");
     setApprovedAt(item.approvedAt || null);
 
     // If selecting an autonomous research report, make sure workspace is ready

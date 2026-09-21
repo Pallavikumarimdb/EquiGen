@@ -87,7 +87,7 @@ export default function UserSettingsPage() {
         if (data.user) {
           setUser(data.user);
           setUserName(data.user.name || "");
-          setUserSebi(data.user.sebiRegNo || "INH000012345");
+          setUserSebi(data.user.sebiRegNo || "");
         }
       }
     } catch {
@@ -97,8 +97,8 @@ export default function UserSettingsPage() {
         name: "Pallavi Kumari",
         email: "pallavi@equigen.ai",
         role: "analyst",
-        sebiRegNo: "INH000012345",
-        orgName: "Pallavi's org",
+        sebiRegNo: "",
+        orgName: "",
       };
       setUser(demoUser);
       setUserName(demoUser.name);
@@ -501,7 +501,7 @@ export default function UserSettingsPage() {
                     type="text"
                     value={userSebi}
                     onChange={(e) => setUserSebi(e.target.value)}
-                    placeholder="INH000012345"
+                    placeholder="Enter valid SEBI Registration Number"
                     className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
                   />
                   <span className="text-[10px] text-slate-500 mt-1 block">

@@ -241,18 +241,18 @@ export function HeaderNav({
                     {initials}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-bold text-[#1A1917] truncate">
-                      {user?.name || "Pallavi Kumari"}
+                    <div className="text-xs font-semibold text-[#1A1917] truncate">
+                      {user?.name || "Analyst Profile"}
                     </div>
                     <div className="text-[11px] text-[#7A7569] truncate">
-                      {user?.email || "pallavi@equigen.ai"}
+                      {user?.email || ""}
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
                         {user?.role || "analyst"}
                       </span>
                       <span className="text-[10px] font-mono text-[#7A7569] font-medium truncate">
-                        {user?.sebiRegNo ? `SEBI: ${user.sebiRegNo}` : "SEBI: INH000012345"}
+                        {user?.sebiRegNo ? `SEBI: ${user.sebiRegNo}` : "SEBI: Unregistered"}
                       </span>
                     </div>
                   </div>

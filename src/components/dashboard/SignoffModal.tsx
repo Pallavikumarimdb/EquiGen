@@ -134,7 +134,7 @@ export function SignoffModal({
             <input
               type="text"
               required
-              placeholder="e.g. INH000012345"
+              placeholder="e.g. INH200000123"
               value={sebiRegNo}
               onChange={(e) => setSebiRegNo(e.target.value)}
               className="w-full bg-[#1F1D19] border border-[#2E2B24] rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500 uppercase"

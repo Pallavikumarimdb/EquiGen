@@ -571,8 +571,10 @@ export function AgentChatView({
             }`}
           >
             {/* Message Stream */}
-            <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5 select-text">
-              <div className="max-w-2xl mx-auto space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 select-text">
+              <div className={`${
+                activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
+              } mx-auto space-y-5`}>
                 {/* Welcome Screen Cards if only welcome message exists */}
                 {messages.length === 1 && (
                   <div className="text-center py-4 space-y-3 animate-fadeIn">
@@ -589,7 +591,11 @@ export function AgentChatView({
                     </div>
 
                     {/* Quick Starter Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left pt-1 select-none">
+                    <div className={`grid gap-2 text-left pt-1 select-none ${
+                      activeStudioTab === "chat"
+                        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                        : "grid-cols-1 sm:grid-cols-2"
+                    }`}>
                       {starterPrompts.map((card, idx) => (
                         <div
                           key={idx}
@@ -713,8 +719,10 @@ export function AgentChatView({
             </div>
 
             {/* Bottom Composer */}
-            <div className="p-3 border-t border-[#E3DFD5] bg-[#FFFFFF] shrink-0">
-              <div className="max-w-2xl mx-auto space-y-1.5">
+            <div className="p-4 border-t border-[#E3DFD5] bg-[#FFFFFF] shrink-0">
+              <div className={`${
+                activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
+              } mx-auto space-y-1.5`}>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();

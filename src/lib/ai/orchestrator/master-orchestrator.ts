@@ -123,6 +123,10 @@ export class MasterOrchestrator {
     }).catch(() => {});
 
     // 3. Iterate through milestones
+    let finalAnalystName: string | undefined = undefined;
+    let finalSebiRegNo: string | undefined = undefined;
+    let finalOrgName: string | undefined = undefined;
+
     for (let i = 0; i < milestones.length; i++) {
       const milestone = milestones[i];
       const milestoneRunId = `run_${milestone.id}_${Date.now()}`;
@@ -330,11 +334,35 @@ export class MasterOrchestrator {
           completedMilestones.push(milestone.id);
 
         } else if (milestone.type === "compliance_audit") {
-          // Use the actual analyst/org SEBI registration from the session if available
+          // Use the actual analyst/org SEBI registration from the session user record
           const sessionData = await prisma.researchSession.findFirst({
             where: { researchPlans: { some: { id: planId } } },
             select: { createdBy: true },
           }).catch(() => null);
+
+          let resolvedAnalystName: string | undefined = undefined;
+          let resolvedSebiRegNo: string | undefined = undefined;
+          let resolvedOrgName: string | undefined = undefined;
+
+          if (sessionData?.createdBy) {
+            try {
+              const sessionUser = await prisma.user.findUnique({
+                where: { id: sessionData.createdBy },
+                include: { org: true },
+              });
+              if (sessionUser) {
+                resolvedAnalystName = sessionUser.name?.trim() || sessionUser.email?.trim() || undefined;
+                resolvedSebiRegNo = sessionUser.sebiRegNo?.trim() || undefined;
+                resolvedOrgName = sessionUser.org?.name?.trim() || undefined;
+              }
+            } catch {
+              // fallback
+            }
+          }
+
+          finalAnalystName = resolvedAnalystName;
+          finalSebiRegNo = resolvedSebiRegNo;
+          finalOrgName = resolvedOrgName;
 
           const compResult = await complianceAgent.run({
             planId,
@@ -342,9 +370,9 @@ export class MasterOrchestrator {
             companyName,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             sections: (synthesisOutput as any)?.sections ?? [],
-            analystName: sessionData?.createdBy ?? "Certified Analyst",
-            // SEBI reg no must be provided by the org — not hardcoded
-            sebiRegNo: undefined,
+            analystName: resolvedAnalystName,
+            sebiRegNo: resolvedSebiRegNo,
+            orgName: resolvedOrgName,
           });
           complianceOutput = compResult;
           completedMilestones.push(milestone.id);
@@ -420,6 +448,8 @@ export class MasterOrchestrator {
           id: reportId,
           orgId: activeOrgId,
           createdById: activeCreatedById,
+          reviewerName: finalAnalystName,
+          sebiRegNo: finalSebiRegNo,
           companyName: companyName || ticker,
           fileName: "Autonomous Research",
           status: "published",
@@ -428,6 +458,8 @@ export class MasterOrchestrator {
         },
         update: {
           orgId: activeOrgId,
+          reviewerName: finalAnalystName,
+          sebiRegNo: finalSebiRegNo,
           status: "published",
           reportData: reportPayload,
         },

@@ -216,22 +216,35 @@ ${sectionsText.slice(0, 8000)}
    * Generates standard SEBI statutory disclaimers footer text
    */
   public static generateSebiDisclaimers(
-    analystName: string = "Certified Analyst",
-    sebiRegNo: string = "INH000012345",
-    orgName: string = "EquiGen Research"
+    analystName?: string,
+    sebiRegNo?: string,
+    orgName?: string
   ): string {
+    const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+    const cleanAnalyst = isUuid(analystName) ? "" : (analystName?.trim() || "");
+    const cleanOrg = isUuid(orgName) ? "" : (orgName?.trim() || "");
+    const cleanSebi = sebiRegNo?.trim() || "";
+
+    const sebiLine = cleanSebi ? `**SEBI Registration No:** ${cleanSebi}` : `**SEBI Registration:** Not Provided / Pending`;
+    const analystLine = cleanAnalyst ? `**Research Analyst:** ${cleanAnalyst}` : `**Research Analyst:** Unassigned`;
+    const orgLine = cleanOrg ? `\n**Organization:** ${cleanOrg}  ` : "";
+    const certStatement = cleanAnalyst
+      ? `I, ${cleanAnalyst}, hereby certify that all of the views expressed in this research report accurately reflect my personal views about the subject company or companies and its or their securities.`
+      : `The research analyst hereby certifies that all of the views expressed in this research report accurately reflect personal views about the subject company or companies and its or their securities.`;
+
+    const orgEntityText = cleanOrg || "the research entity";
+
     return `
 ---
 ### SEBI Statutory Disclosures & Compliance Disclaimers
 
-**Research Analyst:** ${analystName} | **SEBI Registration No:** ${sebiRegNo}  
-**Organization:** ${orgName}  
+${analystLine} | ${sebiLine}  ${orgLine}
 
 **Analyst Certification:**  
-I, ${analystName}, hereby certify that all of the views expressed in this research report accurately reflect my personal views about the subject company or companies and its or their securities.
+${certStatement}
 
 **Disclosures & Conflict of Interest:**  
-• Neither the Analyst nor ${orgName} has any financial interest or actual/beneficial ownership of 1% or more in the subject company at the end of the month preceding publication.  
+• Neither the Analyst nor ${orgEntityText} has any financial interest or actual/beneficial ownership of 1% or more in the subject company at the end of the month preceding publication.  
 • The Analyst has not received any compensation from the subject company in the past 12 months for investment banking or brokerage services.  
 
 **Statutory Disclaimer:**  

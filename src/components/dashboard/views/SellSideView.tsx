@@ -98,7 +98,7 @@ export function SellSideView({
             </div>
             <p className="text-[11px] mt-0.5 text-[#59554A]">
               {isApproved
-                ? `Audited & Certified by ${reviewerName || "Registered Analyst"} (SEBI: ${sebiRegNo || "INH000012345"}) on ${
+                ? `Audited & Certified by ${reviewerName || "Research Analyst"}${sebiRegNo ? ` (SEBI: ${sebiRegNo})` : ""} on ${
                     approvedAt ? new Date(approvedAt).toLocaleString() : new Date().toLocaleDateString()
                   }`
                 : "Requires certified Research Analyst sign-off under SEBI (Research Analysts) Regulations, 2014 before publication."}
