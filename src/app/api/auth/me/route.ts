@@ -42,6 +42,27 @@ export async function GET(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("Auth me API error:", error);
+    try {
+      const session = getAuthSession(req);
+      if (session?.userId) {
+        return NextResponse.json({
+          user: {
+            id: session.userId,
+            name: session.name || "Research Analyst",
+            email: "",
+            role: session.role || "RESEARCH_ANALYST",
+            sebiRegNo: session.sebiRegNo || "",
+            orgId: session.orgId || "default-org",
+            orgName: "EquiGen Research",
+            orgLogoUrl: null,
+            orgPrimaryColor: "#1A1917",
+            orgAccentColor: "#D97706",
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
     return NextResponse.json(
       { message: "Internal server error." },
       { status: 500 }

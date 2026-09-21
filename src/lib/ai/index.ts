@@ -5,3 +5,4 @@ export { langchainAIService };
 export * from "./schema";
 
 export * from "./langchain-service";
+export * from "./central-client";
