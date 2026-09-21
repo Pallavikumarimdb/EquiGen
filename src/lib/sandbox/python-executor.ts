@@ -108,18 +108,28 @@ export class PythonExecutor {
     inputs?: Record<string, unknown>
   ): { stdout: string; data?: Record<string, unknown>; exitCode: number } {
     try {
-      // Standard financial model parameters extracted from code or inputs
-      const revenue = Number(inputs?.revenue ?? 10000);
-      const ebitdaMargin = Number(inputs?.ebitdaMargin ?? 0.22);
-      const wacc = Number(inputs?.wacc ?? 0.11);
-      const terminalGrowth = Number(inputs?.terminalGrowth ?? 0.04);
-      const projectionYears = Number(inputs?.projectionYears ?? 5);
+      // Extract all parameters from inputs — all must come from ModelingAgent's derived params
+      const revenue          = Number(inputs?.revenue ?? 10000);
+      const ebitdaMargin     = Number(inputs?.ebitdaMargin ?? 0.18);
+      const wacc             = Number(inputs?.wacc ?? 0.115);
+      const terminalGrowth   = Number(inputs?.terminalGrowth ?? 0.04);
+      const projectionYears  = Number(inputs?.projectionYears ?? 5);
+      const revenueGrowthRate = Number(inputs?.revenueGrowth ?? 0.12);
+      const taxRate          = Number(inputs?.taxRate ?? 0.25);
+      const capexAsPercentRevenue = Number(inputs?.capexPct ?? 0.05);
+      const netDebt          = Number(inputs?.netDebt ?? 0);
+      const sharesOutstandingCr = Number(inputs?.sharesCr ?? 50);
 
       const dcfResult = computeDCFValuation({
         baseRevenue: revenue,
+        revenueGrowthRate,
         ebitdaMargin,
         wacc,
+        taxRate,
+        capexAsPercentRevenue,
         terminalGrowth,
+        netDebt,
+        sharesOutstandingCr,
         projectionYears,
       });
 
@@ -184,16 +194,20 @@ export interface DCFCalculationParams {
 export function computeDCFValuation(params: DCFCalculationParams) {
   const {
     baseRevenue,
-    revenueGrowthRate = 0.14,
-    ebitdaMargin = 0.22,
+    revenueGrowthRate = 0.12,
+    ebitdaMargin = 0.18,
     taxRate = 0.25,
     capexAsPercentRevenue = 0.05,
-    wacc = 0.11,
+    wacc = 0.115,
     terminalGrowth = 0.04,
     projectionYears = 5,
-    netDebt = 1200,
-    sharesOutstandingCr = 100,
+    netDebt = 0,
+    sharesOutstandingCr = 50,
   } = params;
+
+  // Dynamic fiscal year base: Indian FY runs Apr–Mar
+  const now = new Date();
+  const baseFY = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
 
   const projections = [];
   let currentRev = baseRevenue;
@@ -212,7 +226,7 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     pvTotalFcff += pvFcff;
 
     projections.push({
-      year: `FY${24 + yr}`,
+      year: `FY${baseFY + yr}`,
       revenue: Math.round(currentRev),
       ebitda: Math.round(ebitda),
       ebit: Math.round(ebit),

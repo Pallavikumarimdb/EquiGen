@@ -73,6 +73,18 @@ export class ComplianceAgent {
     if (isUuid(resolvedAnalyst)) resolvedAnalyst = "";
     if (isUuid(resolvedOrg)) resolvedOrg = "";
 
+    // Ensure SEBI disclosure fields are never empty strings — Reg 18 requires
+    // the analyst name to be stated; if genuinely missing, use explicit labels.
+    if (!resolvedAnalyst || resolvedAnalyst.trim() === "") {
+      resolvedAnalyst = "Analyst Name Pending Registration";
+    }
+    if (!resolvedSebiReg || resolvedSebiReg.trim() === "") {
+      resolvedSebiReg = "Registration Pending — SEBI INH Format Required";
+    }
+    if (!resolvedOrg || resolvedOrg.trim() === "") {
+      resolvedOrg = "Organisation Pending";
+    }
+
     // 2. Perform SEBI Compliance Audit (Async semantic evaluation)
     const auditResult = await SebiComplianceTool.auditReportAsync(
       fullText,

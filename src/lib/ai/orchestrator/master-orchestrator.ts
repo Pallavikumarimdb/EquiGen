@@ -298,6 +298,8 @@ export class MasterOrchestrator {
           const creditRatingResult = marketOut?.creditRatings;
           const newsDigest = marketOut?.newsDigest;
           const screenerPrimaryProfile = marketOut?.peerProfiles?.[0];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const yahooFin = marketOut?.yahooFinancials as any;
 
           const synthResult = await synthesisAgent.run({
             planId,
@@ -323,10 +325,18 @@ export class MasterOrchestrator {
                 isLiveData: n.isLiveData,
               })) ?? [],
               newsIsLive: newsDigest?.isLiveData ?? false,
-              screenerIsLive: screenerPrimaryProfile?.isLiveData ?? false,
-              peRatio: screenerPrimaryProfile?.peRatio ?? undefined,
-              marketCapCr: screenerPrimaryProfile?.marketCapCr ?? undefined,
+              // Prefer Yahoo Finance data (live, structured) over Screener (often null)
+              screenerIsLive: yahooFin?.isLiveData ?? screenerPrimaryProfile?.isLiveData ?? false,
+              peRatio:              yahooFin?.trailingPE   ?? screenerPrimaryProfile?.peRatio ?? undefined,
+              marketCapCr:          yahooFin?.marketCapCr  ?? screenerPrimaryProfile?.marketCapCr ?? undefined,
               promoterShareholding: screenerPrimaryProfile?.shareholding?.promoters ?? undefined,
+              // Additional Yahoo Finance fields passed to synthesis prompts
+              evEbitda:     yahooFin?.evEbitda     ?? undefined,
+              beta:         yahooFin?.beta         ?? undefined,
+              dividendYield: yahooFin?.dividendYield ?? undefined,
+              currentPrice: yahooFin?.currentPrice ?? undefined,
+              forwardPE:    yahooFin?.forwardPE    ?? undefined,
+              ebitdaMargin: yahooFin?.ebitdaMargin ?? undefined,
             },
             concallTranscripts: docOut?.concallTranscripts ?? [],
           }, apiKey);
