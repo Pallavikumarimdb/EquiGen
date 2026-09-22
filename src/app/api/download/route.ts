@@ -42,6 +42,9 @@ export async function GET(req: NextRequest) {
       status: string;
       reportData: unknown;
       pdfBase64: string | null;
+      reviewerName?: string | null;
+      sebiRegNo?: string | null;
+      approvedAt?: Date | null;
     } | null = null;
     try {
       report = await prisma.reportHistory.findFirst({
@@ -59,6 +62,9 @@ export async function GET(req: NextRequest) {
           status: true,
           reportData: true,
           pdfBase64: true,
+          reviewerName: true,
+          sebiRegNo: true,
+          approvedAt: true,
         },
       });
     } catch {
@@ -148,11 +154,19 @@ export async function GET(req: NextRequest) {
       }
 
       if (report.reportData) {
+        const isUuid = (str?: string | null) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+        const cleanReviewer = report.reviewerName && !isUuid(report.reviewerName) ? report.reviewerName : "Research Analyst";
+
         const reportBuffer = await pdfGenerationService.generateReportPDF(
           report.reportData as unknown as Parameters<
             typeof pdfGenerationService.generateReportPDF
           >[0],
           report.status || "draft",
+          {
+            reviewerName: cleanReviewer,
+            sebiRegNo: report.sebiRegNo || "",
+            approvedAt: report.approvedAt || new Date(),
+          },
         );
 
         await prisma.reportHistory.update({
@@ -202,11 +216,19 @@ export async function GET(req: NextRequest) {
 
     // 5. Final fallback: compile on-demand
     if (report.reportData) {
+      const isUuid = (str?: string | null) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+      const cleanReviewer = report.reviewerName && !isUuid(report.reviewerName) ? report.reviewerName : "Research Analyst";
+
       const reportBuffer = await pdfGenerationService.generateReportPDF(
         report.reportData as unknown as Parameters<
           typeof pdfGenerationService.generateReportPDF
         >[0],
         report.status || "draft",
+        {
+          reviewerName: cleanReviewer,
+          sebiRegNo: report.sebiRegNo || "",
+          approvedAt: report.approvedAt || new Date(),
+        },
       );
 
       await prisma.reportHistory.update({

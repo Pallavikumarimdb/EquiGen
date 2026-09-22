@@ -21,8 +21,10 @@ if (globalForPrisma.pgPool) {
   pool = new Pool({
     connectionString: databaseUrl,
     max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 60000,
+    connectionTimeoutMillis: 45000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
   });
   pool.setMaxListeners(50);
   pool.on("error", (err) => {

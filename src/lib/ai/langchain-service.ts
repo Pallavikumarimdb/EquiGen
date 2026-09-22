@@ -6,9 +6,72 @@ import { AIExtractionResult } from "./schema";
 import { runOrResumeResearchPipeline } from "./langgraph-pipeline";
 
 export interface AIServiceOptions {
-  provider: "groq" | "openai";
+  provider: "groq" | "openai" | "openrouter";
   modelName?: string;
   apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+/**
+ * Central factory to instantiate LangChain chat models for Groq, OpenAI, and OpenRouter.
+ * Automatically injects user BYOK (Bring-Your-Own-Key) credentials or falls back to system env keys.
+ */
+export function createLangChainChatModel(options: AIServiceOptions): BaseChatModel {
+  const provider = options.provider || "groq";
+  const apiKey =
+    options.apiKey ||
+    (provider === "groq"
+      ? process.env.GROQ_API_KEY
+      : provider === "openrouter"
+        ? process.env.OPENROUTER_API_KEY
+        : process.env.OPENAI_API_KEY);
+
+  if (!apiKey) {
+    throw new Error(`API key for provider "${provider}" is not configured.`);
+  }
+
+  const temperature = options.temperature ?? 0.1;
+  const maxTokens = options.maxTokens ?? 4096;
+
+  switch (provider) {
+    case "groq":
+      return new ChatGroq({
+        apiKey,
+        model: options.modelName || "openai/gpt-oss-120b",
+        temperature,
+        maxTokens,
+        maxRetries: 3,
+      });
+
+    case "openrouter":
+      return new ChatOpenAI({
+        apiKey,
+        configuration: {
+          baseURL: "https://openrouter.ai/api/v1",
+          defaultHeaders: {
+            "HTTP-Referer": "https://equigen.ai",
+            "X-Title": "EquiGen",
+          },
+        },
+        model: options.modelName || "meta-llama/llama-3.3-70b-instruct",
+        temperature,
+        maxTokens,
+        maxRetries: 3,
+      });
+
+    case "openai":
+      return new ChatOpenAI({
+        apiKey,
+        model: options.modelName || "gpt-4o-mini",
+        temperature,
+        maxTokens,
+        maxRetries: 3,
+      });
+
+    default:
+      throw new Error(`Unsupported AI model provider: ${provider}`);
+  }
 }
 
 /**
@@ -34,34 +97,8 @@ export class LangChainAIService {
   /**
    * Instantiates the correct LangChain model wrapper based on the selected provider.
    */
-  private getModel(options: AIServiceOptions): BaseChatModel {
-    const provider = options.provider;
-    const apiKey =
-      options.apiKey ||
-      (provider === "groq"
-        ? process.env.GROQ_API_KEY
-        : process.env.OPENAI_API_KEY);
-
-    if (!apiKey) {
-      throw new Error(`API key for provider "${provider}" is not configured.`);
-    }
-
-    switch (provider) {
-      case "groq":
-        return new ChatGroq({
-          apiKey,
-          model: options.modelName || "openai/gpt-oss-120b",
-          temperature: 0.1,
-        });
-      case "openai":
-        return new ChatOpenAI({
-          apiKey,
-          model: options.modelName || "gpt-4o-mini",
-          temperature: 0.1,
-        });
-      default:
-        throw new Error(`Unsupported AI model provider: ${provider}`);
-    }
+  public getModel(options: AIServiceOptions): BaseChatModel {
+    return createLangChainChatModel(options);
   }
 
   /**

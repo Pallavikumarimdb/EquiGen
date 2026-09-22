@@ -1104,11 +1104,14 @@ function buildHtml(
 
   const watermark = isDraft ? `<div class="watermark">DRAFT</div>` : "";
 
+  const isUuid = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+  const cleanReviewer = options.reviewerName && !isUuid(options.reviewerName) ? options.reviewerName : "Research Analyst";
+
   const publishedBlock =
-    !isDraft && options.reviewerName
+    !isDraft && cleanReviewer
       ? `
   <div class="published-block">
-    <strong>Reviewed & Approved by:</strong> ${escape(options.reviewerName)}<br>
+    <strong>Reviewed & Approved by:</strong> ${escape(cleanReviewer)}<br>
     <strong>SEBI RA Reg No:</strong> ${escape(options.sebiRegNo ?? "")}<br>
     <strong>Approved On:</strong> ${options.approvedAt ? new Date(options.approvedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : ""}
   </div>`
@@ -1715,7 +1718,7 @@ ${watermark}
 
   <div class="disclaimer">
     <strong>DISCLAIMER &amp; DISCLOSURES</strong><br><br>
-    <strong>1. Certification:</strong> I, ${escape(options.reviewerName || "Research Analyst")}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(options.orgName || "EquiGen Investments Limited")}.<br>
+    <strong>1. Certification:</strong> I, ${escape(cleanReviewer)}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(options.orgName || "EquiGen Investments Limited")}.<br>
     <strong>2. Independence:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither the firm, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
     <strong>3. Compensation &amp; disclosures:</strong> ${escape(options.orgName || "EquiGen Investments Limited")}, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
     <strong>4. Regulatory credentials:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} is a SEBI registered Research Entity${options.sebiRegNo ? ` (${escape(options.sebiRegNo)})` : ""} under SEBI (Research Analysts) Regulations, 2014. Standard Warning: &ldquo;Investment in securities market are subject to market risks. Read all the related documents carefully before investing.&rdquo;<br>
@@ -2349,6 +2352,17 @@ function buildAutonomousHtml(
   const risks = getSec("key_risks");
   const concall = getSec("management_qa_highlights");
   const disclosures = getSec("disclosures");
+
+  // SEBI COMPLIANCE & DISCLOSURES (Sanitize any legacy raw user UUIDs and dummy SEBI numbers)
+  const isUuid = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+  const fallbackAnalystName = options.reviewerName && !isUuid(options.reviewerName) ? options.reviewerName : "Research Analyst";
+  const rawDisclosures = disclosures?.content || "Standard statutory disclosures apply.";
+  const cleanDisclosuresContent = rawDisclosures
+    .replace(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+      fallbackAnalystName
+    )
+    .replace(/INH000012345/g, options.sebiRegNo || "Pending Registration");
 
   // Extract real structured metrics from modeling data & text
   const m = extractAutonomousFinancials(data);
@@ -3070,7 +3084,7 @@ function buildAutonomousHtml(
     </div>
     <div class="header-right">
       <div>${compName} (${ticker})</div>
-      <div>SEBI RA Reg: ${options.sebiRegNo || "INH000012345"}</div>
+      <div>${options.sebiRegNo ? `SEBI RA Reg: ${options.sebiRegNo}` : "SEBI Registration: Pending / Unregistered"}</div>
     </div>
   </div>
 
@@ -3105,14 +3119,14 @@ function buildAutonomousHtml(
   <!-- SEBI COMPLIANCE & DISCLOSURES -->
   <div class="section-card">
     <h2 class="sec-heading">${SECTION_TITLE_MAP.disclosures}</h2>
-    ${renderCleanMarkdown(disclosures?.content || "Standard statutory disclosures apply.")}
+    ${renderCleanMarkdown(cleanDisclosuresContent)}
   </div>
 
   <!-- STATUTORY ATTESTATION BLOCK -->
   <div class="disclaimer-box">
     <strong>STATUTORY SEBI RA (2014) COMPLIANCE ATTESTATION:</strong><br>
     This institutional equity research note was generated via the EquiGen autonomous multi-agent equity research pipeline.
-    <strong>Analyst Certification:</strong> The research subagents and certifying analyst ${options.reviewerName ? `(${options.reviewerName}, Reg: ${options.sebiRegNo || "INH000012345"})` : `(SEBI Reg: ${options.sebiRegNo || "INH000012345"})`} confirm that all findings reflect structured synthesis of BSE/NSE corporate disclosures, audited statements, and quantitative valuation models.
+    <strong>Analyst Certification:</strong> The research subagents and certifying analyst (${fallbackAnalystName}${options.sebiRegNo ? `, Reg: ${options.sebiRegNo}` : ""}) confirm that all findings reflect structured synthesis of BSE/NSE corporate disclosures, audited statements, and quantitative valuation models.
     <strong>Conflict of Interest:</strong> EquiGen Investments Limited and its analysts hold no financial interest exceeding 1% in ${compName}.
     <strong>Standard Warning:</strong> Investments in securities market are subject to market risks. Read all related documents carefully before investing.
   </div>

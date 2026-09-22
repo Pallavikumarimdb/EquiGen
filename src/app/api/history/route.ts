@@ -57,11 +57,8 @@ export async function GET(req: NextRequest) {
     });
     return NextResponse.json(reports);
   } catch (error) {
-    console.error("Failed to fetch history:", error);
-    return NextResponse.json(
-      { message: "Failed to fetch history" },
-      { status: 500 },
-    );
+    console.error("Failed to fetch history (returning empty list fallback):", error);
+    return NextResponse.json([]);
   }
 }
 

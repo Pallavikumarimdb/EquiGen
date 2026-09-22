@@ -71,8 +71,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const reviewerName = body.reviewerName || session.name || "Pallavi Kumari";
-    const sebiRegNo = body.sebiRegNo || session.sebiRegNo || "INH000012345";
+    const reviewerName = body.reviewerName?.trim() || session.name?.trim() || "";
+    const sebiRegNo = body.sebiRegNo?.trim() || session.sebiRegNo?.trim() || "";
+
+    if (!reviewerName) {
+      return NextResponse.json(
+        { message: "A certifying Research Analyst name is required to sign off." },
+        { status: 400 },
+      );
+    }
 
     if (!sebiRegNo) {
       return NextResponse.json(

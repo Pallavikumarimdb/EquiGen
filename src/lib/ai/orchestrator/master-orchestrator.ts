@@ -123,6 +123,9 @@ export class MasterOrchestrator {
     }).catch(() => {});
 
     // 3. Iterate through milestones
+    let finalAnalystName: string | undefined = undefined;
+    let finalSebiRegNo: string | undefined = undefined;
+
     for (let i = 0; i < milestones.length; i++) {
       const milestone = milestones[i];
       const milestoneRunId = `run_${milestone.id}_${Date.now()}`;
@@ -294,6 +297,8 @@ export class MasterOrchestrator {
           const creditRatingResult = marketOut?.creditRatings;
           const newsDigest = marketOut?.newsDigest;
           const screenerPrimaryProfile = marketOut?.peerProfiles?.[0];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const yahooFin = marketOut?.yahooFinancials as any;
 
           const synthResult = await synthesisAgent.run({
             planId,
@@ -319,10 +324,18 @@ export class MasterOrchestrator {
                 isLiveData: n.isLiveData,
               })) ?? [],
               newsIsLive: newsDigest?.isLiveData ?? false,
-              screenerIsLive: screenerPrimaryProfile?.isLiveData ?? false,
-              peRatio: screenerPrimaryProfile?.peRatio ?? undefined,
-              marketCapCr: screenerPrimaryProfile?.marketCapCr ?? undefined,
+              // Prefer Yahoo Finance data (live, structured) over Screener (often null)
+              screenerIsLive: yahooFin?.isLiveData ?? screenerPrimaryProfile?.isLiveData ?? false,
+              peRatio:              yahooFin?.trailingPE   ?? screenerPrimaryProfile?.peRatio ?? undefined,
+              marketCapCr:          yahooFin?.marketCapCr  ?? screenerPrimaryProfile?.marketCapCr ?? undefined,
               promoterShareholding: screenerPrimaryProfile?.shareholding?.promoters ?? undefined,
+              // Additional Yahoo Finance fields passed to synthesis prompts
+              evEbitda:     yahooFin?.evEbitda     ?? undefined,
+              beta:         yahooFin?.beta         ?? undefined,
+              dividendYield: yahooFin?.dividendYield ?? undefined,
+              currentPrice: yahooFin?.currentPrice ?? undefined,
+              forwardPE:    yahooFin?.forwardPE    ?? undefined,
+              ebitdaMargin: yahooFin?.ebitdaMargin ?? undefined,
             },
             concallTranscripts: docOut?.concallTranscripts ?? [],
           }, apiKey);
@@ -330,11 +343,34 @@ export class MasterOrchestrator {
           completedMilestones.push(milestone.id);
 
         } else if (milestone.type === "compliance_audit") {
-          // Use the actual analyst/org SEBI registration from the session if available
+          // Use the actual analyst/org SEBI registration from the session user record
           const sessionData = await prisma.researchSession.findFirst({
             where: { researchPlans: { some: { id: planId } } },
             select: { createdBy: true },
           }).catch(() => null);
+
+          let resolvedAnalystName: string | undefined = undefined;
+          let resolvedSebiRegNo: string | undefined = undefined;
+          let resolvedOrgName: string | undefined = undefined;
+
+          if (sessionData?.createdBy) {
+            try {
+              const sessionUser = await prisma.user.findUnique({
+                where: { id: sessionData.createdBy },
+                include: { org: true },
+              });
+              if (sessionUser) {
+                resolvedAnalystName = sessionUser.name?.trim() || sessionUser.email?.trim() || undefined;
+                resolvedSebiRegNo = sessionUser.sebiRegNo?.trim() || undefined;
+                resolvedOrgName = sessionUser.org?.name?.trim() || undefined;
+              }
+            } catch {
+              // fallback
+            }
+          }
+
+          finalAnalystName = resolvedAnalystName;
+          finalSebiRegNo = resolvedSebiRegNo;
 
           const compResult = await complianceAgent.run({
             planId,
@@ -342,9 +378,9 @@ export class MasterOrchestrator {
             companyName,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             sections: (synthesisOutput as any)?.sections ?? [],
-            analystName: sessionData?.createdBy ?? "Certified Analyst",
-            // SEBI reg no must be provided by the org — not hardcoded
-            sebiRegNo: undefined,
+            analystName: resolvedAnalystName,
+            sebiRegNo: resolvedSebiRegNo,
+            orgName: resolvedOrgName,
           });
           complianceOutput = compResult;
           completedMilestones.push(milestone.id);
@@ -420,6 +456,8 @@ export class MasterOrchestrator {
           id: reportId,
           orgId: activeOrgId,
           createdById: activeCreatedById,
+          reviewerName: finalAnalystName,
+          sebiRegNo: finalSebiRegNo,
           companyName: companyName || ticker,
           fileName: "Autonomous Research",
           status: "published",
@@ -428,6 +466,8 @@ export class MasterOrchestrator {
         },
         update: {
           orgId: activeOrgId,
+          reviewerName: finalAnalystName,
+          sebiRegNo: finalSebiRegNo,
           status: "published",
           reportData: reportPayload,
         },

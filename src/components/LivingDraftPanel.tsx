@@ -74,8 +74,8 @@ export function LivingDraftPanel({
   const [isSigning, setIsSigning] = useState(false);
 
   // Signoff Form inputs
-  const [reviewerNameInput, setReviewerNameInput] = useState("Pallavi Kumari");
-  const [sebiRegInput, setSebiRegInput] = useState("INH000012345");
+  const [reviewerNameInput, setReviewerNameInput] = useState("");
+  const [sebiRegInput, setSebiRegInput] = useState("");
   const [attestationChecked, setAttestationChecked] = useState(false);
 
   // Load existing sign-off state from localStorage
@@ -585,7 +585,7 @@ export function LivingDraftPanel({
                     type="text"
                     value={sebiRegInput}
                     onChange={(e) => setSebiRegInput(e.target.value)}
-                    placeholder="e.g. INH000012345"
+                    placeholder="Enter valid SEBI Reg No."
                     className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>

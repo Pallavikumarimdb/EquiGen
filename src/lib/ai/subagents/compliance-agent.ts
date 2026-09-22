@@ -47,11 +47,49 @@ export class ComplianceAgent {
     // Combine all sections text for audit
     const fullText = input.sections.map((s) => `${s.name}: ${s.content}`).join("\n\n");
 
+    // Resolve real analyst name if input is a UUID or undefined
+    let resolvedAnalyst = input.analystName;
+    let resolvedSebiReg = input.sebiRegNo;
+    let resolvedOrg = input.orgName;
+
+    const isUuid = (str?: string | null) =>
+      Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+    if (!resolvedAnalyst || isUuid(resolvedAnalyst)) {
+      try {
+        const user = isUuid(resolvedAnalyst)
+          ? await prisma.user.findUnique({ where: { id: resolvedAnalyst! }, include: { org: true } }).catch(() => null)
+          : null;
+        if (user) {
+          resolvedAnalyst = user.name || user.email || "";
+          if (!resolvedSebiReg && user.sebiRegNo) resolvedSebiReg = user.sebiRegNo;
+          if (!resolvedOrg && user.org?.name) resolvedOrg = user.org.name;
+        }
+      } catch {
+        // preserve existing
+      }
+    }
+
+    if (isUuid(resolvedAnalyst)) resolvedAnalyst = "";
+    if (isUuid(resolvedOrg)) resolvedOrg = "";
+
+    // Ensure SEBI disclosure fields are never empty strings — Reg 18 requires
+    // the analyst name to be stated; if genuinely missing, use explicit labels.
+    if (!resolvedAnalyst || resolvedAnalyst.trim() === "") {
+      resolvedAnalyst = "Analyst Name Pending Registration";
+    }
+    if (!resolvedSebiReg || resolvedSebiReg.trim() === "") {
+      resolvedSebiReg = "Registration Pending — SEBI INH Format Required";
+    }
+    if (!resolvedOrg || resolvedOrg.trim() === "") {
+      resolvedOrg = "Organisation Pending";
+    }
+
     // 2. Perform SEBI Compliance Audit (Async semantic evaluation)
     const auditResult = await SebiComplianceTool.auditReportAsync(
       fullText,
-      input.sebiRegNo ?? "INH000012345",
-      input.analystName ?? "Certified Analyst"
+      resolvedSebiReg,
+      resolvedAnalyst
     );
 
     // 3. Append statutory disclosures section if missing
@@ -62,9 +100,9 @@ export class ComplianceAgent {
 
     if (!hasDisclosuresSection) {
       const disclaimersText = SebiComplianceTool.generateSebiDisclaimers(
-        input.analystName ?? "Pallavi Kumari",
-        input.sebiRegNo ?? "INH000012345",
-        input.orgName ?? "Pallavi's org"
+        resolvedAnalyst,
+        resolvedSebiReg,
+        resolvedOrg
       );
 
       updatedSections.push({

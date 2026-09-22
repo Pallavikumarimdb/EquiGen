@@ -68,6 +68,13 @@ export default function UserSettingsPage() {
   });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (tabParam === "profile" || tabParam === "keys" || tabParam === "compliance") {
+        setActiveTab(tabParam);
+      }
+    }
     fetchUserData();
     fetchKeysStatus();
   }, []);
@@ -80,7 +87,7 @@ export default function UserSettingsPage() {
         if (data.user) {
           setUser(data.user);
           setUserName(data.user.name || "");
-          setUserSebi(data.user.sebiRegNo || "INH000012345");
+          setUserSebi(data.user.sebiRegNo || "");
         }
       }
     } catch {
@@ -90,8 +97,8 @@ export default function UserSettingsPage() {
         name: "Pallavi Kumari",
         email: "pallavi@equigen.ai",
         role: "analyst",
-        sebiRegNo: "INH000012345",
-        orgName: "Pallavi's org",
+        sebiRegNo: "",
+        orgName: "",
       };
       setUser(demoUser);
       setUserName(demoUser.name);
@@ -288,17 +295,15 @@ export default function UserSettingsPage() {
             );
           })}
 
-          {user?.role === "admin" && (
-            <div className="pt-4 mt-4 border-t border-white/[0.06]">
-              <Link
-                href="/settings/organization"
-                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all"
-              >
-                <Building2 className="w-4 h-4 text-slate-400" />
-                <span>Organization Settings</span>
-              </Link>
-            </div>
-          )}
+          <div className="pt-4 mt-4 border-t border-white/[0.06]">
+            <Link
+              href="/settings/organization"
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all"
+            >
+              <Building2 className="w-4 h-4 text-emerald-400" />
+              <span>Organization Settings</span>
+            </Link>
+          </div>
         </aside>
 
         {/* Right Settings Panel */}
@@ -496,7 +501,7 @@ export default function UserSettingsPage() {
                     type="text"
                     value={userSebi}
                     onChange={(e) => setUserSebi(e.target.value)}
-                    placeholder="INH000012345"
+                    placeholder="Enter valid SEBI Registration Number"
                     className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
                   />
                   <span className="text-[10px] text-slate-500 mt-1 block">

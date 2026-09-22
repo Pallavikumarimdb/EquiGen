@@ -50,11 +50,18 @@ export interface SynthesisInput {
     marketCapCr?: number;
     promoterShareholding?: number;
     creditRating?: string;
-    creditRatingIsLive?: boolean;    // false when no real rating found
+    creditRatingIsLive?: boolean;
     newsItems?: { title: string; sentiment: string; isLiveData?: boolean }[];
-    newsIsLive?: boolean;            // false when no real news fetched
+    newsIsLive?: boolean;
     benchmarkTableMarkdown?: string;
-    screenerIsLive?: boolean;        // false when Screener scrape failed
+    screenerIsLive?: boolean;
+    // Yahoo Finance direct fields
+    evEbitda?: number;
+    beta?: number;
+    dividendYield?: number;
+    currentPrice?: number;
+    forwardPE?: number;
+    ebitdaMargin?: number;
   };
   /** Concall transcripts from DocumentAgent — used for management Q&A section */
   concallTranscripts?: ConcallTranscriptResult[];
@@ -123,10 +130,21 @@ async function generateSectionWithLLM(
 function buildExecutiveSummaryPrompt(input: SynthesisInput): string {
   const m = input.modelingData;
   const mi = input.marketIntelData;
-  const valuation = m
-    ? `Base-case target price: ₹${Math.round(m.baseTargetPrice)}/share (Bull: ₹${Math.round(m.bullCasePrice)}, Bear: ₹${Math.round(m.bearCasePrice)}).
-       Model assumptions: ${JSON.stringify(m.assumptions)}.`
-    : "Financial model output: not yet available.";
+
+  const hasTargetPrice = m && m.baseTargetPrice > 0;
+  const valuation = hasTargetPrice
+    ? `Base-case target price: ₹${Math.round(m!.baseTargetPrice)}/share (Bull: ₹${Math.round(m!.bullCasePrice)}, Bear: ₹${Math.round(m!.bearCasePrice)}). Model assumptions: ${JSON.stringify(m!.assumptions)}.`
+    : "Target price: data pending (financial model used sector fallback — not included in report).";
+
+  const marketDataLines: string[] = [];
+  if (mi?.currentPrice)      marketDataLines.push(`Current market price: ₹${mi.currentPrice}/share`);
+  if (mi?.marketCapCr)       marketDataLines.push(`Market capitalisation: ₹${mi.marketCapCr.toLocaleString("en-IN")} Cr`);
+  if (mi?.peRatio)           marketDataLines.push(`Trailing P/E: ${mi.peRatio.toFixed(1)}x`);
+  if (mi?.forwardPE)         marketDataLines.push(`Forward P/E: ${mi.forwardPE.toFixed(1)}x`);
+  if (mi?.evEbitda)          marketDataLines.push(`EV/EBITDA: ${mi.evEbitda.toFixed(1)}x`);
+  if (mi?.ebitdaMargin)      marketDataLines.push(`EBITDA margin: ${(mi.ebitdaMargin * 100).toFixed(1)}%`);
+  if (mi?.beta)              marketDataLines.push(`Beta: ${mi.beta.toFixed(2)}`);
+  if (mi?.dividendYield)     marketDataLines.push(`Dividend yield: ${(mi.dividendYield * 100).toFixed(2)}%`);
 
   const creditRating = mi?.creditRating ?? "not available";
   const peerBenchmark = mi?.benchmarkTableMarkdown
@@ -137,14 +155,16 @@ function buildExecutiveSummaryPrompt(input: SynthesisInput): string {
 
 Available data:
 - ${valuation}
+- Live market data: ${marketDataLines.length > 0 ? marketDataLines.join("; ") : "not available"}
 - Credit profile: ${creditRating}
 - ${peerBenchmark}
 
 The executive summary must:
-1. State the investment rating and target price (if modeled).
+1. State the investment rating and target price (if modeled and available).
 2. Summarize the 3 most important investment thesis points supported by the data above.
 3. Mention the DCF methodology and key assumptions if valuation data is available.
-4. Be 150–200 words.`;
+4. Include current market price, market cap and P/E if provided.
+5. Be 180–250 words.`;
 }
 
 function buildBusinessDescriptionPrompt(input: SynthesisInput): string {

@@ -18,7 +18,7 @@
 
 import { prisma } from "@/lib/db";
 import { pythonExecutor, computeDCFValuation } from "@/lib/sandbox/python-executor";
-import { fetchScreenerProfile } from "@/lib/ai/tools/screener-scrape-tool";
+import { fetchYahooFinancials, toModelingInputRecord } from "@/lib/ai/tools/yahoo-financials-tool";
 import { BuildFinancialModelMilestone, ModelingOutput } from "@/types/plan4";
 
 export interface ModelingAgentInput {
@@ -100,8 +100,15 @@ export class ModelingAgent {
       timeoutMs: 45000,
       inputs: {
         ticker,
-        revenue: params.baseRevenue,
+        revenue:      params.baseRevenue,
         ebitdaMargin: params.ebitdaMargin,
+        revenueGrowth: params.revenueGrowth,
+        wacc:         params.wacc,
+        taxRate:      params.taxRate,
+        capexPct:     params.capexPct,
+        terminalGrowth: params.terminalGrowth,
+        netDebt:      params.netDebt,
+        sharesCr:     params.sharesCr,
         projectionYears,
       },
     });
@@ -110,13 +117,36 @@ export class ModelingAgent {
     let modelOutput: ModelingOutput;
 
     if (sandboxResult.data && typeof sandboxResult.data.baseTargetPrice === "number") {
+      // Python sandbox ran successfully — use its full output
       modelOutput = sandboxResult.data as unknown as ModelingOutput;
     } else {
+      // Python unavailable — use the TS financial engine with ALL derived parameters
+      console.log(`[ModelingAgent] Python sandbox unavailable — using TS DCF engine with derived params.`);
       const dcfRes = computeDCFValuation({
-        baseRevenue: params.baseRevenue,
+        baseRevenue:           params.baseRevenue,
+        revenueGrowthRate:     params.revenueGrowth,
+        ebitdaMargin:          params.ebitdaMargin,
+        wacc:                  params.wacc,
+        taxRate:               params.taxRate,
+        capexAsPercentRevenue: params.capexPct,
+        terminalGrowth:        params.terminalGrowth,
+        netDebt:               params.netDebt,
+        sharesOutstandingCr:   params.sharesCr,
         projectionYears,
       });
       modelOutput = dcfRes as unknown as ModelingOutput;
+    }
+
+    // If sector fallback was used, null out the target price so it is never
+    // presented as authoritative data — synthesis agent will handle the gap.
+    if (!dataQuality.isDerivedFromRealData) {
+      console.warn(`[ModelingAgent] ⚠️ Sector fallback active — suppressing target price from report output.`);
+      modelOutput = {
+        ...modelOutput,
+        baseTargetPrice: 0, // sentinel: 0 means "not available"
+        bullCasePrice: 0,
+        bearCasePrice: 0,
+      };
     }
 
     // Inject data quality metadata into model assumptions
@@ -195,78 +225,39 @@ export class ModelingAgent {
       }
     }
 
-    // === Path 2: Live Screener.in scrape ===
-    console.log(`[ModelingAgent] No extracted financials from DocumentAgent — attempting live Screener.in scrape for ${ticker}...`);
-    let screenerParams: ReturnType<typeof this.buildParamsFromFinancials> | null = null;
+    // === Path 2: Yahoo Finance quoteSummary (free, no API key needed) ===
+    console.log(`[ModelingAgent] No extracted financials from DocumentAgent — attempting Yahoo Finance quoteSummary for ${ticker}...`);
     let screenerLiveData = false;
 
     try {
-      const screenerProfile = await fetchScreenerProfile(ticker);
-      if (screenerProfile.isLiveData) {
-        const missingFields: string[] = [];
-
-        // Screener gives us market cap and price — derive revenue proxy from EV/Sales if available
-        // The historical series (if parsed) gives us financials
-        const historicalRevenue = screenerProfile.historicalSeries
-          .filter((s) => s.sales !== null)
-          .map((s) => s.sales as number);
-
-        const latestRevenue = historicalRevenue.length > 0
-          ? historicalRevenue[historicalRevenue.length - 1]
-          : null;
-
-        const roceDecimal = screenerProfile.rocePercent ? screenerProfile.rocePercent / 100 : null;
-        const _roeDecimal = screenerProfile.roePercent ? screenerProfile.roePercent / 100 : null;
-        const beta = screenerProfile.peRatio ? Math.max(0.5, Math.min(2.0, screenerProfile.peRatio / 20)) : 1.0;
-
-        if (!latestRevenue) missingFields.push("revenue (Screener historical series incomplete)");
-        if (!screenerProfile.rocePercent) missingFields.push("ROCE");
-        if (!screenerProfile.roePercent) missingFields.push("ROE");
-
-        const baseRevenue = latestRevenue ?? 10000;
-        const rf = 0.07; // India 10Y G-Sec
-        const erp = 0.055; // India ERP
-        const wacc = Math.min(0.18, Math.max(0.08, rf + beta * erp));
-        const ebitdaMargin = roceDecimal ? Math.min(0.40, Math.max(0.08, roceDecimal * 1.3)) : 0.18;
-
-        screenerParams = {
-          baseRevenue,
-          revenueGrowth: 0.12, // conservative default without P&L series
-          ebitdaMargin,
-          wacc,
-          taxRate: 0.25,
-          capexPct: 0.05,
-          terminalGrowth: 0.04,
-          netDebt: 0,
-          sharesCr: screenerProfile.marketCapCr && screenerProfile.currentPrice
-            ? Math.round(screenerProfile.marketCapCr / screenerProfile.currentPrice)
-            : 50,
-          isDerived: true,
-          beta,
-        };
+      const yf = await fetchYahooFinancials(ticker);
+      if (yf.isLiveData && yf.revenueCr !== null && yf.revenueCr > 0) {
+        const record = toModelingInputRecord(yf);
+        const params = this.buildParamsFromFinancials(record);
+        const missingFields = this.detectMissingFields(record);
         screenerLiveData = true;
 
-        console.log(`[ModelingAgent] ✓ Screener live data obtained for ${ticker}. Market Cap: ₹${screenerProfile.marketCapCr?.toLocaleString("en-IN") ?? "N/A"} Cr | P/E: ${screenerProfile.peRatio ?? "N/A"}`);
+        console.log(`[ModelingAgent] ✓ Yahoo Finance data obtained for ${ticker}.`);
 
         return {
-          params: screenerParams,
+          params,
           dataQuality: {
-            isDerivedFromRealData: latestRevenue !== null,
-            financialSource: "screener_live",
+            isDerivedFromRealData: true,
+            financialSource: "screener_live", // keep enum value compatible with downstream
             screenerLiveData: true,
-            baseRevenue,
-            revenueSource: latestRevenue
-              ? `Screener.in historical sales series (₹${latestRevenue.toLocaleString("en-IN")} Cr)`
-              : `Screener.in market cap proxy (revenue unavailable — ₹10,000 Cr sector fallback)`,
+            baseRevenue: params.baseRevenue,
+            revenueSource: `Yahoo Finance quoteSummary (₹${params.baseRevenue.toLocaleString("en-IN")} Cr TTM revenue)`,
             missingFields,
             disclaimer: missingFields.length > 0
-              ? `Some model inputs used sector-average fallback values. Missing: ${missingFields.join(", ")}. Verify figures against actual annual report.`
+              ? `Some model inputs could not be sourced from Yahoo Finance. Missing: ${missingFields.join(", ")}. Verify figures against latest annual report.`
               : null,
           },
         };
+      } else {
+        console.warn(`[ModelingAgent] Yahoo Finance returned no revenue for ${ticker} (isLiveData=${yf.isLiveData}, error=${yf.fetchError ?? "none"}).`);
       }
     } catch (err) {
-      console.warn(`[ModelingAgent] Screener scrape failed for ${ticker}:`, err instanceof Error ? err.message : String(err));
+      console.warn(`[ModelingAgent] Yahoo Finance fetch failed for ${ticker}:`, err instanceof Error ? err.message : String(err));
     }
 
     // === Path 3: Sector fallback constants (last resort) ===
@@ -365,6 +356,10 @@ export class ModelingAgent {
     projectionYears: number,
     params: ReturnType<typeof this.buildParamsFromFinancials>
   ): string {
+    // Compute current Indian fiscal year base (FY runs Apr–Mar)
+    const now = new Date();
+    const baseFY = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+
     return `
 # EquiGen Dynamic Valuation Engine (SEBI Compliant)
 # Company: ${ticker} | Model: ${modelType} | Projection Window: ${projectionYears} Years
@@ -387,6 +382,7 @@ def run_dcf_model(
     pv_sum = 0
     cur_rev = base_revenue
     projections = []
+    BASE_FY = ${baseFY}
 
     for yr in range(1, years + 1):
         cur_rev *= (1 + growth)
@@ -396,7 +392,7 @@ def run_dcf_model(
         pv = fcff / ((1 + wacc) ** yr)
         pv_sum += pv
         projections.append({
-            "year": f"FY{24+yr}",
+            "year": f"FY{BASE_FY + yr}",
             "revenue": round(cur_rev, 2),
             "ebitda": round(ebitda, 2),
             "fcff": round(fcff, 2)
