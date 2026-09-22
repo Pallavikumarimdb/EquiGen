@@ -120,6 +120,7 @@ export default function Dashboard() {
 
   // Active Research Data
   const [activeReportId, setActiveReportId] = useState<string | null>("rep_default_sample");
+  const [_activeSessionId, setActiveSessionId] = useState<string | null>("session-demo-001");
   const [companyName, setCompanyName] = useState<string>("Tata Motors Limited");
   const [reportData, setReportData] = useState<EquityResearchData | null>(DEFAULT_SAMPLE_REPORT);
   const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
@@ -129,6 +130,7 @@ export default function Dashboard() {
   const [approvedAt, setApprovedAt] = useState<string | null>(null);
 
   // Status & Notifications
+  const [_loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState<DashboardToast[]>([]);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
