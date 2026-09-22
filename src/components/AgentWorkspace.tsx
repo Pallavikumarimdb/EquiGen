@@ -149,13 +149,13 @@ export function AgentWorkspace({
           costEstimate: 0.05,
           latencyEstS: 4.2,
           milestones: [
-            { id: "m1", title: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
-            { id: "m2", title: "Extract Financial Statements", agentType: "modeling", status: "completed" },
-            { id: "m3", title: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
-            { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
-            { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
-            { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-          ] as MilestonePlan[],
+            { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
+            { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: "completed" },
+            { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
+            { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
+            { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
+            { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
+          ] as unknown as MilestonePlan[],
         };
         setActivePlan(fallbackPlan);
         setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
@@ -205,13 +205,13 @@ export function AgentWorkspace({
             costEstimate: 0.05,
             latencyEstS: 4.2,
             milestones: [
-              { id: "m1", title: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
-              { id: "m2", title: "Extract Financial Statements", agentType: "modeling", status: "completed" },
-              { id: "m3", title: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
-              { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
-              { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
-              { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-            ] as MilestonePlan[],
+              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
+              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: "completed" },
+              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
+              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
+              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
+              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
+            ] as unknown as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
@@ -236,13 +236,13 @@ export function AgentWorkspace({
             costEstimate: 0.05,
             latencyEstS: 4.2,
             milestones: [
-              { id: "m1", title: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
-              { id: "m2", title: "Extract Financial Statements", agentType: "modeling", status: "completed" },
-              { id: "m3", title: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
-              { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
-              { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
-              { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-            ] as MilestonePlan[],
+              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
+              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: "completed" },
+              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
+              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
+              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
+              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
+            ] as unknown as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
