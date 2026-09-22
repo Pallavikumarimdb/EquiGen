@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { HeaderNav } from "./dashboard/HeaderNav";
 import { CoverageSidebar } from "./dashboard/CoverageSidebar";
@@ -10,7 +10,6 @@ import { SignoffModal } from "./dashboard/SignoffModal";
 import { BuySideView } from "./dashboard/views/BuySideView";
 import { SellSideView } from "./dashboard/views/SellSideView";
 import { IndividualView } from "./dashboard/views/IndividualView";
-import { AgentWorkspace } from "./AgentWorkspace";
 import {
   PersonaType,
   DashboardHistoryItem,
@@ -21,13 +20,9 @@ import {
 import { EquityResearchData } from "@/types";
 import {
   Sparkles,
-  Bot,
-  FileText,
   Building2,
-  TrendingUp,
   AlertCircle,
   CheckCircle2,
-  Loader2,
   X,
 } from "lucide-react";
 
@@ -125,7 +120,6 @@ export default function Dashboard() {
 
   // Active Research Data
   const [activeReportId, setActiveReportId] = useState<string | null>("rep_default_sample");
-  const [activeSessionId, setActiveSessionId] = useState<string | null>("session-demo-001");
   const [companyName, setCompanyName] = useState<string>("Tata Motors Limited");
   const [reportData, setReportData] = useState<EquityResearchData | null>(DEFAULT_SAMPLE_REPORT);
   const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
@@ -135,7 +129,6 @@ export default function Dashboard() {
   const [approvedAt, setApprovedAt] = useState<string | null>(null);
 
   // Status & Notifications
-  const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState<DashboardToast[]>([]);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);

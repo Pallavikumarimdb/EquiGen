@@ -4,14 +4,9 @@ import React from "react";
 import {
   TrendingUp,
   TrendingDown,
-  Building2,
   Calendar,
   Download,
   FileSpreadsheet,
-  Share2,
-  CheckCircle2,
-  ShieldCheck,
-  AlertTriangle,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 
@@ -36,7 +31,6 @@ export function FinancialHero({
 }: FinancialHeroProps) {
   const meta = reportData?.company;
   const rec = reportData?.recommendation;
-  const compData = reportData?.companyData;
 
   const displayTicker = ticker || meta?.ticker || "TICKER";
   const displayRating = rec?.rating || "BUY";

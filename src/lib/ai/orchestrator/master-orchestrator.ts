@@ -125,7 +125,6 @@ export class MasterOrchestrator {
     // 3. Iterate through milestones
     let finalAnalystName: string | undefined = undefined;
     let finalSebiRegNo: string | undefined = undefined;
-    let finalOrgName: string | undefined = undefined;
 
     for (let i = 0; i < milestones.length; i++) {
       const milestone = milestones[i];
@@ -372,7 +371,6 @@ export class MasterOrchestrator {
 
           finalAnalystName = resolvedAnalystName;
           finalSebiRegNo = resolvedSebiRegNo;
-          finalOrgName = resolvedOrgName;
 
           const compResult = await complianceAgent.run({
             planId,

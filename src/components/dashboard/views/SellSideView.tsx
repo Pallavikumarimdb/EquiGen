@@ -5,13 +5,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   FileText,
-  Download,
   FileSpreadsheet,
-  Building2,
-  AlertCircle,
-  Clock,
-  Printer,
-  Sparkles,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import { FinancialHero } from "../shared/FinancialHero";
@@ -52,7 +46,6 @@ export function SellSideView({
   const isApproved = status === "approved" || status === "published" || Boolean(approvedAt);
   const rec = reportData?.recommendation;
   const execSummary = reportData?.executiveSummary;
-  const fiveYear = reportData?.fiveYearSummary;
 
   return (
     <div className="space-y-5">

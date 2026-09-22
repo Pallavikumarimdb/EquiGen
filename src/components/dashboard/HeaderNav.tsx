@@ -10,12 +10,10 @@ import {
   LogOut,
   FileText,
   Key,
-  Settings,
   User,
   Building2,
   Shield,
   ChevronDown,
-  CheckCircle2,
 } from "lucide-react";
 import { PersonaType, UserSessionProfile } from "./types";
 

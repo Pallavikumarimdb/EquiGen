@@ -2,16 +2,10 @@
 
 import React, { useState } from "react";
 import {
-  Briefcase,
-  TrendingUp,
-  Target,
   Sliders,
   Scale,
   Copy,
   Check,
-  Building2,
-  FileText,
-  AlertTriangle,
   Lightbulb,
   MessageSquareQuote,
 } from "lucide-react";

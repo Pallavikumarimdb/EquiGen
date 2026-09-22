@@ -5,7 +5,7 @@ import { GoalTerminal } from "./GoalTerminal";
 import { TrajectoryFeed } from "./TrajectoryFeed";
 import { SteeringPanel } from "./SteeringPanel";
 import { LivingDraftPanel } from "./LivingDraftPanel";
-import { ResearchPlanRecord, ReportSection } from "@/types/plan4";
+import { ResearchPlanRecord, ReportSection, MilestonePlan } from "@/types/plan4";
 import { EquityResearchData } from "@/types";
 import {
   MessageSquare,
@@ -146,7 +146,6 @@ export function AgentWorkspace({
           depth: "standard",
           status: "completed",
           createdAt: new Date().toISOString(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           costEstimate: 0.05,
           latencyEstS: 4.2,
           milestones: [
@@ -156,7 +155,7 @@ export function AgentWorkspace({
             { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
             { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
             { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-          ] as any,
+          ] as MilestonePlan[],
         };
         setActivePlan(fallbackPlan);
         setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
@@ -203,17 +202,16 @@ export function AgentWorkspace({
             depth: "standard",
             status: "completed",
             createdAt: new Date().toISOString(),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             costEstimate: 0.05,
-          latencyEstS: 4.2,
-          milestones: [
+            latencyEstS: 4.2,
+            milestones: [
               { id: "m1", title: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
               { id: "m2", title: "Extract Financial Statements", agentType: "modeling", status: "completed" },
               { id: "m3", title: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
               { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
               { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
               { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-            ] as any,
+            ] as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
@@ -235,17 +233,16 @@ export function AgentWorkspace({
             depth: "standard",
             status: "completed",
             createdAt: new Date().toISOString(),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             costEstimate: 0.05,
-          latencyEstS: 4.2,
-          milestones: [
+            latencyEstS: 4.2,
+            milestones: [
               { id: "m1", title: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
               { id: "m2", title: "Extract Financial Statements", agentType: "modeling", status: "completed" },
               { id: "m3", title: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
               { id: "m4", title: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
               { id: "m5", title: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
               { id: "m6", title: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
-            ] as any,
+            ] as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));

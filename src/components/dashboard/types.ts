@@ -1,5 +1,5 @@
 import { EquityResearchData } from "@/types";
-import { ResearchPlanRecord } from "@/types/plan4";
+export type { ResearchPlanRecord } from "@/types/plan4";
 
 export type PersonaType = "buyside" | "sellside" | "individual";
 

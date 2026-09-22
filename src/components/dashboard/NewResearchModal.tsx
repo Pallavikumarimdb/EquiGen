@@ -7,12 +7,6 @@ import {
   Bot,
   Upload,
   FileText,
-  Building2,
-  ChevronRight,
-  ShieldCheck,
-  Zap,
-  Clock,
-  ArrowRight,
 } from "lucide-react";
 
 interface NewResearchModalProps {

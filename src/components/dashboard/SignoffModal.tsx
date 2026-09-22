@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, ShieldCheck, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { X, ShieldCheck, AlertTriangle, Loader2 } from "lucide-react";
 
 interface SignoffModalProps {
   isOpen: boolean;

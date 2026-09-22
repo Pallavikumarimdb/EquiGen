@@ -9,14 +9,8 @@ import {
   ChevronRight,
   Trash2,
   Building2,
-  TrendingUp,
-  Clock,
   Sparkles,
-  Filter,
-  CheckCircle2,
-  AlertCircle,
   Settings,
-  Key,
 } from "lucide-react";
 import { DashboardHistoryItem, HistoryFilterType } from "./types";
 

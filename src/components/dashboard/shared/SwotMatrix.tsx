@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck, AlertTriangle, Zap, Target, AlertOctagon } from "lucide-react";
+import { ShieldCheck, AlertTriangle, Zap, AlertOctagon } from "lucide-react";
 import { EquityResearchData } from "@/types";
 
 interface SwotMatrixProps {

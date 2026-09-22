@@ -4,15 +4,10 @@ import React from "react";
 import {
   Sparkles,
   ShieldCheck,
-  TrendingUp,
   AlertTriangle,
-  HelpCircle,
   MessageSquare,
-  CheckCircle,
-  Flame,
   Award,
   DollarSign,
-  PieChart,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import { FinancialHero } from "../shared/FinancialHero";

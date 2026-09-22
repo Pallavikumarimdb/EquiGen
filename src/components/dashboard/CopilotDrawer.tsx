@@ -2,15 +2,12 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import {
-  MessageSquare,
   X,
   Send,
-  Sparkles,
   Bot,
   User,
   RotateCcw,
   Loader2,
-  ChevronRight,
 } from "lucide-react";
 import { PersonaType } from "./types";
 

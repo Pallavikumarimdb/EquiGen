@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sliders, TrendingUp, TrendingDown, RefreshCw, BarChart3, AlertCircle } from "lucide-react";
+import { Sliders, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
 
 interface ScenarioModelerProps {
   initialTargetPrice?: number | null;
