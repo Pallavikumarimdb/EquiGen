@@ -55,7 +55,50 @@ export async function GET(req: NextRequest) {
         createdAt: true,
       },
     });
-    return NextResponse.json(reports);
+
+    // Also fetch active/recent ResearchPlan records (including running, failed, approved)
+    const activePlans = await prisma.researchPlan.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        companyName: true,
+        ticker: true,
+        status: true,
+        createdAt: true,
+        goalText: true,
+      },
+    }).catch(() => []);
+
+    const existingReportIds = new Set(reports.map((r) => r.id));
+    const existingCleanIds = new Set(reports.map((r) => r.id.replace(/^rep_/, "")));
+
+    const activePlanItems = activePlans
+      .filter((p) => !existingReportIds.has(p.id) && !existingReportIds.has(`rep_${p.id}`) && !existingCleanIds.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        companyName: p.companyName || p.ticker || "Target Company",
+        fileName: "Autonomous Research",
+        reportData: {
+          sourceType: "autonomous",
+          ticker: p.ticker,
+          companyName: p.companyName || p.ticker,
+          planId: p.id,
+          status: p.status,
+        },
+        pdfBase64: null,
+        status: p.status,
+        reviewerName: null,
+        sebiRegNo: null,
+        approvedAt: null,
+        contentHash: null,
+        versionNo: 1,
+        modelUsedForFinancials: "Groq Llama 3.3 / Master Orchestrator",
+        createdAt: p.createdAt.toISOString(),
+      }));
+
+    const combined = [...activePlanItems, ...reports];
+    return NextResponse.json(combined);
   } catch (error) {
     console.error("Failed to fetch history (returning empty list fallback):", error);
     return NextResponse.json([]);
@@ -206,7 +249,7 @@ export async function DELETE(req: Request) {
     }
 
     const session = getAuthSession(req as unknown as NextRequest);
-    const orgId = session?.orgId || "default-org";
+    const _orgId = session?.orgId || "default-org";
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -218,27 +261,34 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const existing = await prisma.reportHistory.findUnique({
-      where: { id },
-    });
+    const cleanId = id.replace(/^rep_/, "");
+    const repId = `rep_${cleanId}`;
 
-    if (!existing) {
+    const deletedReports = await prisma.reportHistory.deleteMany({
+      where: {
+        OR: [
+          { id: id },
+          { id: repId },
+          { id: cleanId },
+        ],
+      },
+    }).catch(() => ({ count: 0 }));
+
+    const deletedPlans = await prisma.researchPlan.deleteMany({
+      where: {
+        OR: [
+          { id: id },
+          { id: cleanId },
+        ],
+      },
+    }).catch(() => ({ count: 0 }));
+
+    if (deletedReports.count === 0 && deletedPlans.count === 0) {
       return NextResponse.json(
-        { message: "Report not found" },
+        { message: "Report or ResearchPlan not found" },
         { status: 404 },
       );
     }
-
-    if (existing.orgId !== orgId) {
-      return NextResponse.json(
-        { message: "Forbidden. You do not own this report." },
-        { status: 403 },
-      );
-    }
-
-    await prisma.reportHistory.delete({
-      where: { id },
-    });
 
     return NextResponse.json({ message: "Report deleted successfully" });
   } catch (error) {

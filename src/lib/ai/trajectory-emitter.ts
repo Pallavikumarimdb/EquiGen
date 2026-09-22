@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db";
 class TrajectoryEventEmitter extends EventEmitter {}
 
 const globalEmitter = new TrajectoryEventEmitter();
-globalEmitter.setMaxListeners(200);
+const eventHistoryCache = new Map<string, TrajectoryEvent[]>();
 
 export class TrajectoryBus {
   /**
@@ -32,8 +32,17 @@ export class TrajectoryBus {
       data,
     };
 
+    const history = eventHistoryCache.get(planId) || [];
+    if (history.length >= 300) history.shift();
+    history.push(event);
+    eventHistoryCache.set(planId, history);
+
     globalEmitter.emit(`trajectory:${planId}`, event);
     return event;
+  }
+
+  getHistory(planId: string): TrajectoryEvent[] {
+    return eventHistoryCache.get(planId) || [];
   }
 
   /**

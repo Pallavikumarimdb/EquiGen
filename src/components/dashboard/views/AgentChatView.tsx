@@ -44,6 +44,8 @@ interface AgentChatViewProps {
   currentPersona: PersonaType;
   onUpdateReportData: (updated: EquityResearchData) => void;
   onSwitchToReport: () => void;
+  status?: string;
+  onPlanComplete?: (planId: string) => void;
 }
 
 export function AgentChatView({
@@ -54,6 +56,8 @@ export function AgentChatView({
   currentPersona,
   onUpdateReportData,
   onSwitchToReport,
+  status,
+  onPlanComplete,
 }: AgentChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -463,8 +467,22 @@ export function AgentChatView({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-[#7A7569] font-medium leading-none mt-0.5">
-              Autonomous Swarm Active · 5 Tools Executed · SEBI RA 2014 Guardrails Enforced
+            <p className="text-[11px] font-medium leading-none mt-0.5">
+              {status === "running" ? (
+                <span className="text-amber-700 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                  Autonomous Swarm Running · Subagent Execution Stream Active
+                </span>
+              ) : status === "failed" ? (
+                <span className="text-red-600 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  Swarm Execution Failed · Check trajectory logs in Sandbox &amp; Pipeline
+                </span>
+              ) : (
+                <span className="text-[#7A7569]">
+                  ✓ Autonomous Swarm Completed · SEBI RA 2014 Guardrails Enforced
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -842,7 +860,7 @@ export function AgentChatView({
 
                 {/* Embedded Live Trajectory Feed */}
                 <div className="flex-1 min-h-0 overflow-hidden relative">
-                  <TrajectoryFeed planId={cleanPlanId} />
+                  <TrajectoryFeed planId={cleanPlanId} onPlanComplete={onPlanComplete} />
                 </div>
               </div>
             )}

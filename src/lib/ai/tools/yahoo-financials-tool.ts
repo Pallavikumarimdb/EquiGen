@@ -109,6 +109,52 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
     });
 
     if (!res.ok) {
+      // Fallback: Query Yahoo Finance v7 quote API (public, no auth required)
+      const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooTicker)}`;
+      const quoteRes = await fetch(quoteUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+          "Accept": "application/json",
+        },
+        signal: AbortSignal.timeout(10000),
+      }).catch(() => null);
+
+      if (quoteRes && quoteRes.ok) {
+        const quoteJson = await quoteRes.json();
+        const q = quoteJson?.quoteResponse?.result?.[0];
+        if (q) {
+          const priceRaw = safe(q.regularMarketPrice);
+          const mktCapRaw = safe(q.marketCap);
+          const trailingPE = safe(q.trailingPE);
+          const forwardPE = safe(q.forwardPE);
+          const priceToBook = safe(q.priceToBook);
+          const epsCurrent = safe(q.epsTrailingTwelveMonths);
+          const sharesRaw = safe(q.sharesOutstanding);
+          const sharesInCr = sharesRaw !== null ? sharesRaw / UNITS_TO_CR : null;
+
+          const v7Data: ExtractedFinancials = {
+            ...empty,
+            currentPrice: priceRaw,
+            marketCapCr: toCrores(mktCapRaw, q.currency || "INR"),
+            trailingPE,
+            forwardPE,
+            priceToBook,
+            epsCurrent,
+            sharesOutstandingCr: sharesInCr !== null ? Math.round(sharesInCr * 100) / 100 : null,
+            beta: safe(q.beta),
+            dividendYield: safe(q.trailingAnnualDividendYield),
+            isLiveData: true,
+          };
+
+          console.log(
+            `[YahooFinancials] ✓ (v7 Quote API) ${upper}: Market Cap ₹${v7Data.marketCapCr ?? "N/A"} Cr` +
+            ` | Price ₹${v7Data.currentPrice ?? "N/A"}` +
+            ` | Trailing P/E ${v7Data.trailingPE ?? "N/A"}x`
+          );
+          return v7Data;
+        }
+      }
+
       throw new Error(`Yahoo quoteSummary HTTP ${res.status} for ${yahooTicker}`);
     }
 

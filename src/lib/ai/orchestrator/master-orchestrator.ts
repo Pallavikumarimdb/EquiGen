@@ -18,6 +18,7 @@ import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
+import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import type { Prisma } from "@prisma/client";
 
 export interface OrchestrationResult {
@@ -436,9 +437,18 @@ export class MasterOrchestrator {
     if (finalStatus === "completed") {
       const reportId = `rep_${planId}`;
       const activeOrgId = plan.session?.orgId || "default-org";
-      const activeCreatedById = plan.session?.createdBy && plan.session.createdBy !== "analyst" ? plan.session.createdBy : null;
+      let activeCreatedById: string | null = null;
+      if (plan.session?.createdBy) {
+        const userExists = await prisma.user.findUnique({
+          where: { id: plan.session.createdBy },
+          select: { id: true },
+        }).catch(() => null);
+        if (userExists) {
+          activeCreatedById = userExists.id;
+        }
+      }
 
-      const reportPayload = JSON.parse(JSON.stringify({
+      const rawPayload = {
         sourceType: "autonomous",
         ticker,
         companyName,
@@ -448,7 +458,10 @@ export class MasterOrchestrator {
         marketIntelData,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
-      })) as Prisma.InputJsonValue;
+      };
+
+      const normalizedData = normalizeEquityResearchData(rawPayload);
+      const reportPayload = JSON.parse(JSON.stringify(normalizedData)) as Prisma.InputJsonValue;
 
       await prisma.reportHistory.upsert({
         where: { id: reportId },

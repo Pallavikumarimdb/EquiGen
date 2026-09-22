@@ -18,6 +18,7 @@ import {
   HistoryFilterType,
 } from "./dashboard/types";
 import { EquityResearchData } from "@/types";
+import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import {
   Sparkles,
   Building2,
@@ -100,14 +101,19 @@ const DEFAULT_SAMPLE_REPORT: EquityResearchData = {
   ],
 };
 
-export default function Dashboard() {
+interface DashboardProps {
+  initialReportId?: string;
+  initialViewMode?: "report" | "agent";
+}
+
+export default function Dashboard({ initialReportId, initialViewMode = "report" }: DashboardProps) {
   const router = useRouter();
 
   // Persona State (Buy-Side vs Sell-Side vs Individual)
   const [currentPersona, setCurrentPersona] = useState<PersonaType>("buyside");
 
   // Navigation & Primary View Mode (Report vs Agent)
-  const [activeViewMode, setActiveViewMode] = useState<"report" | "agent">("report");
+  const [activeViewMode, setActiveViewMode] = useState<"report" | "agent">(initialViewMode);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNewResearchOpen, setIsNewResearchOpen] = useState(false);
   const [isSignoffOpen, setIsSignoffOpen] = useState(false);
@@ -119,7 +125,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Active Research Data
-  const [activeReportId, setActiveReportId] = useState<string | null>("rep_default_sample");
+  const [activeReportId, setActiveReportId] = useState<string | null>(initialReportId || "rep_default_sample");
   const [_activeSessionId, setActiveSessionId] = useState<string | null>("session-demo-001");
   const [companyName, setCompanyName] = useState<string>("Tata Motors Limited");
   const [reportData, setReportData] = useState<EquityResearchData | null>(DEFAULT_SAMPLE_REPORT);
@@ -134,6 +140,16 @@ export default function Dashboard() {
   const [toasts, setToasts] = useState<DashboardToast[]>([]);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
+
+  // URL Synchronization Helper
+  const syncUrl = (reportId: string | null, mode: "report" | "agent") => {
+    if (!reportId || typeof window === "undefined") return;
+    const cleanId = reportId.replace(/^rep_/, "");
+    const newPath = mode === "agent" ? `/agent/${cleanId}` : `/research/${cleanId}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState(null, "", newPath);
+    }
+  };
 
   // Toast Helper
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
@@ -181,13 +197,9 @@ export default function Dashboard() {
   }, []);
 
   // Fetch History and Plans
-  const fetchHistory = async () => {
+  const fetchHistory = async (isInitial = false) => {
     try {
-      const [historyRes, planRes] = await Promise.all([
-        fetch("/api/history").catch(() => null),
-        fetch("/api/agent/plan").catch(() => null),
-      ]);
-
+      const historyRes = await fetch("/api/history").catch(() => null);
       const items: DashboardHistoryItem[] = [];
 
       if (historyRes && historyRes.ok) {
@@ -203,7 +215,7 @@ export default function Dashboard() {
             companyName: item.companyName,
             fileName: item.fileName,
             createdAt: item.createdAt,
-            reportData: item.reportData,
+            reportData: normalizeEquityResearchData(item.reportData),
             reportPdfBase64: item.pdfBase64,
             status: item.status || "draft",
             reviewerName: item.reviewerName,
@@ -215,35 +227,23 @@ export default function Dashboard() {
         });
       }
 
-      if (planRes && planRes.ok) {
-        const planData = await planRes.json();
-        if (Array.isArray(planData.plans)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          planData.plans.forEach((p: any) => {
-            const cleanTitle = p.companyName || p.goalText?.split("—")[0].replace(/^(Initiation|Research on)\s*/i, "").trim() || "Autonomous Research";
-            items.push({
-              id: p.id,
-              companyName: cleanTitle,
-              fileName: "Autonomous Research",
-              createdAt: p.createdAt,
-              reportData: {
-                company: { name: cleanTitle, ticker: p.ticker || "TICKER", reportDate: new Date(p.createdAt).toLocaleDateString() },
-                recommendation: { rating: "BUY", targetPrice: null, currentPrice: null, upsidePotential: null, rationale: [p.goalText] },
-                executiveSummary: p.goalText,
-                sourceType: "autonomous",
-                planId: p.id,
-              } as unknown as EquityResearchData,
-              reportPdfBase64: null,
-              status: p.status || "completed",
-              sourceType: "autonomous",
-            });
-          });
+      // Deduplicate items by normalized ID
+      const seenIds = new Set<string>();
+      const uniqueItems: DashboardHistoryItem[] = [];
+
+      for (const item of items) {
+        const cleanId = item.id.replace(/^rep_/, "");
+        if (!seenIds.has(cleanId) && !seenIds.has(item.id)) {
+          seenIds.add(cleanId);
+          seenIds.add(item.id);
+          seenIds.add(`rep_${cleanId}`);
+          uniqueItems.push(item);
         }
       }
 
-      // Add default sample report to top if empty or not included
-      if (items.length === 0) {
-        items.push({
+      // Add default sample report to top if empty
+      if (uniqueItems.length === 0) {
+        uniqueItems.push({
           id: "rep_default_sample",
           companyName: "Tata Motors Limited",
           fileName: "Tata_Motors_Initiation.pdf",
@@ -255,19 +255,95 @@ export default function Dashboard() {
         });
       }
 
-      setHistory(items);
+      setHistory(uniqueItems);
+
+      // If activeReportId is set and this is a background sync/refetch
+      if (activeReportId && !isInitial) {
+        const cleanActiveId = activeReportId.replace(/^rep_/, "");
+        const existing = uniqueItems.find(
+          (i) => i.id === activeReportId || i.id.replace(/^rep_/, "") === cleanActiveId || i.id === `rep_${cleanActiveId}`
+        );
+        if (existing) {
+          if (existing.id !== activeReportId) {
+            setActiveReportId(existing.id);
+          }
+          setActiveReportStatus(existing.status || "published");
+          if (existing.reportData) {
+            setReportData(existing.reportData);
+          }
+          if (existing.companyName) {
+            setCompanyName(existing.companyName);
+          }
+          if (existing.reportPdfBase64) {
+            setReportPdfBase64(existing.reportPdfBase64);
+          }
+          return;
+        }
+      }
+
+      if (isInitial || !activeReportId) {
+        // Auto-restore active report across page refresh (prioritize route prop > running > saved)
+        let savedId: string | null = null;
+        try {
+          if (typeof window !== "undefined") {
+            savedId = localStorage.getItem("equigen_active_report_id");
+          }
+        } catch {}
+
+        const cleanInitialId = initialReportId ? initialReportId.replace(/^rep_/, "") : null;
+        const initialItem = cleanInitialId
+          ? uniqueItems.find((i) => i.id === initialReportId || i.id.replace(/^rep_/, "") === cleanInitialId || i.id === `rep_${cleanInitialId}`)
+          : null;
+
+        const runningItem = uniqueItems.find((i) => i.status === "running" || i.status === "pending");
+        const savedItem = savedId ? uniqueItems.find((i) => i.id === savedId) : null;
+        const targetItem = initialItem || runningItem || savedItem || (uniqueItems.length > 0 ? uniqueItems[0] : null);
+
+        if (targetItem) {
+          const targetMode = initialReportId ? initialViewMode : (targetItem.sourceType === "autonomous" || targetItem.status === "running" ? "agent" : activeViewMode);
+          setActiveReportId(targetItem.id);
+          setActiveSessionId(targetItem.id.replace(/^rep_/, ""));
+          setCompanyName(targetItem.companyName);
+          setReportData(targetItem.reportData);
+          setReportPdfBase64(targetItem.reportPdfBase64);
+          setActiveReportStatus(targetItem.status || "draft");
+          setReviewerName(targetItem.reviewerName || user?.name || "");
+          setSebiRegNo(targetItem.sebiRegNo || user?.sebiRegNo || "");
+          setApprovedAt(targetItem.approvedAt || null);
+          setActiveViewMode(targetMode);
+          syncUrl(targetItem.id, targetMode);
+        }
+      }
     } catch (err) {
       console.warn("Failed to load history:", err);
     }
   };
 
   useEffect(() => {
-    fetchHistory();
+    fetchHistory(true);
   }, [user?.id]);
+
+  // Polling interval to auto-update status when any item is running or pending
+  useEffect(() => {
+    const hasRunning = history.some((item) => item.status === "running" || item.status === "pending");
+    if (!hasRunning) return;
+
+    const interval = setInterval(() => {
+      fetchHistory(false);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [history]);
 
   // Select Report
   const handleSelectReport = (item: DashboardHistoryItem) => {
+    const targetMode = (item.sourceType === "autonomous" || item.status === "running") ? "agent" : activeViewMode;
     setActiveReportId(item.id);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("equigen_active_report_id", item.id);
+      }
+    } catch {}
     setActiveSessionId(item.id.replace(/^rep_/, ""));
     setCompanyName(item.companyName);
     setReportData(item.reportData);
@@ -276,21 +352,22 @@ export default function Dashboard() {
     setReviewerName(item.reviewerName || user?.name || "");
     setSebiRegNo(item.sebiRegNo || user?.sebiRegNo || "");
     setApprovedAt(item.approvedAt || null);
-
-    // If selecting an autonomous research report, make sure workspace is ready
-    if (item.sourceType === "autonomous") {
-      setActiveViewMode("report");
-    }
+    setActiveViewMode(targetMode);
+    syncUrl(item.id, targetMode);
   };
 
   // Delete Report
   const handleDeleteReport = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    const cleanId = id.replace(/^rep_/, "");
+    const repId = `rep_${cleanId}`;
+
+    setHistory((prev) => prev.filter((h) => h.id !== id && h.id !== cleanId && h.id !== repId));
+
     try {
       await fetch(`/api/history?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      setHistory((prev) => prev.filter((h) => h.id !== id));
-      if (activeReportId === id) {
-        const remaining = history.filter((h) => h.id !== id);
+      if (activeReportId === id || activeReportId === cleanId || activeReportId === repId) {
+        const remaining = history.filter((h) => h.id !== id && h.id !== cleanId && h.id !== repId);
         if (remaining.length > 0) {
           handleSelectReport(remaining[0]);
         } else {
@@ -299,6 +376,7 @@ export default function Dashboard() {
         }
       }
       showToast("Report deleted from universe", "info");
+      fetchHistory();
     } catch {
       showToast("Failed to delete report", "error");
     }
@@ -308,18 +386,26 @@ export default function Dashboard() {
   const handleLaunchAutonomous = async (compName: string, depth: "quick" | "standard" | "deep", goalText?: string) => {
     setLoading(true);
     setCompanyName(compName);
+    setReportData(null);
+    setReportPdfBase64(null);
+    setActiveReportStatus("running");
     setActiveViewMode("agent");
     showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
+
+    const derivedTicker = compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
+    const newSessionId = `session_${Date.now()}`;
 
     try {
       const fullGoal = goalText || `Initiation of coverage on ${compName} — 5-year DCF, peer multiples, and SEBI compliance audit`;
       const res = await fetch("/api/agent/plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
         body: JSON.stringify({
           goalText: fullGoal,
           companyName: compName,
+          ticker: derivedTicker,
           depth,
+          sessionId: newSessionId,
         }),
       });
 
@@ -327,19 +413,33 @@ export default function Dashboard() {
         const data = await res.json();
         const plan = data.plan;
         if (plan && plan.id) {
+          // Auto approve research plan
+          await fetch(`/api/agent/plan/${plan.id}/approve`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+            body: JSON.stringify({ actorId: "analyst" }),
+          }).catch(() => {});
+
+          // Trigger Master Orchestrator background execution
+          fetch("/api/agent/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+            body: JSON.stringify({ planId: plan.id }),
+          }).catch((err) => console.warn("[Dashboard] Failed to trigger execution:", err));
+
           setActiveReportId(plan.id);
           setActiveSessionId(plan.sessionId || `session_${plan.id}`);
           showToast(`Autonomous swarm running for ${compName}`, "success");
           fetchHistory();
         }
       } else {
-        throw new Error("Failed to dispatch plan");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to dispatch plan");
       }
-    } catch {
-      // Set active in AgentWorkspace terminal anyway
-      setActiveReportId(`demo_${Date.now()}`);
-      setActiveSessionId(`session_${Date.now()}`);
-      showToast(`Swarm initialized for ${compName}`, "success");
+    } catch (err) {
+      console.error("[Dashboard] handleLaunchAutonomous error:", err);
+      const msg = err instanceof Error ? err.message : "Error dispatching swarm";
+      showToast(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -606,8 +706,10 @@ export default function Dashboard() {
               ticker={ticker}
               reportData={reportData}
               currentPersona={currentPersona}
+              status={activeReportStatus}
               onUpdateReportData={handleUpdateReportData}
               onSwitchToReport={() => setActiveViewMode("report")}
+              onPlanComplete={() => fetchHistory(false)}
             />
           </main>
         )}

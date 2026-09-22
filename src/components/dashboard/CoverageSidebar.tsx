@@ -213,7 +213,16 @@ export function CoverageSidebar({
                     </span>
                   </div>
 
-                  {rating && (
+                  {item.status === "running" || item.status === "pending" ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 animate-pulse flex items-center gap-1 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                      RUNNING
+                    </span>
+                  ) : item.status === "failed" ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200 shrink-0">
+                      FAILED
+                    </span>
+                  ) : rating ? (
                     <span
                       className={`text-[9px] font-black px-1.5 py-0.2 rounded-md uppercase tracking-wider shrink-0 ${
                         rating === "BUY" || rating === "ACCUMULATE"
@@ -225,7 +234,11 @@ export function CoverageSidebar({
                     >
                       {rating}
                     </span>
-                  )}
+                  ) : item.status === "completed" || item.status === "published" || item.status === "approved" ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                      COMPLETED
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] text-[#7A7569] font-medium mt-1.5">

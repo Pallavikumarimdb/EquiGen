@@ -20,6 +20,15 @@ export async function GET(req: NextRequest) {
       const initialPayload = `event: connected\ndata: ${JSON.stringify({ planId, connectedAt: new Date().toISOString() })}\n\n`;
       controller.enqueue(encoder.encode(initialPayload));
 
+      // Stream any existing buffered real events for this planId
+      const pastEvents = trajectoryBus.getHistory(planId);
+      pastEvents.forEach((ev) => {
+        try {
+          const sseFormatted = `event: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`;
+          controller.enqueue(encoder.encode(sseFormatted));
+        } catch {}
+      });
+
       // Subscribe to TrajectoryBus for this planId
       const unsubscribe = trajectoryBus.subscribe(planId, (event: TrajectoryEvent) => {
         try {
