@@ -125,15 +125,16 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   const [searchQuery, setSearchQuery] = useState("");
 
   // Active Research Data
-  const [activeReportId, setActiveReportId] = useState<string | null>(initialReportId || "rep_default_sample");
-  const [_activeSessionId, setActiveSessionId] = useState<string | null>("session-demo-001");
-  const [companyName, setCompanyName] = useState<string>("Tata Motors Limited");
-  const [reportData, setReportData] = useState<EquityResearchData | null>(DEFAULT_SAMPLE_REPORT);
+  const [activeReportId, setActiveReportId] = useState<string | null>(initialReportId || null);
+  const [_activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string>("");
+  const [reportData, setReportData] = useState<EquityResearchData | null>(null);
   const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
   const [activeReportStatus, setActiveReportStatus] = useState<string>("draft");
   const [reviewerName, setReviewerName] = useState<string>("");
   const [sebiRegNo, setSebiRegNo] = useState<string>("");
   const [approvedAt, setApprovedAt] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
   // Status & Notifications
   const [_loading, setLoading] = useState(false);
@@ -208,8 +209,12 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         data.forEach((item: any) => {
           const isAuto =
             item.sourceType === "autonomous" ||
-            item.reportData?.sourceType === "autonomous" ||
-            item.fileName === "Autonomous Research";
+            item.fileName === "Autonomous Research" ||
+            (item.fileName ? item.fileName.toLowerCase().includes("autonomous") : false) ||
+            item.id?.startsWith("plan_") ||
+            item.companyName?.toLowerCase().startsWith("initiation of coverage") ||
+            item.modelUsedForFinancials?.toLowerCase().includes("orchestrator") ||
+            item.reportData?.sourceType === "autonomous";
           items.push({
             id: item.id,
             companyName: item.companyName,
@@ -296,11 +301,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           : null;
 
         const runningItem = uniqueItems.find((i) => i.status === "running" || i.status === "pending");
-        const savedItem = savedId ? uniqueItems.find((i) => i.id === savedId) : null;
+        const savedItem = savedId ? uniqueItems.find((i) => i.id === savedId || i.id.replace(/^rep_/, "") === savedId.replace(/^rep_/, "")) : null;
         const targetItem = initialItem || runningItem || savedItem || (uniqueItems.length > 0 ? uniqueItems[0] : null);
 
         if (targetItem) {
-          const targetMode = initialReportId ? initialViewMode : (targetItem.sourceType === "autonomous" || targetItem.status === "running" ? "agent" : activeViewMode);
+          const targetMode = initialReportId ? initialViewMode : activeViewMode;
           setActiveReportId(targetItem.id);
           setActiveSessionId(targetItem.id.replace(/^rep_/, ""));
           setCompanyName(targetItem.companyName);
@@ -316,6 +321,10 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       }
     } catch (err) {
       console.warn("Failed to load history:", err);
+    } finally {
+      if (isInitial) {
+        setIsLoadingHistory(false);
+      }
     }
   };
 
@@ -337,7 +346,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   // Select Report
   const handleSelectReport = (item: DashboardHistoryItem) => {
-    const targetMode = (item.sourceType === "autonomous" || item.status === "running") ? "agent" : activeViewMode;
+    // Retain user's current view mode (Report vs Agent) unless target item is actively running
+    const targetMode = item.status === "running" || item.status === "pending" ? "agent" : activeViewMode;
     setActiveReportId(item.id);
     try {
       if (typeof window !== "undefined") {
@@ -588,6 +598,13 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   const ticker = reportData?.company?.ticker || undefined;
 
+  const handleViewModeChange = (mode: "report" | "agent") => {
+    setActiveViewMode(mode);
+    if (activeReportId) {
+      syncUrl(activeReportId, mode);
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-[#F6F4EE] text-[#1A1917] antialiased font-sans overflow-hidden">
       {/* ── Top Command Bar ─────────────────────────────────────────────── */}
@@ -595,7 +612,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         currentPersona={currentPersona}
         onPersonaChange={handlePersonaChange}
         activeViewMode={activeViewMode}
-        onViewModeChange={setActiveViewMode}
+        onViewModeChange={handleViewModeChange}
         activeCompanyName={companyName}
         activeTicker={ticker}
         onOpenNewResearch={() => setIsNewResearchOpen(true)}
@@ -622,10 +639,23 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           onFilterChange={setHistoryFilter}
           searchQuery={searchQuery}
           onOpenNewResearch={() => setIsNewResearchOpen(true)}
+          isLoading={isLoadingHistory}
         />
 
         {/* ── Primary Central Stage ─────────────────────────────────────── */}
-        {activeViewMode === "report" ? (
+        {isLoadingHistory && !reportData ? (
+          <main className="flex-1 flex items-center justify-center h-full bg-[#FAF8F5]">
+            <div className="text-center max-w-sm p-8 bg-white border border-[#E3DFD5] rounded-3xl shadow-sm animate-pulse space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#1A1917] text-amber-400 flex items-center justify-center mx-auto shadow-sm">
+                <Sparkles className="w-6 h-6 animate-spin" />
+              </div>
+              <h3 className="text-sm font-extrabold text-[#1A1917]">Loading Coverage Universe...</h3>
+              <p className="text-xs text-[#7A7569]">
+                Connecting to institutional database & autonomous research streams.
+              </p>
+            </div>
+          </main>
+        ) : activeViewMode === "report" ? (
           /* Mode 1: Complete Equity Research Report Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto p-4 sm:p-6 transition-all duration-300">
             {reportData ? (

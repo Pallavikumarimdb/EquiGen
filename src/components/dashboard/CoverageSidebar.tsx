@@ -25,6 +25,7 @@ interface CoverageSidebarProps {
   onFilterChange: (filter: HistoryFilterType) => void;
   searchQuery: string;
   onOpenNewResearch: () => void;
+  isLoading?: boolean;
 }
 
 export function CoverageSidebar({
@@ -38,14 +39,22 @@ export function CoverageSidebar({
   onFilterChange,
   searchQuery,
   onOpenNewResearch,
+  isLoading = false,
 }: CoverageSidebarProps) {
-  // Filter history based on search and type
-  const filteredHistory = history.filter((item) => {
-    const isAuto =
+  const isAutonomousItem = (item: DashboardHistoryItem) => {
+    return (
       item.sourceType === "autonomous" ||
       item.fileName === "Autonomous Research" ||
+      (item.fileName ? item.fileName.toLowerCase().includes("autonomous") : false) ||
       item.companyName.toLowerCase().startsWith("initiation of coverage") ||
-      (item.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous";
+      item.id.startsWith("plan_") ||
+      (item.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous"
+    );
+  };
+
+  // Filter history based on search and type
+  const filteredHistory = history.filter((item) => {
+    const isAuto = isAutonomousItem(item);
 
     if (historyFilter === "autonomous" && !isAuto) return false;
     if (historyFilter === "manual" && isAuto) return false;
@@ -59,13 +68,7 @@ export function CoverageSidebar({
     return true;
   });
 
-  const autoCount = history.filter(
-    (i) =>
-      i.sourceType === "autonomous" ||
-      i.fileName === "Autonomous Research" ||
-      i.companyName.toLowerCase().startsWith("initiation of coverage"),
-  ).length;
-
+  const autoCount = history.filter(isAutonomousItem).length;
   const pdfCount = history.length - autoCount;
 
   return (
@@ -138,7 +141,21 @@ export function CoverageSidebar({
 
       {/* History Research List */}
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {filteredHistory.length === 0 ? (
+        {isLoading ? (
+          isOpen && (
+            <div className="space-y-2 p-2">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="p-3 bg-[#F8F6F1] border border-[#E5E1D7] rounded-xl animate-pulse space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-md bg-[#E2DFD6]" />
+                    <div className="h-3 w-28 bg-[#E2DFD6] rounded" />
+                  </div>
+                  <div className="h-2 w-16 bg-[#E8E5DD] rounded" />
+                </div>
+              ))}
+            </div>
+          )
+        ) : filteredHistory.length === 0 ? (
           isOpen && (
             <div className="p-4 text-center">
               <div className="w-10 h-10 rounded-xl bg-[#E4E0D6] text-[#7A7569] flex items-center justify-center mx-auto mb-2">
@@ -159,11 +176,7 @@ export function CoverageSidebar({
         ) : (
           filteredHistory.map((item) => {
             const isSelected = activeReportId === item.id;
-            const isAuto =
-              item.sourceType === "autonomous" ||
-              item.fileName === "Autonomous Research" ||
-              item.companyName.toLowerCase().startsWith("initiation of coverage") ||
-              (item.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous";
+            const isAuto = isAutonomousItem(item);
 
             const rating = item.reportData?.recommendation?.rating;
             const targetPrice = item.reportData?.recommendation?.targetPrice;

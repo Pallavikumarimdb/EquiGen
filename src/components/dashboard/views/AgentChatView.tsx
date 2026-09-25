@@ -71,8 +71,8 @@ export function AgentChatView({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const storageKey = `equigen_chatgpt_agent_${reportId || "default_sample"}`;
-  const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "demo-plan-id";
+  const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "default_sample";
+  const storageKey = `equigen_chatgpt_agent_${cleanPlanId}`;
 
   const rec = reportData?.recommendation;
   const tp = rec?.targetPrice ?? null;

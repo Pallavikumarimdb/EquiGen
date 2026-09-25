@@ -176,6 +176,6 @@ export function normalizeEquityResearchData(raw: any): EquityResearchData {
       cashFlow: [],
     },
     sections,
-    sourceType: raw.sourceType || "autonomous",
+    sourceType: raw.sourceType || (sections.length > 0 ? "autonomous" : undefined),
   };
 }
