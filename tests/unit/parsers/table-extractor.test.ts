@@ -1,11 +1,11 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert";
 import {
   parseLayoutTables,
   validateTableQuality,
   parseIndianNumber,
   extractJsonBlock,
-} from "../table-extractor";
+} from "@/lib/parsers/table-extractor";
 
 const statementText = `
 Particulars                   31-Mar-25     31-Mar-24

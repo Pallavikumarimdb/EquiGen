@@ -26,10 +26,12 @@ export interface BseFilingsResult {
 }
 
 /**
- * Known BSE scrip codes for major Indian companies.
- * In production, resolved via BSE search API by ticker/company name.
+ * Known BSE scrip codes for major Indian companies (top 50 NSE tickers).
+ * Expanded from 15 → 50 as part of RC-3 fix to reduce failed API lookups.
+ * When a ticker is not in this map, the BSE search API is attempted.
  */
 const TICKER_TO_SCRIP_CODE: Record<string, string> = {
+  // Large-cap index constituents
   RELIANCE:    "500325",
   TATAMOTORS:  "500570",
   HDFCBANK:    "500180",
@@ -40,11 +42,62 @@ const TICKER_TO_SCRIP_CODE: Record<string, string> = {
   ICICIBANK:   "532174",
   KOTAKBANK:   "500247",
   BAJFINANCE:  "500034",
+  MM:          "500520",   // Mahindra & Mahindra
   "M_M":       "500520",
   HEROMOTOCO:  "500182",
   MARUTI:      "532500",
   TATASTEEL:   "500470",
   SBIN:        "500112",
+  // Technology
+  HCLTECH:     "532281",
+  LTIM:        "540005",
+  TECHM:       "532755",
+  MPHASIS:     "526299",
+  PERSISTENT:  "533179",
+  // Banking & Finance
+  AXISBANK:    "532215",
+  INDUSINDBK:  "532187",
+  FEDERALBNK:  "500469",
+  BANDHANBNK:  "541153",
+  BAJAJFINSV:  "532978",
+  CHOLAFIN:    "500878",
+  // Pharma & Healthcare
+  SUNPHARMA:   "524715",
+  DRREDDY:     "500124",
+  CIPLA:       "500087",
+  LUPIN:       "500257",
+  DIVISLAB:    "532488",
+  APOLLOHOSP:  "508869",
+  // Consumer & FMCG
+  NESTLEIND:   "500790",
+  BRITANNIA:   "500825",
+  DABUR:       "500096",
+  MARICO:      "531642",
+  TITAN:       "500114",
+  ASIANPAINT:  "500820",
+  PIDILITIND:  "500331",
+  // Industrials & Infra
+  EICHERMOT:   "505200",
+  BAJAJ_AUTO:  "532977",
+  BAJAJAUT:    "532977",
+  LT:          "500510",
+  ADANIPORTS:  "532921",
+  POWERGRID:   "532898",
+  NTPC:        "532555",
+  COALINDIA:   "533278",
+  ONGC:        "500312",
+  // Steel & Commodities
+  JSWSTEEL:    "500228",
+  HINDALCO:    "500440",
+  VEDL:        "500295",
+  GRASIM:      "500300",
+  ULTRACEMCO:  "532538",
+  // New-age
+  ETERNAL:     "543258",
+  ZOMATO:      "543320",
+  NYKAA:       "543384",
+  PAYTM:       "543396",
+  TATACONSUM:  "500800",
 };
 
 /**

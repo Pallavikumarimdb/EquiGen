@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "HDFCBANK",
+    "companyName": "HDFC Bank Limited",
+    "fiscalYear": "FY2024",
+    "source": "NSE/BSE filings + Yahoo Finance",
+    "lastUpdated": "2024-09-01",
+    "notes": "Post-merger with HDFC Ltd. Revenue = Net Interest Income + Other Income."
+  },
+  "revenue": {
+    "valueMinCr": 180000,
+    "valueMaxCr": 250000,
+    "label": "Total Revenue / Net Revenue (₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 1100000,
+    "valueMaxCr": 1500000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.25,
+    "valueMax": 0.42,
+    "label": "Operating Profit Margin (banks — use NIM proxy)"
+  },
+  "trailingPE": {
+    "valueMin": 16,
+    "valueMax": 24,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.8,
+    "valueMax": 1.3,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 1400,
+    "valueMax": 1900,
+    "label": "Current Market Price (₹/share)"
+  }
+}

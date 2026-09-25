@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "RELIANCE",
+    "companyName": "Reliance Industries Limited",
+    "fiscalYear": "FY2024",
+    "source": "BSE Annual Report + NSE exchange filings",
+    "lastUpdated": "2024-09-01",
+    "notes": "Values from FY2024 audited standalone + consolidated financials"
+  },
+  "revenue": {
+    "valueMinCr": 850000,
+    "valueMaxCr": 980000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 1700000,
+    "valueMaxCr": 2200000,
+    "label": "Market Capitalisation (₹ Cr, approximate range)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.14,
+    "valueMax": 0.22,
+    "label": "EBITDA Margin (decimal, 14–22%)"
+  },
+  "trailingPE": {
+    "valueMin": 20,
+    "valueMax": 32,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.8,
+    "valueMax": 1.3,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 2200,
+    "valueMax": 3200,
+    "label": "Current Market Price (₹/share)"
+  }
+}

@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert";
-import { detectSections, estimateTableDensity } from "../section-detector";
+import { detectSections, estimateTableDensity } from "@/lib/parsers/section-detector";
 
 const financialsPage = `
 CONSOLIDATED BALANCE SHEET

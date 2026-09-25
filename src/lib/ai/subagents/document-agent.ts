@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db";
 import { fetchBseFilings, BseFilingsResult } from "@/lib/ai/tools/bse-filings-tool";
 import { fetchNseFilings, NseFilingsResult } from "@/lib/ai/tools/nse-filings-tool";
 import { fetchConcallTranscript, ConcallTranscriptResult } from "@/lib/ai/tools/concall-transcript-tool";
+import { fetchYahooFinancials, toModelingInputRecord } from "@/lib/ai/tools/yahoo-financials-tool";
 import { FetchDocumentsMilestone } from "@/types/plan4";
 
 export interface DocumentAgentInput {
@@ -44,6 +45,14 @@ export interface DocumentAgentOutput {
   totalDocumentsFetched: number;
   milestoneCompleted: boolean;
   summary: string;
+  /**
+   * RC-4 fix: Financial snapshot fetched from Yahoo Finance during the document phase.
+   * Passed directly to ModelingAgent so it always has real data to work with,
+   * even before PDF extraction is implemented.
+   * null when Yahoo Finance is completely unreachable.
+   */
+  extractedFinancials?: Record<string, unknown>;
+  financialDataSource?: string; // e.g. "yahoo_finance_quoteSummary" | "yahoo_finance_v7_quote" | "bse_api"
 }
 
 // ─── Document Agent ─────────────────────────────────────────────────────────────
@@ -143,7 +152,37 @@ export class DocumentAgent {
       }
     }
 
-    // ── Step 4: Update SubagentRun with output ──────────────────────────────
+    // ── Step 4: Fetch Yahoo Finance financial snapshot (RC-4 fix) ──────────
+    // This ensures ModelingAgent always gets real financial data even before
+    // PDF parsing is implemented. ModelingAgent already has Yahoo as its Tier 2
+    // but calling it here makes extractedFinancials available at the document
+    // phase output, which is what MasterOrchestrator passes to ModelingAgent.
+    let extractedFinancials: Record<string, unknown> | undefined = undefined;
+    let financialDataSource: string | undefined = undefined;
+
+    try {
+      console.log(`[DocumentAgent] Fetching financial snapshot from Yahoo Finance for ${ticker}...`);
+      const yf = await fetchYahooFinancials(ticker);
+      if (yf.isLiveData) {
+        extractedFinancials = toModelingInputRecord(yf);
+        financialDataSource = `yahoo_finance_${yf.dataSource ?? "unknown"}`;
+        console.log(
+          `[DocumentAgent] ✓ Financial snapshot: Revenue ₹${yf.revenueCr ?? "N/A"} Cr` +
+          ` | EBITDA margin ${yf.ebitdaMargin !== null ? (yf.ebitdaMargin * 100).toFixed(1) + "%" : "N/A"}` +
+          ` | Market Cap ₹${yf.marketCapCr ?? "N/A"} Cr | Source: ${financialDataSource}`
+        );
+      } else {
+        console.warn(
+          `[DocumentAgent] ⚠️ Yahoo Finance returned no live data for ${ticker}` +
+          ` (error: ${yf.fetchError ?? "unknown"}). ModelingAgent will attempt its own fetch.`
+        );
+      }
+    } catch (err) {
+      console.warn(`[DocumentAgent] Yahoo Finance snapshot failed for ${ticker}:`,
+        err instanceof Error ? err.message : String(err));
+    }
+
+    // ── Step 5: Build output ────────────────────────────────────────────────
     const output: DocumentAgentOutput = {
       ticker,
       fetchedDocuments: allDocuments,
@@ -151,8 +190,10 @@ export class DocumentAgent {
       bseResult,
       nseResult,
       totalDocumentsFetched: allDocuments.length,
-      milestoneCompleted: allDocuments.length > 0,
+      milestoneCompleted: allDocuments.length > 0 || extractedFinancials !== undefined,
       summary: this.buildSummary(ticker, allDocuments, concallTranscripts),
+      extractedFinancials,
+      financialDataSource,
     };
 
     try {

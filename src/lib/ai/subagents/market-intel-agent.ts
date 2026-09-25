@@ -10,7 +10,7 @@
  */
 
 import { prisma } from "@/lib/db";
-import { fetchScreenerProfile, ScreenerProfile } from "@/lib/ai/tools/screener-scrape-tool";
+import { fetchBseCompanyFinancials, toScreenerProfileShape } from "@/lib/ai/tools/bse-financial-data-tool";
 import { fetchCreditRatings, CreditRatingResult } from "@/lib/ai/tools/credit-rating-tool";
 import { fetchSectorNews, SectorNewsDigest } from "@/lib/ai/tools/sector-news-deep-tool";
 import { fetchYahooFinancials, ExtractedFinancials } from "@/lib/ai/tools/yahoo-financials-tool";
@@ -28,7 +28,8 @@ export interface MarketIntelAgentInput {
 export interface MarketIntelAgentOutput {
   ticker: string;
   peers: string[];
-  peerProfiles: ScreenerProfile[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  peerProfiles: any[]; // BSE financial profiles (ScreenerProfile-compatible shape)
   yahooFinancials: ExtractedFinancials | null; // primary ticker data from Yahoo
   creditRatings: CreditRatingResult;
   newsDigest: SectorNewsDigest;
@@ -49,15 +50,18 @@ export class MarketIntelAgent {
     console.log(`[MarketIntelAgent] Benchmarking ${ticker} against peers: ${peerTickers.join(", ")}...`);
 
     const allTickers = Array.from(new Set([ticker, ...peerTickers]));
-    const peerProfiles: ScreenerProfile[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const peerProfiles: any[] = [];
 
-    // Step 1: Scrape Screener profiles for peer comparison (best effort)
+    // Step 1: Fetch BSE financial data for peer comparison
+    // RC-2: Replaced Screener.in (competitor) with BSE India official APIs.
+    // Same underlying data — BSE exchange filings — without competitor dependency.
     for (const t of allTickers) {
       try {
-        const prof = await fetchScreenerProfile(t, runId);
-        peerProfiles.push(prof);
+        const bseData = await fetchBseCompanyFinancials(t);
+        peerProfiles.push(toScreenerProfileShape(bseData));
       } catch (err) {
-        console.warn(`[MarketIntelAgent] Failed to fetch Screener profile for ${t}:`, err);
+        console.warn(`[MarketIntelAgent] Failed to fetch BSE data for ${t}:`, err);
       }
     }
 
@@ -117,7 +121,8 @@ export class MarketIntelAgent {
 
   // ─── Private Helpers ────────────────────────────────────────────────────────
 
-  private formatBenchmarkTable(profiles: ScreenerProfile[], yahoo?: ExtractedFinancials | null): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private formatBenchmarkTable(profiles: any[], yahoo?: ExtractedFinancials | null): string {
     if (profiles.length === 0 && !yahoo) return "_No peer profiles benchmarked._";
 
     // Build display-ready values for primary company (prefer Yahoo data when Screener is null)
@@ -152,7 +157,8 @@ export class MarketIntelAgent {
 
   private buildSummary(
     ticker: string,
-    profiles: ScreenerProfile[],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    profiles: any[],
     credit: CreditRatingResult,
     news: SectorNewsDigest,
     yahoo?: ExtractedFinancials | null
@@ -165,7 +171,7 @@ export class MarketIntelAgent {
       `• Screener profiles benchmarked for ${profiles.length} peer(s)`,
       yahooNote,
       `• Credit Rating Profile: ${credit.overallCreditProfile}`,
-      `• Sector News Digest: ${news.news.length} items analyzed (${news.sentimentBreakdown.positive} positive, ${news.sentimentBreakdown.regulatory_risk} regulatory risk)`,
+      `• Sector News Digest: ${news.news?.length ?? 0} items analyzed (${news.sentimentBreakdown?.positive ?? 0} positive, ${news.sentimentBreakdown?.regulatory_risk ?? 0} regulatory risk)`,
     ].join("\n");
   }
 }

@@ -1,6 +1,6 @@
-import { test, describe } from "node:test";
+import { test, describe } from "vitest";
 import assert from "node:assert";
-import { PDFExtractor } from "../pdf-extractor";
+import { PDFExtractor } from "@/lib/parsers/pdf-extractor";
 
 describe("PDFExtractor Pipeline Tests", () => {
   // A dummy buffer representing a PDF

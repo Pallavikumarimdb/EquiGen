@@ -1,12 +1,19 @@
 /**
- * NSE Filings Tool — Phase 10 (plan4.md)
+ * NSE Filings Tool — RC-3 Reliability Fix
  *
  * Queries NSE India's public corporate filing APIs for
  * annual reports, quarterly results, and corporate announcements.
  *
- * Data source: NSE India public corporate filings (no auth required).
+ * RELIABILITY FIX (RC-3):
+ * NSE's API requires a valid browser session cookie from a prior homepage visit.
+ * Without it, all endpoints return 401 or empty data arrays.
+ * This is now handled by NseSession singleton (nse-session.ts).
+ *
+ * Data source: NSE India public corporate filings (no auth required beyond session).
  * NSE API base: https://www.nseindia.com/api/
  */
+
+import { getNseHeaders, invalidateNseSession } from "@/lib/scraping/nse-session";
 
 export interface NseFiling {
   date: string;          // ISO date string
@@ -24,19 +31,7 @@ export interface NseFilingsResult {
   fetchedAt: string;
 }
 
-/**
- * NSE requires specific headers to avoid 403 — must mimic a real browser session.
- * Requests without Referer/Accept headers get blocked.
- */
-function nseHeaders(): HeadersInit {
-  return {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.nseindia.com/",
-    "Origin": "https://www.nseindia.com",
-  };
-}
+
 
 /**
  * Fetches corporate filings from NSE India for a given symbol.
@@ -64,13 +59,39 @@ export async function fetchNseFilings(
 
   try {
     // ── 1. Corporate Announcements ──────────────────────────────────────────
+    const sessionHeaders = await getNseHeaders();
     const annUrl = `https://www.nseindia.com/api/corp-info?symbol=${encodeURIComponent(upperSymbol)}&corpType=announcement&market=equities`;
     const annRes = await fetch(annUrl, {
-      headers: nseHeaders(),
+      headers: sessionHeaders,
       signal: AbortSignal.timeout(12000),
     });
 
-    if (annRes.ok) {
+    if (annRes.status === 401 || annRes.status === 403) {
+      console.warn(`[NSEFilingsTool] Session rejected (${annRes.status}) — invalidating cache and retrying once...`);
+      invalidateNseSession();
+      // Retry with fresh session
+      const freshHeaders = await getNseHeaders();
+      const retryRes = await fetch(annUrl, {
+        headers: freshHeaders,
+        signal: AbortSignal.timeout(12000),
+      });
+      if (retryRes.ok) {
+        const annData = await retryRes.json();
+        const announcements: Record<string, string>[] = annData?.data ?? annData?.Table ?? [];
+        for (const ann of announcements.slice(0, maxResults)) {
+          const attUrl = ann.attchmntFile
+            ? `https://archives.nseindia.com/corporate/${ann.attchmntFile}`
+            : "";
+          filings.push({
+            date: ann.an_dt ?? ann.date ?? "",
+            type: ann.subject ?? "Announcement",
+            title: ann.subject ?? ann.desc ?? "Corporate Announcement",
+            url: attUrl,
+            symbol: upperSymbol,
+          });
+        }
+      }
+    } else if (annRes.ok) {
       const annData = await annRes.json();
       const announcements: Record<string, string>[] = annData?.data ?? annData?.Table ?? [];
 
@@ -92,7 +113,7 @@ export async function fetchNseFilings(
     // ── 2. Financial Results (Quarterly) ───────────────────────────────────
     const resultsUrl = `https://www.nseindia.com/api/corp-info?symbol=${encodeURIComponent(upperSymbol)}&corpType=financial_results&market=equities`;
     const resultsRes = await fetch(resultsUrl, {
-      headers: nseHeaders(),
+      headers: await getNseHeaders(),
       signal: AbortSignal.timeout(12000),
     });
 
@@ -119,7 +140,7 @@ export async function fetchNseFilings(
     // ── 3. Annual Report (via NSE filings archive) ─────────────────────────
     const arUrl = `https://www.nseindia.com/api/annual-reports?index=equities&symbol=${encodeURIComponent(upperSymbol)}`;
     const arRes = await fetch(arUrl, {
-      headers: nseHeaders(),
+      headers: await getNseHeaders(),
       signal: AbortSignal.timeout(10000),
     });
 

@@ -1,26 +1,35 @@
 /**
- * Peer Comparison Tool — Phase 4 Read-only Live Data Tool
+ * Peer Comparison Tool — RC-7 Reliability Fix
  *
- * Generates sector peer benchmarking tables across valuation and operational metrics.
- * Structurally read-only: writes to conversation, never touches report_versions or report state.
+ * Generates sector peer benchmarking tables with full valuation and operational metrics.
  *
- * FIX: Removed all hardcoded market cap and ratio data (which was stale and presented as live).
- * Live data is now fetched per peer ticker from Yahoo Finance.
- * When live data is unavailable, the tool returns a clearly-labelled "data unavailable" row
- * instead of fake numbers.
+ * RC-7 FIX: Replaced `fetchLiveQuote()` (Yahoo v8 /chart — only gives price)
+ * with `fetchYahooFinancials()` (Yahoo quoteSummary — gives EV/EBITDA, margins, growth).
+ * EV/EBITDA, revenue growth YoY, and operating margin are now REAL values, not "N/A".
+ *
+ * Data source: Yahoo Finance quoteSummary (free, no API key required).
+ * Fallback: Yahoo v7 quote (price + market cap only) if quoteSummary is blocked.
+ *
+ * NOTE: All data sourced from Yahoo Finance NSE feed. No Screener.in dependency.
  */
+
+import { fetchYahooFinancials, ExtractedFinancials } from "@/lib/ai/tools/yahoo-financials-tool";
 
 export interface PeerMetrics {
   name: string;
   ticker: string;
-  marketCapCr: string | number;   // "N/A" when not fetched
-  peRatio: string | number;        // "N/A" when not fetched
-  evEbitda: string | number;       // "N/A" when not fetched
-  revGrowthYoY: string | number;   // "N/A" — requires TTM vs prior year data
-  opMargin: string | number;       // "N/A" — requires income statement data
-  currentPrice: string | number;   // Live price from Yahoo Finance
+  currentPrice: string | number;
+  marketCapCr: string | number;
+  peRatio: string | number;
+  evEbitda: string | number;       // RC-7: Now real from quoteSummary
+  revGrowthYoY: string | number;   // RC-7: Now real from quoteSummary
+  opMargin: string | number;       // RC-7: Now real from quoteSummary
+  ebitdaMargin: string | number;
+  beta: string | number;
+  dividendYield: string | number;
   currency: string;
-  isLiveData: boolean;             // false when fallback to "N/A"
+  isLiveData: boolean;
+  dataSource: string;
   asOf: string;
 }
 
@@ -30,100 +39,106 @@ export interface PeerComparisonResult {
   peers: PeerMetrics[];
   asOf: string;
   rawSummary: string;
-  dataNote: string;                // Transparency note about data freshness
+  dataNote: string;
 }
 
-// ─── Sector peer ticker maps (NSE tickers only) ────────────────────────────────
-// These are ticker lists, NOT hardcoded values. Values are always fetched live.
+// ─── Sector peer ticker maps ────────────────────────────────────────────────────
 
 const SECTOR_PEER_TICKERS: Record<string, { name: string; ticker: string }[]> = {
   banking: [
-    { name: "HDFC Bank", ticker: "HDFCBANK" },
-    { name: "ICICI Bank", ticker: "ICICIBANK" },
-    { name: "Axis Bank", ticker: "AXISBANK" },
-    { name: "Kotak Mahindra Bank", ticker: "KOTAKBANK" },
+    { name: "HDFC Bank",            ticker: "HDFCBANK"  },
+    { name: "ICICI Bank",           ticker: "ICICIBANK" },
+    { name: "Axis Bank",            ticker: "AXISBANK"  },
+    { name: "Kotak Mahindra Bank",  ticker: "KOTAKBANK" },
+    { name: "State Bank of India",  ticker: "SBIN"      },
   ],
   it: [
-    { name: "TCS", ticker: "TCS" },
-    { name: "Infosys", ticker: "INFY" },
-    { name: "HCL Technologies", ticker: "HCLTECH" },
-    { name: "Wipro", ticker: "WIPRO" },
+    { name: "TCS",             ticker: "TCS"      },
+    { name: "Infosys",         ticker: "INFY"     },
+    { name: "HCL Technologies",ticker: "HCLTECH"  },
+    { name: "Wipro",           ticker: "WIPRO"    },
+    { name: "Tech Mahindra",   ticker: "TECHM"    },
   ],
   auto: [
-    { name: "Tata Motors", ticker: "TATAMOTORS" },
-    { name: "Mahindra & Mahindra", ticker: "M_M" },
-    { name: "Maruti Suzuki", ticker: "MARUTI" },
-    { name: "Bajaj Auto", ticker: "BAJAJ-AUTO" },
+    { name: "Tata Motors",       ticker: "TATAMOTORS" },
+    { name: "Mahindra & Mahindra",ticker: "MM"        },
+    { name: "Maruti Suzuki",     ticker: "MARUTI"     },
+    { name: "Bajaj Auto",        ticker: "BAJAJAUT"   },
+    { name: "Hero MotoCorp",     ticker: "HEROMOTOCO" },
   ],
   pharma: [
     { name: "Sun Pharma", ticker: "SUNPHARMA" },
-    { name: "Dr. Reddy's", ticker: "DRREDDY" },
-    { name: "Cipla", ticker: "CIPLA" },
-    { name: "Lupin", ticker: "LUPIN" },
+    { name: "Dr. Reddy's", ticker: "DRREDDY"  },
+    { name: "Cipla",       ticker: "CIPLA"    },
+    { name: "Lupin",       ticker: "LUPIN"    },
+    { name: "Divi's Labs", ticker: "DIVISLAB" },
   ],
   fmcg: [
-    { name: "HUL", ticker: "HINDUNILVR" },
-    { name: "Nestle India", ticker: "NESTLEIND" },
-    { name: "Britannia", ticker: "BRITANNIA" },
-    { name: "Dabur", ticker: "DABUR" },
+    { name: "HUL",         ticker: "HINDUNILVR" },
+    { name: "Nestle India",ticker: "NESTLEIND"  },
+    { name: "Britannia",   ticker: "BRITANNIA"  },
+    { name: "Dabur",       ticker: "DABUR"      },
+    { name: "Marico",      ticker: "MARICO"     },
+  ],
+  energy: [
+    { name: "Reliance Industries", ticker: "RELIANCE" },
+    { name: "ONGC",               ticker: "ONGC"      },
+    { name: "BPCL",               ticker: "BPCL"      },
+    { name: "Coal India",         ticker: "COALINDIA" },
+  ],
+  metals: [
+    { name: "Tata Steel",  ticker: "TATASTEEL" },
+    { name: "JSW Steel",   ticker: "JSWSTEEL"  },
+    { name: "Hindalco",    ticker: "HINDALCO"  },
+    { name: "Vedanta",     ticker: "VEDL"      },
   ],
 };
 
-// ─── Live quote fetcher ────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 
-interface LiveQuote {
-  ticker: string;
-  name: string;
-  price: number | null;
-  marketCapCr: number | null;
-  peRatio: number | null;
-  currency: string;
-  asOf: string;
+function fmt(val: number | null, decimals = 1, suffix = ""): string {
+  if (val == null) return "N/A";
+  return `${val.toFixed(decimals)}${suffix}`;
 }
 
-async function fetchLiveQuote(nseTicker: string): Promise<LiveQuote> {
-  const yahooTicker = nseTicker.endsWith(".NS") ? nseTicker : `${nseTicker}.NS`;
-  const asOf = new Date().toISOString();
-
-  try {
-    const response = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=1d`,
-      {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; EquiGen/1.0)" },
-        signal: AbortSignal.timeout(8000),
-      }
-    );
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const data = await response.json();
-    const meta = data?.chart?.result?.[0]?.meta;
-
-    if (!meta || meta.regularMarketPrice === undefined) {
-      throw new Error("No market price in response");
-    }
-
-    const price = meta.regularMarketPrice ?? null;
-    const currency = meta.currency ?? "INR";
-    const shortName = meta.shortName ?? meta.longName ?? nseTicker;
-
-    // marketCap is in absolute units (e.g. INR). Convert to Crores (1 Cr = 10M INR).
-    const marketCap = meta.marketCap ?? null;
-    const marketCapCr = marketCap && currency === "INR"
-      ? Math.round(marketCap / 1e7)       // 1 Crore = 10 million
-      : null;
-
-    // Yahoo provides trailingPE in the quote summary — not always available in /chart
-    const peRatio = meta.trailingPE ?? null;
-
-    return { ticker: nseTicker, name: shortName, price, marketCapCr, peRatio, currency, asOf };
-  } catch (err) {
-    console.warn(`[PeerComparisonTool] Failed to fetch quote for ${nseTicker}:`, err);
-    return { ticker: nseTicker, name: nseTicker, price: null, marketCapCr: null, peRatio: null, currency: "INR", asOf };
-  }
+function fmtINR(val: number | null): string {
+  if (val == null) return "N/A";
+  return `₹${val.toLocaleString("en-IN")}`;
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+/**
+ * Converts ExtractedFinancials to PeerMetrics. RC-7 core change:
+ * evEbitda, revGrowthYoY, opMargin all populated from quoteSummary fields.
+ */
+function toPeerMetrics(fin: ExtractedFinancials, name: string): PeerMetrics {
+  return {
+    name,
+    ticker: fin.ticker,
+    currentPrice:   fin.currentPrice != null ? fmtINR(fin.currentPrice) : "N/A",
+    marketCapCr:    fin.marketCapCr  != null ? fin.marketCapCr.toLocaleString("en-IN") : "N/A",
+    peRatio:        fmt(fin.trailingPE, 1, "x"),
+    evEbitda:       fmt(fin.evEbitda, 1, "x"),               // RC-7: Real value
+    revGrowthYoY:   fin.revenueGrowthYoY != null
+      ? `${(fin.revenueGrowthYoY * 100).toFixed(1)}%`
+      : "N/A",                                                // RC-7: Real value
+    opMargin:       fin.operatingMargin != null
+      ? `${(fin.operatingMargin * 100).toFixed(1)}%`
+      : "N/A",                                                // RC-7: Real value
+    ebitdaMargin:   fin.ebitdaMargin != null
+      ? `${(fin.ebitdaMargin * 100).toFixed(1)}%`
+      : "N/A",
+    beta:           fmt(fin.beta, 2),
+    dividendYield:  fin.dividendYield != null
+      ? `${(fin.dividendYield * 100).toFixed(2)}%`
+      : "N/A",
+    currency:       fin.currency,
+    isLiveData:     fin.isLiveData,
+    dataSource:     fin.dataSource ?? "yahoo_quotesummary",
+    asOf:           fin.fetchedAt,
+  };
+}
+
+// ─── Main export ───────────────────────────────────────────────────────────────
 
 export async function fetchPeerComparison(
   tickerOrSector: string,
@@ -133,78 +148,77 @@ export async function fetchPeerComparison(
   const target = tickerOrSector.trim().toUpperCase();
   const dateStr = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
-  // Detect sector from input
+  // Detect sector from input (simple keyword match)
   const detectedSector = Object.keys(SECTOR_PEER_TICKERS).find((k) =>
     target.toLowerCase().includes(k)
   ) ?? "it";
 
-  // Build peer list — either from caller-supplied list or sector defaults
+  // Build peer list — either from caller or sector defaults
   const peerDefs = peerList && peerList.length > 0
     ? peerList.map((t) => ({ name: t.toUpperCase(), ticker: t.toUpperCase() }))
     : SECTOR_PEER_TICKERS[detectedSector] ?? SECTOR_PEER_TICKERS.it;
 
-  // Fetch live quotes for all peers concurrently
-  const quoteResults = await Promise.allSettled(
-    peerDefs.map((p) => fetchLiveQuote(p.ticker))
+  console.log(`[PeerComparison] Fetching quoteSummary data for ${peerDefs.length} peers (${peerDefs.map(p => p.ticker).join(", ")})...`);
+
+  // RC-7: Use fetchYahooFinancials (quoteSummary) instead of fetchLiveQuote (v8 chart)
+  // quoteSummary returns evEbitda, operatingMargin, revenueGrowth — v8 chart does not.
+  // Runs concurrently with Promise.allSettled — one peer failing won't break the rest.
+  const results = await Promise.allSettled(
+    peerDefs.map(async (p) => {
+      const fin = await fetchYahooFinancials(p.ticker);
+      return { fin, name: p.name };
+    })
   );
 
-  const peers: PeerMetrics[] = quoteResults.map((result, i) => {
+  const peers: PeerMetrics[] = results.map((result, i) => {
     const def = peerDefs[i];
     if (result.status === "fulfilled") {
-      const q = result.value;
-      return {
-        name: q.name !== q.ticker ? q.name : def.name,
-        ticker: def.ticker,
-        marketCapCr: q.marketCapCr !== null ? q.marketCapCr.toLocaleString("en-IN") : "N/A",
-        peRatio: q.peRatio !== null ? q.peRatio.toFixed(1) : "N/A",
-        evEbitda: "N/A",       // Requires enterprise value + EBITDA — not in /chart endpoint
-        revGrowthYoY: "N/A",   // Requires 2 periods of revenue — not in /chart endpoint
-        opMargin: "N/A",       // Requires income statement — not in /chart endpoint
-        currentPrice: q.price !== null ? `₹${q.price.toLocaleString("en-IN")}` : "N/A",
-        currency: q.currency,
-        isLiveData: q.price !== null,
-        asOf: q.asOf,
-      };
-    } else {
-      return {
-        name: def.name,
-        ticker: def.ticker,
-        marketCapCr: "N/A",
-        peRatio: "N/A",
-        evEbitda: "N/A",
-        revGrowthYoY: "N/A",
-        opMargin: "N/A",
-        currentPrice: "N/A",
-        currency: "INR",
-        isLiveData: false,
-        asOf: timestamp,
-      };
+      const { fin, name } = result.value;
+      if (fin.isLiveData) {
+        return toPeerMetrics(fin, name);
+      }
     }
+    // Fallback: peer data unavailable
+    return {
+      name: def.name,
+      ticker: def.ticker,
+      currentPrice: "N/A", marketCapCr: "N/A", peRatio: "N/A",
+      evEbitda: "N/A", revGrowthYoY: "N/A", opMargin: "N/A",
+      ebitdaMargin: "N/A", beta: "N/A", dividendYield: "N/A",
+      currency: "INR", isLiveData: false, dataSource: "failed", asOf: timestamp,
+    };
   });
 
   const liveCount = peers.filter((p) => p.isLiveData).length;
-  const dataNote = liveCount === peers.length
-    ? `All ${peers.length} peer quotes fetched live.`
-    : `${liveCount}/${peers.length} peers have live data. "N/A" rows require manual data entry or a licensed data feed (NSE/Upstox/Kite).`;
+  const hasRealFundamentals = peers.some((p) => p.evEbitda !== "N/A");
 
-  // Build markdown table
-  const tableHeader = `| Peer Company | Ticker | CMP | Market Cap (₹ Cr) | P/E | EV/EBITDA | Rev Growth | Op Margin |`;
-  const tableDivider = `|---|---|---|---|---|---|---|---|`;
-  const tableRows = peers.map((p) =>
-    `| **${p.name}** | \`${p.ticker}\` | ${p.currentPrice} | ${p.marketCapCr} | ${p.peRatio} | ${p.evEbitda} | ${p.revGrowthYoY} | ${p.opMargin} |`
+  const dataNote = liveCount === peers.length
+    ? `All ${peers.length} peers fetched live from Yahoo Finance quoteSummary. EV/EBITDA, margins, and growth are real values.`
+    : liveCount > 0
+    ? `${liveCount}/${peers.length} peers have live data. Remaining peers returned "N/A" — Yahoo Finance may be rate-limiting.`
+    : `No live peer data available. Yahoo Finance returned no data. Try again in a few minutes.`;
+
+  // Build markdown benchmark table
+  const header   = `| Company | CMP | Mkt Cap (₹ Cr) | P/E | EV/EBITDA | Rev Growth | Op Margin | EBITDA Margin | Beta | Div Yield |`;
+  const divider  = `|---------|-----|----------------|-----|-----------|------------|-----------|---------------|------|-----------|`;
+  const rows = peers.map((p) =>
+    `| **${p.name}** | ${p.currentPrice} | ${p.marketCapCr} | ${p.peRatio} | ${p.evEbitda} | ${p.revGrowthYoY} | ${p.opMargin} | ${p.ebitdaMargin} | ${p.beta} | ${p.dividendYield} |`
   ).join("\n");
 
   const rawSummary = [
-    `📊 **Peer Benchmarking Analysis — ${target}**`,
+    `📊 **Peer Benchmarking — ${target} vs ${detectedSector.toUpperCase()} Sector**`,
     ``,
-    tableHeader,
-    tableDivider,
-    tableRows,
+    header,
+    divider,
+    rows,
     ``,
-    `> ⚠️ ${dataNote}`,
-    `> EV/EBITDA, Revenue Growth, and Operating Margin require a licensed financial data API (Screener.in, Trendlyne, or NSE).`,
+    hasRealFundamentals
+      ? `> ✅ EV/EBITDA, operating margin, and revenue growth sourced from Yahoo Finance quoteSummary.`
+      : `> ⚠️ Fundamental metrics (EV/EBITDA, margins) not available — Yahoo quoteSummary may be blocked. Only price data shown.`,
     ``,
-    `*Live quotes fetched as of ${dateStr} IST · Source: Yahoo Finance NSE feed*`,
+    `> ${dataNote}`,
+    ``,
+    `*Source: Yahoo Finance NSE feed · ${dateStr} IST*`,
   ].join("\n");
 
   return {

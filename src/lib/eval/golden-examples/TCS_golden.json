@@ -1,0 +1,39 @@
+{
+  "_meta": {
+    "ticker": "TCS",
+    "companyName": "Tata Consultancy Services Limited",
+    "fiscalYear": "FY2024",
+    "source": "NSE/BSE filings + Yahoo Finance",
+    "lastUpdated": "2024-09-01"
+  },
+  "revenue": {
+    "valueMinCr": 230000,
+    "valueMaxCr": 260000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 1200000,
+    "valueMaxCr": 1600000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.24,
+    "valueMax": 0.30,
+    "label": "EBITDA Margin (decimal)"
+  },
+  "trailingPE": {
+    "valueMin": 28,
+    "valueMax": 38,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.6,
+    "valueMax": 1.0,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 3500,
+    "valueMax": 4500,
+    "label": "Current Market Price (₹/share)"
+  }
+}

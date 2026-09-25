@@ -19,6 +19,7 @@ import { complianceAgent } from "../subagents/compliance-agent";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
+import { pipelineEval, AgentRunSnapshot } from "@/lib/eval/pipeline-eval";
 import type { Prisma } from "@prisma/client";
 
 export interface OrchestrationResult {
@@ -448,6 +449,13 @@ export class MasterOrchestrator {
         }
       }
 
+      // RC-6 fix: Pull Yahoo Finance data from MarketIntelAgent output and inject
+      // into companyData + recommendation blocks that report-normalizer expects.
+      // Previously these values were only inside assumptions.* (DCF model output),
+      // but normalizer looks for companyData.pe, companyData.beta, etc.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const yahooFin = (mktOut as any)?.yahooFinancials ?? null;
+
       const rawPayload = {
         sourceType: "autonomous",
         ticker,
@@ -458,6 +466,23 @@ export class MasterOrchestrator {
         marketIntelData,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
+        // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
+        companyData: yahooFin ? {
+          marketCap:        yahooFin.marketCapCr    ?? null,
+          pe:               yahooFin.trailingPE     ?? null,
+          evEbitda:         yahooFin.evEbitda        ?? null,
+          beta:             yahooFin.beta            ?? null,
+          currentPrice:     yahooFin.currentPrice   ?? null,
+          outstandingShares: yahooFin.sharesOutstandingCr ?? null,
+          dividendYield:    yahooFin.dividendYield != null
+            ? `${(yahooFin.dividendYield * 100).toFixed(2)}%`
+            : null,
+          enterpriseValue:  yahooFin.enterpriseValueCr ?? null,
+        } : null,
+        // RC-6: Recommendation block — normalizer reads recommendation.currentPrice
+        recommendation: yahooFin?.currentPrice ? {
+          currentPrice: yahooFin.currentPrice,
+        } : undefined,
       };
 
       const normalizedData = normalizeEquityResearchData(rawPayload);
@@ -498,6 +523,21 @@ export class MasterOrchestrator {
     const dataSources = synthData?.dataSources;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const modelQuality = (modelingOutput as any)?.dataQuality;
+
+    // RC-9: Run pipeline eval for reliability scoring after every run
+    const evalSnapshot: AgentRunSnapshot = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      yahoo: (mktOut as any)?.yahooFinancials ?? null,
+      modelingDataQuality: modelQuality ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      modelOutput: (modelingOutput as any)?.modelOutput ?? undefined,
+      sections: finalSections,
+      dataSources,
+    };
+    // Run eval asynchronously — don't block report delivery
+    pipelineEval.run(ticker, evalSnapshot).catch((err) =>
+      console.warn("[MasterOrchestrator] Pipeline eval failed:", err)
+    );
 
     console.log(`\n════════════════════════════════════════════════════════════════════════════════`);
     console.log(`[MasterOrchestrator] DATA QUALITY REPORT — ${companyName} (${ticker})`);
