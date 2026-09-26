@@ -21,6 +21,7 @@ import { MetricGrid } from "../shared/MetricGrid";
 import { ScenarioModeler } from "../shared/ScenarioModeler";
 import { SwotMatrix } from "../shared/SwotMatrix";
 import { ForensicAuditCard } from "../shared/ForensicAuditCard";
+import { ValuationBandsChart } from "../shared/ValuationBandsChart";
 
 export interface UnifiedReportViewProps {
   reportData: EquityResearchData;
@@ -372,14 +373,18 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
       {/* ── Tab 2: Valuation & Scenario Modeler ───────────────────────────── */}
       {activeTab === "valuation" && (
         <div className="space-y-5">
-          {/* Financial Multiples Grid */}
-          <MetricGrid reportData={reportData} />
-
           {/* Interactive DCF Scenario Engine */}
           <ScenarioModeler
             initialTargetPrice={targetPrice ?? 1140}
             initialCmp={cmp ?? 948}
             reportData={reportData}
+          />
+
+          {/* Historical Valuation Multiples Bands (±1σ, ±2σ Corridors) */}
+          <ValuationBandsChart
+            reportData={reportData}
+            ticker={ticker}
+            companyName={companyName}
           />
 
           {/* Peer Valuation Multiples Table */}

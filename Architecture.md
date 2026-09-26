@@ -13,21 +13,29 @@ EquiGen operates as a modern hybrid AI equity research platform with two complem
 ```mermaid
 graph TB
     subgraph ClientLayer ["Client Presentation Layer (Next.js 15 App Router)"]
-        UI[Unified Workspace UI]
-        GT[Goal Terminal]
-        SP[Steering Panel]
-        TF[Trajectory Feed]
-        LDP[Living Draft Panel]
-        CP[Interactive Co-Pilot]
+        UI[Unified Institutional Report Workspace]
+        SM[Scenario Modeler - 3-Statement DCF]
+        VB[Valuation Bands Chart - ±1σ, ±2σ Corridors]
+        FC[Forensic Audit & Quality Health Card]
+        SP[Steering Panel & Trajectory Feed]
+        CP[Interactive AI Research Copilot]
     end
 
     subgraph APILayer ["API Routing & Orchestration Boundary"]
         PlanAPI["POST /api/agent/plan"]
         ExecAPI["POST /api/agent/execute"]
         StreamAPI["GET /api/agent/stream (SSE)"]
-        SteerAPI["POST /api/agent/steering"]
+        ValuationBandsAPI["GET /api/valuation-bands"]
         ExtractAPI["POST /api/extract"]
         DownloadAPI["GET /api/download"]
+        ExcelAPI["GET /api/excel"]
+    end
+
+    subgraph ModelingLayer ["Financial Modeling & Valuation Core"]
+        TSE[ThreeStatementEngine - Dynamic P&L / BS / CFS Circularity]
+        WCS[Working Capital Engine - DSO, DIO, DPO & CCC]
+        VBE[ValuationBandsEngine - 3Y/5Y Corridors & Z-Scores]
+        DSE[DCF Sensitivity Engine - WACC x Terminal Growth Grid]
     end
 
     subgraph SwarmLayer ["Autonomous Agent Swarm (MasterOrchestrator)"]
@@ -46,19 +54,21 @@ graph TB
         TB[TrajectoryEventBus - In-Memory SSE]
     end
 
-    subgraph RenderLayer ["Publication Engine"]
+    subgraph RenderLayer ["Publication & Export Engine"]
         HRG[HtmlReportGenerator - Inline SVG & A4 CSS]
         PUP[Puppeteer Headless Engine]
+        XLS[ExcelGenerator - 160+ Live Excel Formulas]
         PDF[Publication-Grade Research PDF]
     end
 
-    UI --> PlanAPI & ExecAPI & StreamAPI & SteerAPI & ExtractAPI & DownloadAPI
-    PlanAPI --> MPA
+    UI --> PlanAPI & ExecAPI & StreamAPI & ValuationBandsAPI & DownloadAPI & ExcelAPI
+    ValuationBandsAPI --> VBE
     ExecAPI --> SwarmLayer
-    SwarmLayer --> TB & DB
-    TB --> StreamAPI
+    SwarmLayer --> ModelingLayer
+    ModelingLayer --> DB & TB
     DownloadAPI --> HRG --> PUP --> PDF
-    RH --> DownloadAPI
+    ExcelAPI --> XLS
+    RH --> DownloadAPI & ExcelAPI
 ```
 
 ---
@@ -122,6 +132,114 @@ flowchart LR
 * **SEBI (Research Analysts) Regulations, 2014 Audit**: Verifies that statutory warnings, risk disclaimers, and analyst certifications are present.
 * **Mathematical Validation**: Checks that valuation multiples, target prices, and historical margins are internally consistent.
 * **Conflict of Interest**: Audits disclosures for financial interest, compensation, or market-making activity in the target security.
+
+---
+
+## 📊 Mode 2: Integrated 3-Statement Engine & Live-Formula Excel Modeling
+
+EquiGen incorporates a professional-grade circular 3-statement financial engine ([three-statement-engine.ts](file:///d:/13.my-startups/EquiGen/src/lib/financial-modeling/three-statement-engine.ts)) that bridges qualitative research and rigorous quantitative valuation.
+
+```mermaid
+flowchart TD
+    subgraph IncomeStatement ["1. Income Statement (P&L)"]
+        REV[Revenue: P x Q Build] --> EBITDA[EBITDA & Margins]
+        EBITDA --> DAE[Depreciation & Amortization]
+        DAE --> EBIT[EBIT / Operating Profit]
+        EBIT --> INT[Net Interest Expense]
+        INT --> EBT[Profit Before Tax]
+        EBT --> TAX[Corporate Tax]
+        TAX --> PAT[Net Profit / PAT]
+    end
+
+    subgraph BalanceSheet ["2. Balance Sheet (BS)"]
+        WC_SCHED[Working Capital Schedule: DSO, DIO, DPO]
+        CAPEX_SCHED[Fixed Asset Schedule: Capex -> Gross Block]
+        DEBT_LOOP[Debt Schedule & Revolver Feedback]
+        CASH_BAL[Ending Cash & Equivalents]
+        BS_CHECK[Check: Assets = Liabilities + Equity (Δ = ₹0.00)]
+    end
+
+    subgraph CashFlow ["3. Cash Flow Statement (CFS)"]
+        CFO[Cash Flow from Operations: PAT + NonCash - ΔNWC]
+        CFI[Cash Flow from Investing: -Capex]
+        CFF[Cash Flow from Financing: -Debt Repayment - Dividends]
+        NET_CASH[Net Change in Cash: CFO + CFI + CFF]
+    end
+
+    PAT --> CFO
+    DAE --> CFO
+    WC_SCHED -->|Δ Working Capital| CFO
+    CAPEX_SCHED -->|Capex & D&A| DAE & CFI
+    NET_CASH --> CASH_BAL
+    DEBT_LOOP --> INT & CFF
+    CASH_BAL --> BS_CHECK
+```
+
+### Key Capabilities of the 3-Statement Engine
+1. **Dynamic Statement Circularity**:
+   - P&L Net Income feeds Operating Cash Flow.
+   - Non-cash Depreciation & Amortization flows from the Capex/Fixed Asset schedule into both P&L and Cash Flow.
+   - Net Working Capital changes ($\Delta \text{NWC}$) derived from DSO, DIO, and DPO directly adjust operating cash flow.
+   - Ending cash on the Cash Flow statement updates the Balance Sheet cash line item, verifying total assets equal total liabilities and equity with **$\Delta = \text{₹0.00}$ balance sheet discrepancy**.
+2. **Operational Working Capital Schedule**:
+   - Receivables governed by **Days Sales Outstanding (DSO)**: $\text{Receivables} = (\text{Revenue} \times \text{DSO}) / 365$.
+   - Inventory governed by **Days Inventory Outstanding (DIO)**: $\text{Inventory} = (\text{COGS} \times \text{DIO}) / 365$.
+   - Payables governed by **Days Payable Outstanding (DPO)**: $\text{Payables} = (\text{Operating Expenses} \times \text{DPO}) / 365$.
+   - Live **Cash Conversion Cycle (CCC)** metric: $\text{CCC} = \text{DSO} + \text{DIO} - \text{DPO}$.
+3. **Institutional Excel Export with 160+ Live Formulas** (`src/lib/excel/excel-generator.ts`):
+   - Rather than static numeric dumps, the `.xlsx` export generates active calculation trees with Excel formulas (`=SUM()`, `=EBITDA-Capex-ΔWC`, `=PV()`, `=NPV()`).
+   - Analysts can modify operational driver assumptions in Microsoft Excel or Google Sheets, and all financial statements and DCF fair values recalculate instantaneously.
+
+---
+
+## 📈 Mode 3: Historical Valuation Multiples Bands Engine (P/E & EV/EBITDA)
+
+EquiGen provides cyclical valuation context by charting current multiples against 3-year and 5-year statistical corridors ([valuation-bands-engine.ts](file:///d:/13.my-startups/EquiGen/src/lib/financial-modeling/valuation-bands-engine.ts)).
+
+### 1. Statistical Standard Deviation Corridors
+For any NSE/BSE listed company, the engine fetches monthly price history and aligns it with TTM fundamental metrics (EPS and EBITDA per share), deriving historical multiples ($M_t$):
+- **Sample Mean ($\mu$)**: $\mu = \frac{1}{N}\sum_{t=1}^N M_t$
+- **Sample Standard Deviation ($\sigma$)**: $\sigma = \sqrt{\frac{1}{N-1}\sum_{t=1}^N (M_t - \mu)^2}$
+- **Valuation Corridors**: $+2\sigma$, $+1\sigma$, $\text{Mean}$, $-1\sigma$, $-2\sigma$.
+- **Implied Price Corridors**: $\text{Price Band}(k\sigma, t) = (\mu + k\cdot\sigma) \times \text{Metric}_t$.
+
+### 2. Statistical Regime Classification & Z-Scores
+The engine calculates the current multiple's Z-Score ($Z = (M_{\text{current}} - \mu) / \sigma$) and classifies the valuation regime:
+| Z-Score Range | Valuation Regime | Institutional Significance |
+| :--- | :--- | :--- |
+| $Z \ge +2.0\sigma$ | **Extreme Cyclical Peak (+2σ)** | Severe multiple compression risk; historical cycle top. |
+| $+1.0\sigma \le Z < +2.0\sigma$ | **Elevated (+1σ to +2σ)** | Requires aggressive earnings delivery; multiple expansion capped. |
+| $-1.0\sigma \le Z \le +1.0\sigma$ | **Fair Value Corridor (±1σ)** | Balanced risk-reward; stock compounds with earnings/FCF. |
+| $-2.0\sigma \le Z < -1.0\sigma$ | **Discounted (-1σ to -2σ)** | Attractive discount corridor with margin of safety. |
+| $Z < -2.0\sigma$ | **Deep Value / Cyclical Trough (-2σ)** | Extreme undervaluation; asymmetric contrarian entry for cyclicals. |
+
+### 3. Empirical Mean-Reversion Alpha Tracking
+The engine analyzes historical touchpoints where the stock reached extreme bands ($\ge +2\sigma$ or $\le -2\sigma$) and tracks the subsequent 12-month forward return, providing institutional committees with empirical mean-reversion probabilities.
+
+---
+
+## 🏢 Mode 4: Unified Institutional Workspace & Presentation Layer
+
+Rather than splitting research across fragmented, persona-gated screens, EquiGen adopts a **Unified Institutional Workspace** ([UnifiedReportView.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/views/UnifiedReportView.tsx)):
+
+1. **Investment Committee (IC) Memo & Variant Perception**:
+   - 1-click clipboard-exportable IC memorandum containing rating, target price, CMP, upside, downside protection, quality score, and scenario targets.
+   - Explicit contrast between **Market Consensus Expectation** and **EquiGen Variant Perception (Contrarian View)**.
+2. **Interactive 3-Statement DCF Modeler** ([ScenarioModeler.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ScenarioModeler.tsx)):
+   - Unified KPI header strip with formatted Indian numbers (`formatCrores`).
+   - Fast scenario presets: Consensus Base, Bull (+16% Rev), Bear (7% Rev), and Working Capital Stress (+30d DSO).
+   - Sub-tabbed views: *Model Drivers & Working Capital*, *5Y Projected Statements*, and *Valuation Sensitivity Grid*.
+3. **Interactive Valuation Bands Chart** ([ValuationBandsChart.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ValuationBandsChart.tsx)):
+   - Interactive SVG charting of stock prices against $\pm 1\sigma, \pm 2\sigma$ corridors.
+   - Switchers for P/E vs EV/EBITDA, 3Y vs 5Y horizons, and Price (₹) vs Multiples (x).
+4. **Forensic Accounting & Quality Audit** ([ForensicAuditCard.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ForensicAuditCard.tsx)):
+   - Overall Quality Health Score (0-100) and Risk Classification (LOW / MODERATE / HIGH).
+   - Cash Flow Quality (CFO/PAT ratio and CFO-PAT divergence).
+   - Earnings Manipulation Risk (Beneish M-Score 8-variable model).
+   - Bankruptcy & Solvency Risk (Altman Z-Score safe/grey/distress zones).
+   - Governance & Capital Allocation Audit (Promoter pledging, contingent liabilities vs net worth, audit qualification flags).
+5. **Regulatory Certification & SEBI RA Sign-Off** ([SignoffModal.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/SignoffModal.tsx)):
+   - Reviewer identity stamping, SEBI registration number validation (`INH...`), and cryptographic audit trail.
 
 ---
 

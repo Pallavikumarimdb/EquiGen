@@ -25,17 +25,33 @@
 * **Human-in-the-Loop Analyst Steering**: Pause, redirect, adjust valuation assumptions (e.g. WACC, growth rates), or skip milestones mid-flight via the **Steering Panel**.
 * **Real-Time Telemetry Stream**: Server-Sent Events (SSE) stream tool calls, execution progress (17% → 100%), and draft updates live to the UI without page refreshes.
 
-### 2. 🛡️ Data Integrity & Transparency
-* **No Synthetic Data in Researched Reports**: Completed reports are compiled directly from audited exchange filings and live models stored in `ReportHistory`.
-* **Terminal Data Quality Report**: Each pipeline execution outputs an audit block detailing live vs fallback status across all 6 data sources.
-* **Transparent Fallbacks**: If live filings are restricted or unavailable, models explicitly flag `isDerivedFromRealData: false` and inject statutory disclaimers.
+### 2. 📊 Dynamic 3-Statement Engine & Live-Formula Excel Export
+* **Circular Financial Mechanics**: P&L directly drives Balance Sheet and Cash Flow with zero balance sheet discrepancy ($\Delta = \text{₹0.00}$).
+* **Working Capital Cycle Schedule**: Receivables (DSO), Inventory (DIO), and Payables (DPO) schedules dynamically feed Operating Cash Flow and track Cash Conversion Cycle (CCC).
+* **Live Excel Generation (160+ Formulas)**: Generates institutional `.xlsx` workbooks with active calculation formulas (`=SUM()`, `=EBITDA-Capex-ΔWC`, `=PV()`, `=NPV()`) rather than static numeric dumps.
 
-### 3. 📄 Publication-Grade PDF Engine
+### 3. 📈 Historical Valuation Multiples Bands (±1σ, ±2σ Corridors)
+* **Statistical Corridors**: Computes 3Y and 5Y historical P/E and EV/EBITDA trading corridors: Mean ($\mu$), Standard Deviation ($\sigma$), and $\pm 1\sigma, \pm 2\sigma$ bands.
+* **Cyclical Regime Detection**: Flags whether the stock is trading at an **Extreme Cyclical Peak (+2σ)** (multiple compression risk) or **Deep Value / Cyclical Trough (-2σ)** (contrarian entry point).
+* **Empirical Mean-Reversion Tracking**: Evaluates historical subsequent 12-month returns following extreme corridor touches.
+
+### 4. 🔍 Forensic Accounting & Quality Health Audit
+* **Overall Health Score (0-100)**: Quantitative risk classification across earnings quality, solvency, and corporate governance.
+* **Cash Flow Quality**: CFO/PAT conversion ratio and accrual divergence detection.
+* **Forensic Models**: Real-time evaluation of Beneish M-Score (earnings manipulation) and Altman Z-Score (bankruptcy/solvency zones).
+* **Governance Flags**: Promoter pledging percentages, contingent liabilities vs net worth, and auditor qualifications.
+
+### 5. 🏢 Unified Institutional Workspace & 1-Click IC Memo
+* **Consolidated Workspace**: Seamlessly integrates Executive Thesis, 3-Statement DCF Modeler, 5-Year Financials, Forensic Audit, and Regulatory Disclosures in one unified view.
+* **1-Click IC Memo**: Formatted Investment Committee brief exportable directly to clipboard for email and committee presentations.
+* **SEBI RA (2014) Digital Sign-Off**: Mandatory statutory disclosures and analyst certification stamp.
+
+### 6. 📄 Publication-Grade PDF Engine
 * **A4 Print Layout**: Generates institutional A4 research notes with executive summaries, DCF valuation grids, concall highlights, and SEBI certification blocks.
 * **Puppeteer Headless Compilation**: Server-side rendering using Puppeteer with exact print CSS and inline SVG charts.
 * **SEBI RA Sign-Off**: Reviewers can review, digitally certify, and stamp reports with their official SEBI registration credentials before publishing.
 
-### 4. 📑 Assisted Document Ingestion (Mode 2)
+### 7. 📑 Assisted Document Ingestion (Mode 2)
 * **Drag-and-Drop Prospectus Processing**: Ingest raw `.pdf` or `.txt` financial reports.
 * **Vision & OCR Fallback**: Automatically invokes Groq Vision (`llama-3.2-11b-vision-preview`) for charts/graphics or Tesseract OCR for scanned pages when raw text yields fewer than 100 characters.
 * **Math Auditor Node**: Automatically validates extracted financial statements (e.g. EBITDA ≤ Revenue, PAT ≤ EBITDA) and feeds discrepancies back into a self-correction retry loop.
@@ -113,6 +129,7 @@ npm install -g pnpm
 | Command | Description |
 | :--- | :--- |
 | `pnpm run dev` | Starts Next.js development server with hot module reload on port 3000. |
+| `pnpm test` | Runs the full Vitest unit & integration test suite (17 suites, 70 tests). |
 | `pnpm run build` | Builds the production Next.js bundle. |
 | `pnpm run start` | Runs the compiled production application. |
 | `pnpm run lint` | Runs ESLint over the codebase (0 errors, 0 warnings enforced). |
@@ -131,7 +148,9 @@ npm install -g pnpm
 | `/api/agent/stream` | `GET` | Server-Sent Events (SSE) streaming live trajectory and subagent events. |
 | `/api/agent/steering` | `POST` | Submits analyst steering commands (`pause`, `resume`, `redirect`, `skip`). |
 | `/api/agent/plan/[id]/approve` | `PUT` | Analyst plan approval before execution kicks off. |
+| `/api/valuation-bands` | `GET` | Computes historical multiples (P/E & EV/EBITDA) and ±1σ, ±2σ corridors. |
 | `/api/download` | `GET` | Compiles or serves publication-grade A4 PDF reports via Puppeteer. |
+| `/api/excel` | `GET` | Generates institutional Excel model with 160+ live recalculating formulas. |
 | `/api/extract` | `POST` | Submits raw files for assisted document extraction (Mode 2). |
 | `/api/extract/status` | `GET` | Polls progress and state checkpoints of manual extraction jobs. |
 | `/api/history` | `GET` | Returns list of completed reports for the authenticated organization. |
