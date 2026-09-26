@@ -304,7 +304,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         // If activeReportId was an extraction job and a generated report for it is now present
         if (activeReportId.startsWith("job_")) {
           const generatedReport = uniqueItems.find(
-            (i) => !i.id.startsWith("job_") && !i.id.startsWith("plan_") && (i.companyName === companyName || (i.reportData as any)?.jobId === activeReportId)
+            (i) =>
+              !i.id.startsWith("job_") &&
+              !i.id.startsWith("plan_") &&
+              (i.companyName === companyName ||
+                (i.reportData as unknown as Record<string, unknown> | null)?.jobId === activeReportId)
           );
           if (generatedReport) {
             setActiveReportId(generatedReport.id);
@@ -624,7 +628,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           fileName: file.name,
           jobId,
           status: "running",
-        } as any,
+        } as unknown as EquityResearchData,
         reportPdfBase64: null,
         status: "running",
         sourceType: "manual",
