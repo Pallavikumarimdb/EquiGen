@@ -197,6 +197,22 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     fetchUser();
   }, []);
 
+  // Global prevention for unintended browser file navigation (e.g. dropping a PDF outside the drop zone)
+  // This prevents the browser from attempting to navigate to file:/// links, which triggers Security Errors
+  useEffect(() => {
+    const preventFileDropNavigation = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("dragover", preventFileDropNavigation, false);
+    window.addEventListener("drop", preventFileDropNavigation, false);
+    return () => {
+      window.removeEventListener("dragover", preventFileDropNavigation, false);
+      window.removeEventListener("drop", preventFileDropNavigation, false);
+    };
+  }, []);
+
   // Fetch History and Plans
   const fetchHistory = async (isInitial = false) => {
     try {
@@ -455,34 +471,104 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
-  // Launch Assisted PDF Upload
+  // Launch Assisted PDF Upload using standard File API + FormData upload form
   const handleLaunchUpload = async (file: File, uploadCompanyName: string) => {
     setLoading(true);
     const targetComp = uploadCompanyName || file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
     setCompanyName(targetComp);
-    showToast(`Uploading and extracting financials from ${file.name}...`, "info");
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("companyName", targetComp);
+    showToast(`Uploading and parsing ${file.name}...`, "info");
 
     try {
-      const res = await fetch("/api/extract", {
+      // 1. Secure multipart/form-data upload using browser File API
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadRes = await fetch("/api/upload", {
         method: "POST",
+        headers: { "x-api-secret": "equigen-internal" },
         body: formData,
       });
 
-      if (!res.ok) {
-        throw new Error("Document extraction pipeline failed.");
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errData.message || `Upload failed with status ${uploadRes.status}`);
       }
 
-      const data = await res.json();
-      showToast(`Extraction completed for ${targetComp}!`, "success");
-      await fetchHistory();
-      if (data.reportId) {
-        setActiveReportId(data.reportId);
+      const uploadData = await uploadRes.json();
+      const rawText = uploadData.text;
+      if (!rawText) {
+        throw new Error("Unable to extract text content from the uploaded document.");
+      }
+
+      // 2. Trigger background extraction job
+      showToast(`Analyzing financial statements & ratios for ${targetComp}...`, "info");
+      const extractRes = await fetch("/api/extract", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": "equigen-internal",
+        },
+        body: JSON.stringify({
+          companyName: targetComp,
+          rawText,
+          fileName: file.name,
+          documentId: uploadData.targeting?.documentId ?? null,
+          targetingVerdict: uploadData.targeting?.verdict ?? null,
+        }),
+      });
+
+      if (!extractRes.ok) {
+        const errData = await extractRes.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to initialize extraction job.");
+      }
+
+      const extractData = await extractRes.json();
+      const jobId = extractData.jobId;
+
+      // 3. Poll extraction job status
+      if (jobId) {
+        let attempts = 0;
+        const maxAttempts = 60; // Up to 2 minutes
+        let completed = false;
+
+        while (attempts < maxAttempts && !completed) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          attempts++;
+
+          try {
+            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(jobId)}`, {
+              headers: { "x-api-secret": "equigen-internal" },
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.status === "completed") {
+                completed = true;
+                showToast(`Financial extraction completed for ${targetComp}!`, "success");
+                await fetchHistory();
+                if (statusData.reportId) {
+                  setActiveReportId(statusData.reportId);
+                }
+                break;
+              } else if (statusData.status === "failed") {
+                throw new Error(statusData.errorMessage || "Extraction job failed.");
+              }
+            }
+          } catch (pollErr) {
+            if (pollErr instanceof Error && pollErr.message.includes("failed")) {
+              throw pollErr;
+            }
+          }
+        }
+
+        if (!completed) {
+          showToast(`Extraction is processing in the background for ${targetComp}.`, "info");
+          await fetchHistory();
+        }
+      } else {
+        await fetchHistory();
       }
     } catch (err: unknown) {
+      console.error("[Dashboard] handleLaunchUpload error:", err);
       const msg = err instanceof Error ? err.message : "Extraction failed";
       showToast(msg, "error");
     } finally {

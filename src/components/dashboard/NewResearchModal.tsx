@@ -37,6 +37,26 @@ export function NewResearchModal({
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Global window drop prevention so the browser never attempts to navigate to file:///
+  React.useEffect(() => {
+    const handleGlobalDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+      }
+    };
+    const handleGlobalDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes("Files")) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("dragover", handleGlobalDragOver, false);
+    window.addEventListener("drop", handleGlobalDrop, false);
+    return () => {
+      window.removeEventListener("dragover", handleGlobalDragOver, false);
+      window.removeEventListener("drop", handleGlobalDrop, false);
+    };
+  }, []);
+
   if (!isOpen) return null;
 
   const validateAndSetFile = (file: File) => {
@@ -45,8 +65,8 @@ export function NewResearchModal({
       setUploadError("Only official PDF files are supported.");
       return;
     }
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError("File exceeds the 50MB size limit. Please upload a smaller document.");
+    if (file.size > 100 * 1024 * 1024) {
+      setUploadError("File exceeds the 100MB size limit. Please upload a smaller document.");
       return;
     }
     setSelectedFile(file);
@@ -75,14 +95,27 @@ export function NewResearchModal({
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setActiveTab("upload");
       validateAndSetFile(e.dataTransfer.files[0]);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleFileDrop(e);
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn"
+    >
       <div className="relative w-full max-w-2xl bg-[#181614] border border-[#2E2B24] rounded-2xl shadow-2xl overflow-hidden text-white font-sans">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2E2B24] bg-[#141311]">
@@ -245,10 +278,24 @@ export function NewResearchModal({
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   setIsDragActive(true);
                 }}
-                onDragLeave={() => setIsDragActive(false)}
-                onDrop={handleFileDrop}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleFileDrop(e);
+                }}
                 onClick={() => fileInputRef.current?.click()}
                 className={`p-6 border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all ${
                   isDragActive
@@ -261,12 +308,13 @@ export function NewResearchModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,application/pdf"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files?.[0]) {
                       validateAndSetFile(e.target.files[0]);
                     }
+                    e.target.value = "";
                   }}
                 />
 
