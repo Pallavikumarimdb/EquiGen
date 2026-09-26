@@ -413,9 +413,9 @@ export function AgentChatView({
       desc: "Recalculate implied upside & update report live",
     },
     {
-      title: "Analyze Concall Guidance",
-      prompt: `Summarize management guidance on operating margins from the latest earnings call for ${companyName}`,
-      desc: "Extract CEO/CFO quotes and capacity outlook",
+      title: "Recalculate DCF Model",
+      prompt: `Set WACC to 10.5% and EBITDA margin to 21%`,
+      desc: "Live recalculate 3-statement model & DCF target price",
     },
     {
       title: "Add Investment Risk",
@@ -515,14 +515,53 @@ export function AgentChatView({
         /(?:upgrade|downgrade)\s+(?:the\s+)?(?:rating|recommendation|stock)?\s*(?:to|=)?\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed) ||
         /^(?:rating|recommendation)\s*(?:to|=|is)\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed);
 
+      const isExplicitWaccChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:wacc|discount\s+rate|cost\s+of\s+capital)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:wacc|discount\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+      const isExplicitTgChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:terminal\s+growth(?:\s+rate)?|terminal\s+g)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:terminal\s+growth|terminal\s+g)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+      const isExplicitMarginChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:ebitda\s+margin|operating\s+margin|margin)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:ebitda\s+margin|margin)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+      const isExplicitGrowthChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:revenue\s+growth|sales\s+growth|growth\s+rate|topline\s+growth)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:revenue\s+growth|sales\s+growth|growth\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+      const isExplicitWcChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:dso|dio|dpo|working\s+capital|receivables?\s+days|inventory\s+days|payables?\s+days)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:dso|dio|dpo)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+      const isExplicitCapexChange =
+        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:capex|capital\s+expenditure)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+        /^(?:capex)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
       const isExplicitRiskAddition =
         /(?:add|append|insert)\s+(?:a\s+)?(?:new\s+)?(?:risk|threat|headwind)/i.test(trimmed);
 
       const isExplicitSummaryEdit =
-        /(?:update|edit|rewrite|modify)\s+(?:the\s+)?(?:executive\s+)?summary/i.test(trimmed);
+        /(?:update|edit|rewrite|modify)\s+(?:the\s+)?(?:executive\s+)?(?:summary|thesis)/i.test(trimmed);
+
+      const isGeneralModifyCmd =
+        /(?:modify|patch|update)\s+(?:the\s+)?(?:report|dashboard|model|dcf|assumptions|drivers)/i.test(trimmed);
 
       const isModificationIntent =
-        !isQuestion && (isExplicitTpChange || isExplicitRatingChange || isExplicitRiskAddition || isExplicitSummaryEdit);
+        !isQuestion && (
+          isExplicitTpChange ||
+          isExplicitRatingChange ||
+          isExplicitWaccChange ||
+          isExplicitTgChange ||
+          isExplicitMarginChange ||
+          isExplicitGrowthChange ||
+          isExplicitWcChange ||
+          isExplicitCapexChange ||
+          isExplicitRiskAddition ||
+          isExplicitSummaryEdit ||
+          isGeneralModifyCmd
+        );
 
       if (isModificationIntent) {
         setPreviousReportSnapshot(JSON.parse(JSON.stringify(reportData)));

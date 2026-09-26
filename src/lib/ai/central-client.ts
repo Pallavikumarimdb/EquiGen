@@ -27,6 +27,9 @@ export interface CentralizedChatRequest {
   modelName?: string;
   temperature?: number;
   maxTokens?: number;
+  // Full report context for agent intelligence
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  reportData?: any;
 }
 
 export interface CentralizedChatResponse {
@@ -34,6 +37,144 @@ export interface CentralizedChatResponse {
   modelUsed: string;
   source: "openrouter" | "groq" | "openai" | "fallback_synthesis";
   visitedUrls?: string[];
+}
+
+/**
+ * Serializes all sections of the active research report into structured markdown
+ * context for the AI Agent.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function buildReportContextMarkdown(reportData: any, req: CentralizedChatRequest): string {
+  if (!reportData) return "";
+
+  const sections: string[] = [];
+
+  // 1. Company & Recommendation Summary
+  const comp = reportData.company || {};
+  const rec = reportData.recommendation || {};
+  const cmp = rec.currentPrice ?? req.cmp ?? null;
+  const tp = rec.targetPrice ?? req.tp ?? null;
+  const upside =
+    rec.upsidePotential ??
+    (tp != null && cmp != null && cmp > 0
+      ? parseFloat((((tp - cmp) / cmp) * 100).toFixed(1))
+      : null);
+
+  sections.push(`### 1. Active Company & Recommendation
+- **Company Name**: ${comp.name || req.companyName || "N/A"}
+- **Ticker / Symbol**: ${comp.ticker || req.ticker || "N/A"}
+- **Sector / Industry**: ${comp.sector || "N/A"} / ${comp.industry || "N/A"}
+- **Current Market Price (CMP)**: ${cmp != null ? `₹${cmp}` : "N/A"}
+- **Target Price (TP)**: ${tp != null ? `₹${tp}` : "N/A"}
+- **Rating / Stance**: ${rec.rating || req.rating || "N/A"}${upside != null ? ` (${upside >= 0 ? `+${upside}%` : `${upside}%`} upside)` : ""}
+- **NSE / BSE Code**: ${reportData.nseCode || "N/A"} / ${reportData.bseCode || "N/A"}`);
+
+  // 2. Executive Summary & Investment Thesis
+  if (reportData.executiveSummary || reportData.headlineTakeaway || reportData.narrativeSummary) {
+    sections.push(`### 2. Executive Summary & Core Thesis
+${reportData.headlineTakeaway ? `**Headline Takeaway**: ${reportData.headlineTakeaway}\n\n` : ""}${reportData.executiveSummary ? `**Executive Summary**:\n${reportData.executiveSummary}\n\n` : ""}${reportData.narrativeSummary ? `**Narrative Thesis**:\n${reportData.narrativeSummary}` : ""}`.trim());
+  }
+
+  // 3. 5-Year Historical Financials
+  if (Array.isArray(reportData.fiveYearSummary) && reportData.fiveYearSummary.length > 0) {
+    let table = `### 3. Five-Year Audited Financials Summary\n| Period | Sales (₹ Cr) | YoY Growth | EBITDA (₹ Cr) | EBITDA Margin | Adj PAT (₹ Cr) | Adj EPS (₹) | RoE | D/E | P/E | EV/EBITDA |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    for (const row of reportData.fiveYearSummary) {
+      table += `| ${row.period || "FY"} | ${row.sales != null ? `₹${row.sales}` : "-"} | ${row.salesGrowth != null ? `${row.salesGrowth}%` : "-"} | ${row.ebitda != null ? `₹${row.ebitda}` : "-"} | ${row.ebitdaMargin != null ? `${row.ebitdaMargin}%` : "-"} | ${row.patAdjusted != null ? `₹${row.patAdjusted}` : "-"} | ${row.adjEps != null ? `₹${row.adjEps}` : "-"} | ${row.roe != null ? `${row.roe}%` : "-"} | ${row.deRatio != null ? row.deRatio : "-"} | ${row.pe != null ? `${row.pe}x` : "-"} | ${row.evEbitda != null ? `${row.evEbitda}x` : "-"} |\n`;
+    }
+    sections.push(table.trim());
+  }
+
+  // 4. Forensic Accounting & Earnings Quality Audit
+  if (reportData.forensicAnalysis) {
+    const f = reportData.forensicAnalysis;
+    const cfo = f.cfoToPatRatio || {};
+    const z = f.altmanZScore || {};
+    const m = f.beneishMScore || {};
+    const wc = f.workingCapitalStress || {};
+    const gov = f.governanceFlags || {};
+
+    let forensicText = `### 4. Forensic Quality & Forensic Accounting Audit
+- **Overall Forensic Health Score**: ${f.overallHealthScore ?? "N/A"}/100 (Risk Level: **${f.riskLevel || "MODERATE"}**)
+- **CFO-to-PAT Cash Quality**: Ratio ${cfo.ratio != null ? `${cfo.ratio}x` : "N/A"} (${cfo.status || "evaluated"}) · ${cfo.interpretation || "Evaluated against reported earnings"}${cfo.cfoCr != null && cfo.patCr != null ? ` (Reported CFO: ₹${cfo.cfoCr} Cr vs PAT: ₹${cfo.patCr} Cr)` : ""}
+- **Altman Z-Score (Insolvency Risk)**: ${z.score != null ? z.score : "N/A"} (Zone: **${z.zone || "Safe"}**, Status: ${z.status || "safe"}) · ${z.interpretation || ""}
+- **Beneish M-Score (Earnings Manipulation)**: ${m.score != null ? m.score : "N/A"} (Status: **${m.status || "safe"}**) · ${m.interpretation || ""}
+- **Working Capital Stress**: ${wc.interpretation || "Cycle evaluated"}${wc.workingCapitalCycleDays != null ? ` · Working Capital Cycle: ${wc.workingCapitalCycleDays} days` : ""}${wc.receivablesGrowthVsSales ? ` · Receivables vs Sales: ${wc.receivablesGrowthVsSales}` : ""}
+- **Governance & Ownership**: Promoter Pledge: ${gov.promoterPledgePct != null ? `${gov.promoterPledgePct}%` : "0%"} · Promoter Holding: ${gov.promoterHoldingPct != null ? `${gov.promoterHoldingPct}%` : "N/A"} · Institutional Holding: ${gov.institutionalHoldingPct != null ? `${gov.institutionalHoldingPct}%` : "N/A"} · Auditor Quality: **${gov.auditorQuality || "Clean"}**`;
+
+    if (Array.isArray(gov.flags) && gov.flags.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forensicText += `\n- **Identified Red Flags**:\n` + gov.flags.map((fl: any) => `  - [${fl.severity?.toUpperCase() || "FLAG"}] ${fl.title}: ${fl.detail}`).join("\n");
+    }
+    if (f.summaryAssessment) {
+      forensicText += `\n- **Summary Audit Assessment**: ${f.summaryAssessment}`;
+    }
+    sections.push(forensicText.trim());
+  }
+
+  // 5. Valuation Drivers & 3-Statement Modeling Assumptions
+  const modeling = reportData.modelingData || {};
+  const assumptions = modeling.assumptions || {};
+  if (Object.keys(assumptions).length > 0 || modeling.baseTargetPrice) {
+    const waccVal = typeof assumptions.wacc === "number"
+      ? assumptions.wacc <= 1 ? (assumptions.wacc * 100).toFixed(1) + "%" : assumptions.wacc + "%"
+      : "11.5%";
+    const tgVal = typeof assumptions.terminalGrowth === "number"
+      ? assumptions.terminalGrowth <= 1 ? (assumptions.terminalGrowth * 100).toFixed(1) + "%" : assumptions.terminalGrowth + "%"
+      : "4.0%";
+    const marginVal = typeof assumptions.ebitdaMargin === "number"
+      ? assumptions.ebitdaMargin <= 1 ? (assumptions.ebitdaMargin * 100).toFixed(1) + "%" : assumptions.ebitdaMargin + "%"
+      : "18.0%";
+    const growthVal = typeof assumptions.revenueGrowthRate === "number"
+      ? assumptions.revenueGrowthRate <= 1 ? (assumptions.revenueGrowthRate * 100).toFixed(1) + "%" : assumptions.revenueGrowthRate + "%"
+      : "12.0%";
+    const dsoVal = assumptions.dso ?? 55;
+    const dioVal = assumptions.dio ?? 45;
+    const dpoVal = assumptions.dpo ?? 40;
+    const cccVal = (typeof dsoVal === "number" && typeof dioVal === "number" && typeof dpoVal === "number")
+      ? dsoVal + dioVal - dpoVal
+      : "N/A";
+
+    sections.push(`### 5. DCF Valuation & 3-Statement Model Drivers
+- **DCF Base Target Price**: ₹${modeling.baseTargetPrice || tp || "N/A"} (Bull: ₹${modeling.bullTargetPrice || "N/A"}, Bear: ₹${modeling.bearTargetPrice || "N/A"})
+- **Discount Rate (WACC)**: ${waccVal}
+- **Terminal Growth Rate (g)**: ${tgVal}
+- **Operating EBITDA Margin**: ${marginVal}
+- **Projected Revenue Growth Rate**: ${growthVal}
+- **Working Capital Days**: DSO: ${dsoVal} days, DIO: ${dioVal} days, DPO: ${dpoVal} days (Cash Conversion Cycle / CCC: ${cccVal} days)
+- **Capex Intensity**: ${assumptions.capexAsPercentRevenue != null ? (assumptions.capexAsPercentRevenue <= 1 ? `${(assumptions.capexAsPercentRevenue * 100).toFixed(1)}%` : `${assumptions.capexAsPercentRevenue}%`) : "5.0% of revenue"}
+- **Base Year Revenue**: ₹${assumptions.baseRevenue || assumptions.revenue || "10,000"} Cr | Shares Diluted: ${assumptions.sharesCr || reportData.companyData?.outstandingShares || "50"} Cr`);
+  }
+
+  // 6. SWOT Analysis
+  if (reportData.swotAnalysis) {
+    const swot = reportData.swotAnalysis;
+    const s = Array.isArray(swot.strengths) && swot.strengths.length > 0 ? swot.strengths.map((x: string) => `  + ${x}`).join("\n") : "  + Market leader in target category";
+    const w = Array.isArray(swot.weaknesses) && swot.weaknesses.length > 0 ? swot.weaknesses.map((x: string) => `  - ${x}`).join("\n") : "  - Raw material cyclicality";
+    const o = Array.isArray(swot.opportunities) && swot.opportunities.length > 0 ? swot.opportunities.map((x: string) => `  + ${x}`).join("\n") : "  + Export and capacity expansion";
+    const t = Array.isArray(swot.threats) && swot.threats.length > 0 ? swot.threats.map((x: string) => `  - ${x}`).join("\n") : "  - Regulatory or tariff risk";
+
+    sections.push(`### 6. Strategic SWOT Matrix
+- **Strengths**:\n${s}
+- **Weaknesses**:\n${w}
+- **Opportunities**:\n${o}
+- **Threats**:\n${t}`);
+  }
+
+  // 7. Investment Risks
+  if (Array.isArray(reportData.investmentRisks) && reportData.investmentRisks.length > 0) {
+    sections.push(`### 7. Key Investment & Downside Risks\n` + reportData.investmentRisks.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n"));
+  }
+
+  // 8. Competitor Peers & Multiples
+  if (Array.isArray(reportData.competitors) && reportData.competitors.length > 0) {
+    let peerTable = `### 8. Peer Benchmarking & Relative Multiples\n| Competitor | CMP (₹) | Target (₹) | Rating | P/E | EV/EBITDA |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    for (const c of reportData.competitors) {
+      peerTable += `| ${c.name || "Peer"} | ${c.cmp != null ? `₹${c.cmp}` : "-"} | ${c.targetPrice != null ? `₹${c.targetPrice}` : "-"} | ${c.rating || "-"} | ${c.pe != null ? `${c.pe}x` : "-"} | ${c.evEbitda != null ? `${c.evEbitda}x` : "-"} |\n`;
+    }
+    sections.push(peerTable.trim());
+  }
+
+  return sections.join("\n\n");
 }
 
 /**
@@ -53,6 +194,8 @@ export function buildInstitutionalSystemPrompt(req: CentralizedChatRequest): str
       : "N/A";
   const persona = req.persona || "Institutional Research (Buy-Side & Sell-Side)";
 
+  const reportContextMarkdown = req.reportData ? buildReportContextMarkdown(req.reportData, req) : "";
+
   const companyContextBlock = company
     ? `Context of Active Company:
 - Company: ${company}${ticker}
@@ -67,23 +210,30 @@ export function buildInstitutionalSystemPrompt(req: CentralizedChatRequest): str
 ${companyContextBlock}
 - Audience Persona: ${persona}
 
+${reportContextMarkdown ? `\n======================================================\n[FULL ACTIVE REPORT DATA CONTEXT & METRICS]:\n${reportContextMarkdown}\n======================================================\n` : ""}
+
 Guidelines:
 1. Answer all analytical, financial, accounting, macroeconomic, valuation, and company-specific questions with extreme depth, accuracy, and clarity.
-2. For mathematical/valuation questions (e.g., WACC sensitivity, DCF impacts, Cost of Equity Ke, Beta, terminal growth rate g):
+2. Ground your analysis directly in the active report data provided above:
+   - When asked about audited 5-year financials (sales, EBITDA, PAT, EPS, margins), reference the exact numbers and percentages from Section 3.
+   - When asked about forensic accounting, health scores, CFO/PAT ratios, Altman Z-Score, or Beneish M-Score, cite the exact figures and zone evaluations from Section 4.
+   - When asked about valuation, DCF assumptions, WACC, or working capital cycles (DSO, DIO, DPO), cite the exact drivers from Section 5.
+   - When asked about strategic positioning, reference the SWOT analysis from Section 6 and investment risks from Section 7.
+3. For mathematical/valuation questions (e.g., WACC sensitivity, DCF impacts, Cost of Equity Ke, Beta, terminal growth rate g):
    - Explain both the mathematical mechanics (e.g. Enterprise Value discount rate formula, Terminal Value = FCFF / (WACC - g)) and the economic significance.
    - Provide concrete numerical sensitivities (e.g., typically a 100 bps change in WACC impacts fair value by 8% to 15% depending on cash flow duration and debt-to-equity ratio).
    - If the company is a bank (e.g., ICICI Bank, HDFC Bank, SBI), note that banks are typically valued on Cost of Equity (Ke) via Dividend Discount Model (DDM) or Residual Income / Price-to-Adjusted Book Value (P/ABV) rather than firm-level WACC/FCFF, and detail how a 100 bps shift in Ke or RoE affects the justified P/B multiple.
-3. Use markdown formatting with clear headings, bullet points, bold highlights, and tables where appropriate.
-4. Maintain a professional, objective Wall Street / Dalal Street equity research tone.
-5. When asked to pull, summarize, or analyze publicly available equity research reports, broker consensus notes (e.g. Motilal Oswal, ICICI Securities, Kotak Institutional Equities, HDFC Securities, Jefferies, Morgan Stanley), exchange filings, or public buy/sell reports:
+4. Use markdown formatting with clear headings, bullet points, bold highlights, and tables where appropriate.
+5. Maintain a professional, objective Wall Street / Dalal Street equity research tone.
+6. When asked to pull, summarize, or analyze publicly available equity research reports, broker consensus notes (e.g. Motilal Oswal, ICICI Securities, Kotak Institutional Equities, HDFC Securities, Jefferies, Morgan Stanley), exchange filings, or public buy/sell reports:
    - DO NOT give a canned disclaimer about lacking real-time web browsing.
    - Synthesize the publicly available institutional broker coverage, consensus ratings, target price benchmarks, key investment catalysts, and risk factors in structured tables and bullet points.
    - Never truncate or cut off mid-response; ensure every section and risk table is fully written out.
-6. REAL RETRIEVED SOURCES ONLY (STRICTLY NO DUMMY OR PLACEHOLDER URLS):
+7. REAL RETRIEVED SOURCES ONLY (STRICTLY NO DUMMY OR PLACEHOLDER URLS):
    - In your '### Sources & Reference Verification' section, format links as markdown: [Article Title or Publisher Name](Exact Reference URL).
    - NEVER invent, hallucinate, or insert generic dummy homepages (e.g. do NOT output generic "bseindia.com" or "moneycontrol.com" homepages).
    - If no external web sources were retrieved (such as for pure valuation math, WACC formula explanations, or internal report updates), state that the analysis is based on the active report's internal financial model and do not attach unvisited web URLs.
-7. DIRECT STRUCTURED MARKDOWN OUTPUT ONLY (STRICTLY NO TOOL CALLS):
+8. DIRECT STRUCTURED MARKDOWN OUTPUT ONLY (STRICTLY NO TOOL CALLS):
    - You MUST NEVER invoke or output external tool calls, functions, or execution commands (such as "web.run", browsing actions, or JSON tool syntax).
    - All necessary web research, company filings, and market news context have already been fetched and provided to you directly as reference text.
    - Formulate your entire answer directly as comprehensive institutional markdown text with clear headings, analysis, and tables.`;

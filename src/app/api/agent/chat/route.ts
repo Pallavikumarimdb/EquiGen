@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
       tp: rec?.targetPrice ?? undefined,
       rating: rec?.rating ?? undefined,
       persona: currentPersona || "Institutional Research",
+      reportData: reportData || undefined,
     };
 
     const wantsStream = body.stream !== false;
