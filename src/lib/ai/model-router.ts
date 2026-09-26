@@ -64,8 +64,19 @@ async function ensureBudgetSystem(apiKey: string): Promise<void> {
   await ensureLimitsDiscovered(apiKey);
 }
 
-/** Builds a ChatGroq or ChatOpenAI wrapper for the fallback (8B) model. */
+/** Builds a ChatGroq or ChatOpenAI wrapper for the fallback (8B/20B) model. */
 export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
+  const groqKey = options.apiKey || process.env.GROQ_API_KEY;
+  if (groqKey && options.provider !== "openrouter") {
+    return new ChatGroq({
+      apiKey: groqKey,
+      model: FALLBACK_GROQ_MODEL,
+      temperature: 0.1,
+      maxTokens: 4096,
+      maxRetries: 3,
+    });
+  }
+
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (openRouterKey) {
     return new ChatOpenAI({
@@ -73,18 +84,19 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
       },
-      modelName: "openrouter/free",
+      modelName: "meta-llama/llama-3.3-70b-instruct:free",
       temperature: 0.1,
       maxRetries: 3,
-      timeout: 120000, // 120s timeout to prevent hanging on larger prompts
+      timeout: 120000,
     });
   }
 
-  const apiKey = options.apiKey || process.env.GROQ_API_KEY;
-  if (!apiKey)
+  if (!groqKey) {
     throw new Error(`API key for provider "groq" is not configured.`);
+  }
+
   return new ChatGroq({
-    apiKey,
+    apiKey: groqKey,
     model: FALLBACK_GROQ_MODEL,
     temperature: 0.1,
     maxTokens: 4096,
@@ -106,13 +118,27 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
 export async function getModelForRequest(
   options: AIServiceOptions,
   promptText: string,
-  preferredModel = "openrouter/free",
+  preferredModel: string = MODEL_IDS.PRIMARY_70B,
   onWaitStart?: (waitMs: number) => void,
   forcePreferred = false,
 ): Promise<ModelChoice> {
-  const targetModel = (options.provider === "groq" && options.modelName) ? options.modelName : preferredModel;
+  const targetModel =
+    options.provider === "groq" && options.modelName
+      ? options.modelName
+      : preferredModel;
+
   const openRouterKey = process.env.OPENROUTER_API_KEY;
-  const isOpenRouter = targetModel.includes("/") && !!openRouterKey;
+  const isGroqModel =
+    targetModel === MODEL_IDS.PRIMARY_70B ||
+    targetModel === MODEL_IDS.BULK_8B ||
+    targetModel === MODEL_IDS.VISION_11B ||
+    targetModel.startsWith("qwen/") ||
+    targetModel.startsWith("llama-");
+
+  const isOpenRouter =
+    !isGroqModel &&
+    (options.provider === "openrouter" || targetModel.startsWith("openrouter/")) &&
+    !!openRouterKey;
 
   if (isOpenRouter) {
     return {
@@ -121,8 +147,7 @@ export async function getModelForRequest(
         configuration: {
           baseURL: "https://openrouter.ai/api/v1",
         },
-        // modelName: targetModel,
-        model: 'openrouter/free',
+        modelName: targetModel,
         temperature: 0.1,
         maxRetries: 3,
       }),
