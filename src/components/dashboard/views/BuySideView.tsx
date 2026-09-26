@@ -162,7 +162,7 @@ Rating: ${rec?.rating || "NOT RATED"} | Target Price: ${targetPriceDisplay} | CM
               <span className="p-1 rounded-md bg-amber-100 text-amber-800">
                 <Lightbulb className="w-4 h-4" />
               </span>
-              <h3 className="text-sm font-extrabold text-[#1A1917]">Buy-Side Investment Thesis & Variant View</h3>
+              <h3 className="text-sm font-extrabold text-[#1A1917]">Investment Committee (IC) Thesis & Variant View</h3>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

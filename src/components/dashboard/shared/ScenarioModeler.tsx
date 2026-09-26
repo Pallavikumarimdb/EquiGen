@@ -66,7 +66,7 @@ export function ScenarioModeler({ initialTargetPrice, initialCmp }: ScenarioMode
               Interactive DCF Scenario & Sensitivity Engine
             </h3>
             <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full uppercase">
-              Buy-Side Tool
+              IC Valuation Engine
             </span>
           </div>
           <p className="text-[11px] text-[#7A7569] mt-0.5">

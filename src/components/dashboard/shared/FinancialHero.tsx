@@ -1,12 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   TrendingUp,
   TrendingDown,
   Calendar,
   Download,
   FileSpreadsheet,
+  FileText,
+  ChevronDown,
   AlertTriangle,
   CheckCircle2,
 } from "lucide-react";
@@ -31,6 +33,19 @@ export function FinancialHero({
   isDownloadingPdf,
   isDownloadingExcel,
 }: FinancialHeroProps) {
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const downloadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (downloadRef.current && !downloadRef.current.contains(event.target as Node)) {
+        setIsDownloadOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const meta = reportData?.company;
   const rec = reportData?.recommendation;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,32 +180,99 @@ export function FinancialHero({
             </div>
           )}
 
-          {/* Quick Export Downloads */}
-          <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
-            {onDownloadPdf && (
+          {/* Quick Export Downloads Dropdown */}
+          {(onDownloadPdf || onDownloadExcel) && (
+            <div className="relative ml-auto sm:ml-0" ref={downloadRef}>
               <button
-                onClick={onDownloadPdf}
-                disabled={isDownloadingPdf}
-                title="Download Institutional Research PDF"
-                className="flex items-center gap-1 px-3 py-2 bg-[#1A1917] hover:bg-[#2E2B24] text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+                onClick={() => setIsDownloadOpen(!isDownloadOpen)}
+                disabled={isDownloadingPdf || isDownloadingExcel}
+                title="Download Report & Financial Model"
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap disabled:opacity-60 ${
+                  isDownloadOpen
+                    ? "bg-[#2E2B24] text-white ring-2 ring-[#1A1917]/20"
+                    : "bg-[#1A1917] hover:bg-[#2E2B24] text-white"
+                }`}
               >
                 <Download className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isDownloadingPdf ? "Exporting..." : "PDF"}</span>
+                <span>
+                  {isDownloadingPdf
+                    ? "Exporting PDF..."
+                    : isDownloadingExcel
+                    ? "Exporting Excel..."
+                    : "Download"}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                    isDownloadOpen ? "rotate-180 text-white" : ""
+                  }`}
+                />
               </button>
-            )}
 
-            {onDownloadExcel && (
-              <button
-                onClick={onDownloadExcel}
-                disabled={isDownloadingExcel}
-                title="Download 3-Statement Excel Model"
-                className="flex items-center gap-1 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>{isDownloadingExcel ? "Exporting..." : "Excel"}</span>
-              </button>
-            )}
-          </div>
+              {isDownloadOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl border border-[#E2DFD6] shadow-xl p-1.5 z-40 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E988A]">
+                    Export Options
+                  </div>
+
+                  {onDownloadPdf && (
+                    <button
+                      onClick={() => {
+                        setIsDownloadOpen(false);
+                        onDownloadPdf();
+                      }}
+                      disabled={isDownloadingPdf}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-[#1A1917] hover:bg-[#F4F1EA] transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-[#1A1917] flex items-center justify-between">
+                          <span>PDF Report</span>
+                          {isDownloadingPdf && (
+                            <span className="text-[10px] text-amber-600 font-semibold animate-pulse">
+                              Exporting...
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#7A7569] truncate">
+                          Institutional Research Note (.pdf)
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {onDownloadExcel && (
+                    <button
+                      onClick={() => {
+                        setIsDownloadOpen(false);
+                        onDownloadExcel();
+                      }}
+                      disabled={isDownloadingExcel}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-[#1A1917] hover:bg-[#F4F1EA] transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                        <FileSpreadsheet className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-[#1A1917] flex items-center justify-between">
+                          <span>Excel Model</span>
+                          {isDownloadingExcel && (
+                            <span className="text-[10px] text-emerald-600 font-semibold animate-pulse">
+                              Exporting...
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#7A7569] truncate">
+                          3-Statement DCF Model (.xlsx)
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         </div>
       </div>

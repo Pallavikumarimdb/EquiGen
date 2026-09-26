@@ -25,6 +25,9 @@ import {
   AlertCircle,
   CheckCircle2,
   X,
+  Sliders,
+  ShieldCheck,
+  Zap,
 } from "lucide-react";
 
 // Initial default fallback company data if workspace is completely fresh
@@ -168,15 +171,21 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       if (savedPersona === "buyside" || savedPersona === "sellside" || savedPersona === "individual") {
         setCurrentPersona(savedPersona);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   const handlePersonaChange = (p: PersonaType) => {
     setCurrentPersona(p);
     try {
       localStorage.setItem("equigen_persona", p);
-    } catch {}
-    showToast(`Switched to ${p === "buyside" ? "Buy-Side Fundamental" : p === "sellside" ? "Sell-Side Institutional" : "Individual Researcher"} Workspace`, "info");
+    } catch { }
+    const formatName =
+      p === "buyside"
+        ? "Investment Committee (IC) Memo"
+        : p === "sellside"
+          ? "Institutional Research Note"
+          : "Executive Brief (1-Pager)";
+    showToast(`Switched deliverable format to ${formatName}`, "info");
   };
 
   // Fetch Current User
@@ -335,7 +344,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           if (typeof window !== "undefined") {
             savedId = localStorage.getItem("equigen_active_report_id");
           }
-        } catch {}
+        } catch { }
 
         const cleanInitialId = initialReportId ? initialReportId.replace(/^rep_/, "") : null;
         const initialItem = cleanInitialId
@@ -395,7 +404,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       if (typeof window !== "undefined") {
         localStorage.setItem("equigen_active_report_id", item.id);
       }
-    } catch {}
+    } catch { }
     setActiveSessionId(item.id.replace(/^rep_/, ""));
     setCompanyName(item.companyName);
     setReportData(item.reportData);
@@ -548,13 +557,13 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             prev.map((item) =>
               item.id === tempPlanId
                 ? {
-                    ...item,
-                    id: plan.id,
-                    reportData: {
-                      ...(item.reportData as unknown as Record<string, unknown>),
-                      planId: plan.id,
-                    } as unknown as EquityResearchData,
-                  }
+                  ...item,
+                  id: plan.id,
+                  reportData: {
+                    ...(item.reportData as unknown as Record<string, unknown>),
+                    planId: plan.id,
+                  } as unknown as EquityResearchData,
+                }
                 : item
             )
           );
@@ -567,7 +576,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             method: "PUT",
             headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
             body: JSON.stringify({ actorId: "analyst" }),
-          }).catch(() => {});
+          }).catch(() => { });
 
           // Trigger Master Orchestrator background execution
           fetch("/api/agent/execute", {
@@ -925,6 +934,58 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             {reportData ? (
               /* Persona-Specific Research View */
               <div className="w-full max-w-6xl mx-auto pb-12 animate-fadeIn">
+                {/* Deliverable Format Switcher Bar (Clean, single-line, non-intrusive) */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 bg-white px-4 py-2.5 rounded-2xl border border-[#E3DFD5] shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex items-center bg-[#F4F1EA] p-1 rounded-xl border border-[#E2DFD6] text-xs font-semibold">
+                      <button
+                        onClick={() => handlePersonaChange("buyside")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "buyside"
+                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
+                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
+                          }`}
+                        title="Investment Committee Memo — Fundamental thesis, variant perception & DCF sensitivity"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        <span>IC Memo</span>
+                      </button>
+
+                      <button
+                        onClick={() => handlePersonaChange("sellside")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "sellside"
+                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
+                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
+                          }`}
+                        title="Institutional Research Note — Regulatory disclosures, peer multiples & compliance certification"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Research Note</span>
+                      </button>
+
+                      <button
+                        onClick={() => handlePersonaChange("individual")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "individual"
+                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
+                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
+                          }`}
+                        title="Executive Brief — 5-minute investment teardown & high-signal takeaways"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Executive Brief</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="hidden sm:flex items-center gap-2 text-xs text-[#7A7569]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-medium text-[#4A463D]">
+                      {currentPersona === "buyside" && "Investment Committee Fundamental View & DCF Modeler"}
+                      {currentPersona === "sellside" && "Certified Institutional Client Note (SEBI RA 2014)"}
+                      {currentPersona === "individual" && "Executive 1-Pager & 5-Minute Investment Teardown"}
+                    </span>
+                  </div>
+                </div>
+
                 {currentPersona === "buyside" && (
                   <BuySideView
                     reportData={reportData}
@@ -1036,13 +1097,12 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium animate-fadeIn ${
-              toast.type === "success"
+            className={`pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium animate-fadeIn ${toast.type === "success"
                 ? "bg-emerald-950/90 text-emerald-200 border-emerald-500/40"
                 : toast.type === "error"
-                ? "bg-rose-950/90 text-rose-200 border-rose-500/40"
-                : "bg-slate-900/90 text-slate-100 border-white/15"
-            }`}
+                  ? "bg-rose-950/90 text-rose-200 border-rose-500/40"
+                  : "bg-slate-900/90 text-slate-100 border-white/15"
+              }`}
           >
             {toast.type === "success" && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
             {toast.type === "error" && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}

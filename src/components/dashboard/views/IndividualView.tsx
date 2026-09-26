@@ -67,8 +67,8 @@ export function IndividualView({
             <Sparkles className="w-4 h-4 text-amber-700" />
           </span>
           <div>
-            <h2 className="text-base font-black text-[#1A1917]">5-Minute Investment Teardown</h2>
-            <p className="text-[11px] text-[#7A7569]">High-signal takeaway without the financial jargon</p>
+            <h2 className="text-base font-black text-[#1A1917]">Executive Brief & 5-Minute Teardown</h2>
+            <p className="text-[11px] text-[#7A7569]">High-signal takeaway without financial jargon</p>
           </div>
         </div>
 

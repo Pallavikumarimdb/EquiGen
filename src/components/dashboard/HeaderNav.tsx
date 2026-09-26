@@ -18,8 +18,8 @@ import {
 import { PersonaType, UserSessionProfile } from "./types";
 
 interface HeaderNavProps {
-  currentPersona: PersonaType;
-  onPersonaChange: (persona: PersonaType) => void;
+  currentPersona?: PersonaType;
+  onPersonaChange?: (persona: PersonaType) => void;
   activeViewMode: "report" | "agent";
   onViewModeChange: (mode: "report" | "agent") => void;
   activeCompanyName?: string;
@@ -89,16 +89,16 @@ export function HeaderNav({
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-[#E3DFD5]" />
 
-        {/* ── 2 Individual Togglable Sections: Report & Agent ────────── */}
+        {/* ── Primary Mode Switcher: Report vs Agent ────────── */}
         <div className="flex items-center bg-[#F4F1EA] p-1 rounded-xl border border-[#E2DFD6] text-xs font-semibold shadow-2xs">
           <button
             onClick={() => onViewModeChange("report")}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
               activeViewMode === "report"
                 ? "bg-[#1A1917] text-white font-bold shadow-xs"
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
-            title="Switch to complete equity research report view"
+            title="Switch to equity research report view"
           >
             <FileText className="w-4 h-4" />
             <span>Report</span>
@@ -106,55 +106,16 @@ export function HeaderNav({
 
           <button
             onClick={() => onViewModeChange("agent")}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
               activeViewMode === "agent"
                 ? "bg-[#1A1917] text-white font-bold shadow-xs"
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
-            title="Switch to complete ChatGPT-style AI agent and reprompt page"
+            title="Switch to interactive AI research agent"
           >
             <Bot className="w-4 h-4 text-amber-500" />
             <span>Agent</span>
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          </button>
-        </div>
-
-        {/* Vertical Divider */}
-        <div className="h-6 w-px bg-[#E3DFD5]" />
-
-        {/* Persona Switcher (Segmented Control for Report views) */}
-        <div className="flex items-center bg-[#F4F1EA] p-1 rounded-xl border border-[#E2DFD6] text-xs font-semibold">
-          <button
-            onClick={() => onPersonaChange("buyside")}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
-              currentPersona === "buyside"
-                ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                : "text-[#6E695E] hover:text-[#1A1917]"
-            }`}
-          >
-            Buy-Side
-          </button>
-
-          <button
-            onClick={() => onPersonaChange("sellside")}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
-              currentPersona === "sellside"
-                ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                : "text-[#6E695E] hover:text-[#1A1917]"
-            }`}
-          >
-            Sell-Side
-          </button>
-
-          <button
-            onClick={() => onPersonaChange("individual")}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
-              currentPersona === "individual"
-                ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                : "text-[#6E695E] hover:text-[#1A1917]"
-            }`}
-          >
-            Individual
           </button>
         </div>
       </div>
