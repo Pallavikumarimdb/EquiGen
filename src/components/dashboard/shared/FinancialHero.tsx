@@ -52,7 +52,7 @@ export function FinancialHero({
   const modelingData = (reportData as any)?.modelingData;
 
   const displayTicker = ticker || meta?.ticker || "TICKER";
-  const displayRating = rec?.rating || "BUY";
+  const displayRating = rec?.rating || null;
   const cmp = rec?.currentPrice ?? null;
   const targetPrice = rec?.targetPrice;
   const upside = rec?.upsidePotential;
@@ -123,20 +123,22 @@ export function FinancialHero({
                 {meta.sector}
               </span>
             )}
-            <span
-              className={`text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                displayRating === "BUY" || displayRating === "ACCUMULATE"
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                  : displayRating === "SELL" || displayRating === "REDUCE"
-                  ? "bg-rose-100 text-rose-800 border border-rose-200"
-                  : "bg-amber-100 text-amber-800 border border-amber-200"
-              }`}
-            >
-              {displayRating}
-            </span>
+            {displayRating && (
+              <span
+                className={`text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                  displayRating === "BUY" || displayRating === "ACCUMULATE"
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                    : displayRating === "SELL" || displayRating === "REDUCE"
+                    ? "bg-rose-100 text-rose-800 border border-rose-200"
+                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                }`}
+              >
+                {displayRating}
+              </span>
+            )}
             <span suppressHydrationWarning className="text-[11px] text-[#7A7569] flex items-center gap-1 font-medium">
               <Calendar className="w-3 h-3 text-[#9C978B]" />
-              {meta?.reportDate || "21 Sept 2026"}
+              {meta?.reportDate || new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
             </span>
           </div>
 

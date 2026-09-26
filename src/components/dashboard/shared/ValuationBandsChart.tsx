@@ -80,13 +80,13 @@ export function ValuationBandsChart({
         // fallback to client-side engine if API fetch fails
       }
 
-      // Client-side fallback
-      const peFallback = reportData?.companyData?.pe
+      // Client-side fallback — only pass real multiples if available from report data
+      const peFromData = reportData?.companyData?.pe
         ? parseFloat(String(reportData.companyData.pe).replace(/[^0-9.]/g, ""))
-        : 18.5;
-      const evFallback = reportData?.companyData?.evEbitda
+        : undefined;
+      const evFromData = reportData?.companyData?.evEbitda
         ? parseFloat(String(reportData.companyData.evEbitda).replace(/[^0-9.]/g, ""))
-        : 11.2;
+        : undefined;
 
       const fallbackResult = await buildValuationBands({
         ticker,
@@ -94,7 +94,7 @@ export function ValuationBandsChart({
         metric,
         lookback,
         currentPrice: reportData?.recommendation?.currentPrice ?? undefined,
-        currentMultiple: metric === "PE" ? peFallback : evFallback,
+        currentMultiple: metric === "PE" ? peFromData : evFromData,
       });
 
       if (!isCancelled) {

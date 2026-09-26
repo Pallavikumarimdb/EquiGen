@@ -272,7 +272,7 @@ export async function buildValuationBands(
   const lastClose =
     candles.length > 0
       ? candles[candles.length - 1].close
-      : options.currentPrice || 1000;
+      : options.currentPrice || 0;
 
   const currentPrice = options.currentPrice || lastClose;
 

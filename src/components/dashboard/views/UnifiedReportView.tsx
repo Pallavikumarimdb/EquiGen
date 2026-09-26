@@ -69,24 +69,22 @@ export function UnifiedReportView({
   const upsideDisplay = upside != null ? `${upside > 0 ? `+${upside}%` : `${upside}%`}` : "N/A";
 
   // Formatted IC Memo text for 1-click clipboard copying
+  const forensic = reportData?.forensicAnalysis;
   const icMemoText = `INVESTMENT COMMITTEE (IC) MEMO: ${companyName} (${ticker || "TICKER"})
 Date: ${new Date().toLocaleDateString(undefined, { dateStyle: "long" })}
-Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${cmpDisplay} | Implied Upside: ${upsideDisplay}
+Rating: ${rec?.rating ?? "UNDER REVIEW"} | Target Price: ${targetPriceDisplay} | CMP: ${cmpDisplay} | Implied Upside: ${upsideDisplay}
 
-1. INVESTMENT THESIS & VARIANT VIEW:
-• Core Thesis: ${reportData?.executiveSummary || "Structural market share gains and operational leverage inflection."}
-• Downside Protection: Asset-rich balance sheet and industry market leadership.
+1. INVESTMENT THESIS:
+${reportData?.executiveSummary ? `• ${reportData.executiveSummary}` : "• Executive summary not yet available for this report."}
 
 2. FORENSIC & QUALITY HEALTH:
-• Quality Score: ${reportData?.forensicAnalysis?.overallHealthScore ?? "82"}/100 (${reportData?.forensicAnalysis?.riskLevel ?? "LOW"} RISK)
-• CFO / PAT Ratio: ${reportData?.forensicAnalysis?.cfoToPatRatio?.ratio ?? "1.06"}x
-• Altman Z-Score: ${reportData?.forensicAnalysis?.altmanZScore?.score ?? "3.24"} (${reportData?.forensicAnalysis?.altmanZScore?.zone ?? "Safe"} Zone)
-• Promoter Pledge: ${reportData?.forensicAnalysis?.governanceFlags?.promoterPledgePct ?? "0.0"}%
+${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.riskLevel} RISK)
+• CFO / PAT Ratio: ${forensic.cfoToPatRatio?.ratio ?? "N/A"}x
+• Altman Z-Score: ${forensic.altmanZScore?.score ?? "N/A"} (${forensic.altmanZScore?.zone ?? "N/A"} Zone)
+• Promoter Pledge: ${forensic.governanceFlags?.promoterPledgePct ?? "N/A"}%` : "• Forensic data not yet available — requires multi-year financial statements."}
 
-3. VALUATION & SCENARIO ANALYSIS:
-• Base Case Target: ${targetPriceDisplay}
-• Bull Case Scenario: +20% upside under accelerated growth.
-• Bear Case Scenario: -15% downside under margin compression.`;
+3. VALUATION:
+• Base Case Target: ${targetPriceDisplay}`;
 
   const handleCopyMemo = () => {
     navigator.clipboard.writeText(icMemoText);
@@ -94,11 +92,7 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
     setTimeout(() => setCopiedMemo(false), 2500);
   };
 
-  const competitors = reportData?.competitors || [
-    { name: "Industry Peer A", ticker: "PEERA", currentPrice: 1840, targetPrice: 2100, recommendation: "BUY" },
-    { name: "Industry Peer B", ticker: "PEERB", currentPrice: 3200, targetPrice: 3150, recommendation: "HOLD" },
-    { name: "Global Benchmark C", ticker: "GLBC", currentPrice: 450, targetPrice: 510, recommendation: "BUY" },
-  ];
+  const competitors = Array.isArray(reportData?.competitors) && reportData.competitors.length > 0 ? reportData.competitors : [];
 
   // Quick questions for AI Copilot
   const quickQuestions = [
@@ -278,12 +272,14 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
             <div className="p-4 bg-[#FAF8F5] border border-[#E5E1D7] rounded-xl mb-4">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-[#7A7569]">The Bottom Line Verdict</span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
-                  {rec?.rating || "BUY"}
-                </span>
+                {rec?.rating && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
+                    {rec.rating}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-[#3D3A32] leading-relaxed">
-                {reportData?.executiveSummary || `${companyName} exhibits structural market share expansion potential backed by expanding margins and disciplined capital allocation.`}
+                {reportData?.executiveSummary || <span className="italic text-[#9E988A]">Executive summary not yet available for this report.</span>}
               </p>
             </div>
 
@@ -291,20 +287,24 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 bg-white border border-[#E3DFD5] rounded-xl shadow-2xs">
                 <h3 className="text-xs font-bold text-[#1A1917] uppercase tracking-wider mb-2">Key Investment Catalysts</h3>
-                <ul className="text-xs text-[#524E43] space-y-1.5">
-                  <li>• Inflection in operating leverage driving EBITDA expansion</li>
-                  <li>• Secular industry tailwinds benefiting primary product lines</li>
-                  <li>• Robust balance sheet supporting organic capacity expansion</li>
-                </ul>
+                {reportData?.futureGrowth ? (
+                  <p className="text-xs text-[#524E43] leading-relaxed">{reportData.futureGrowth}</p>
+                ) : (
+                  <p className="text-xs text-[#9E988A] italic">Investment catalysts will be extracted when the research agent runs or financial filings are ingested.</p>
+                )}
               </div>
 
               <div className="p-4 bg-white border border-[#E3DFD5] rounded-xl shadow-2xs">
                 <h3 className="text-xs font-bold text-[#1A1917] uppercase tracking-wider mb-2">Primary Downside Risks</h3>
-                <ul className="text-xs text-[#524E43] space-y-1.5">
-                  <li>• Volatility in core input commodity costs compressing spreads</li>
-                  <li>• Regulatory or compliance framework shifts in primary markets</li>
-                  <li>• Execution delays in newly announced brownfield capex</li>
-                </ul>
+                {Array.isArray(reportData?.investmentRisks) && reportData.investmentRisks.length > 0 ? (
+                  <ul className="text-xs text-[#524E43] space-y-1.5">
+                    {reportData.investmentRisks.map((risk, idx) => (
+                      <li key={idx}>• {risk}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-[#9E988A] italic">Downside risk factors will be populated from the equity research report once generated.</p>
+                )}
               </div>
             </div>
           </div>
@@ -321,19 +321,19 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-3.5 bg-[#FAF8F5] rounded-xl border border-[#E5E1D7]">
                 <div className="text-[11px] font-bold text-[#7A7569] uppercase tracking-wider mb-1">
-                  Market Consensus Expectation
+                  Analyst Thesis
                 </div>
                 <p className="text-xs text-[#3D3A32] leading-relaxed">
-                  Consensus expects modest 9-11% revenue growth with flat EBITDA margins, modeling prolonged margin drag due to commodity inflation and higher freight costs.
+                  {reportData?.valuationAnalysis || <span className="italic text-[#9E988A]">Valuation analysis not yet available.</span>}
                 </p>
               </div>
 
               <div className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200">
                 <div className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider mb-1">
-                  EquiGen Variant Perception (Contrarian View)
+                  Forward-Looking View
                 </div>
                 <p className="text-xs text-[#1E3A2F] leading-relaxed">
-                  Brownfield capacity commissioning will unlock operating leverage 2 quarters earlier than the street anticipates, expanding gross margins by 180-220 bps.
+                  {reportData?.headlineTakeaway || reportData?.futureGrowth || <span className="italic text-[#6B9E7F]">Forward-looking analysis will be generated once the research pipeline completes.</span>}
                 </p>
               </div>
             </div>
@@ -374,8 +374,8 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
         <div className="space-y-5">
           {/* Interactive DCF Scenario Engine */}
           <ScenarioModeler
-            initialTargetPrice={targetPrice ?? 1140}
-            initialCmp={cmp ?? 948}
+            initialTargetPrice={targetPrice}
+            initialCmp={cmp}
             reportData={reportData}
           />
 
@@ -417,30 +417,44 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
                     <td className="p-2.5">{cmpDisplay}</td>
                     <td className="p-2.5">{targetPriceDisplay}</td>
                     <td className="p-2.5 font-sans">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        {rec?.rating || "BUY"}
-                      </span>
+                      {rec?.rating ? (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          rec.rating === "BUY" || rec.rating === "ACCUMULATE" ? "bg-emerald-100 text-emerald-800"
+                          : rec.rating === "SELL" || rec.rating === "REDUCE" ? "bg-rose-100 text-rose-800"
+                          : "bg-amber-100 text-amber-800"
+                        }`}>
+                          {rec.rating}
+                        </span>
+                      ) : <span className="text-[10px] text-[#9E988A] italic">—</span>}
                     </td>
                     <td className="p-2.5 text-emerald-800 font-bold">{upsideDisplay}</td>
                   </tr>
-                  {competitors.map((peer, idx) => (
+                  {competitors.length > 0 ? competitors.map((peer, idx) => (
                     <tr key={idx}>
                       <td className="p-2.5 font-sans text-[#3D3A32]">{peer.name}</td>
                       <td className="p-2.5">{peer.ticker}</td>
-                      <td className="p-2.5">₹{peer.currentPrice?.toLocaleString() ?? "N/A"}</td>
-                      <td className="p-2.5">₹{peer.targetPrice?.toLocaleString() ?? "N/A"}</td>
+                      <td className="p-2.5">{peer.currentPrice != null ? `₹${peer.currentPrice.toLocaleString()}` : "—"}</td>
+                      <td className="p-2.5">{peer.targetPrice != null ? `₹${peer.targetPrice.toLocaleString()}` : "—"}</td>
                       <td className="p-2.5 font-sans">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF8F5] text-[#4A463D] border border-[#E3DFD5]">
-                          {peer.recommendation || "HOLD"}
-                        </span>
+                        {peer.recommendation ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF8F5] text-[#4A463D] border border-[#E3DFD5]">
+                            {peer.recommendation}
+                          </span>
+                        ) : <span className="text-[10px] text-[#9E988A] italic">—</span>}
                       </td>
                       <td className="p-2.5 text-[#3D3A32]">
-                        {peer.targetPrice && peer.currentPrice
+                        {peer.targetPrice != null && peer.currentPrice != null && peer.currentPrice > 0
                           ? `${Math.round(((peer.targetPrice - peer.currentPrice) / peer.currentPrice) * 100)}%`
-                          : "N/A"}
+                          : "—"}
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-xs text-[#9E988A] italic">
+                        No peer benchmarks available. Competitor data will be extracted when financials are ingested.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -468,62 +482,48 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
               )}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#FAF8F5] text-[#7A7569] font-bold border-b border-[#E3DFD5]">
-                    <th className="p-2.5">Financial Metric (₹ Cr)</th>
-                    <th className="p-2.5 font-mono">FY22</th>
-                    <th className="p-2.5 font-mono">FY23</th>
-                    <th className="p-2.5 font-mono">FY24</th>
-                    <th className="p-2.5 font-mono">FY25E</th>
-                    <th className="p-2.5 font-mono">FY26E</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EFECE6] font-mono">
-                  <tr>
-                    <td className="p-2.5 font-sans font-bold text-[#1A1917]">Revenue from Operations</td>
-                    <td className="p-2.5">8,240</td>
-                    <td className="p-2.5">9,650</td>
-                    <td className="p-2.5">11,280</td>
-                    <td className="p-2.5 text-blue-900 font-bold">13,100</td>
-                    <td className="p-2.5 text-blue-900 font-bold">15,250</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-sans text-[#3D3A32]">Operating EBITDA</td>
-                    <td className="p-2.5">1,480</td>
-                    <td className="p-2.5">1,820</td>
-                    <td className="p-2.5">2,210</td>
-                    <td className="p-2.5 text-blue-900 font-bold">2,620</td>
-                    <td className="p-2.5 text-blue-900 font-bold">3,120</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-sans text-[#7A7569]">EBITDA Margin (%)</td>
-                    <td className="p-2.5">18.0%</td>
-                    <td className="p-2.5">18.9%</td>
-                    <td className="p-2.5">19.6%</td>
-                    <td className="p-2.5 text-emerald-800 font-bold">20.0%</td>
-                    <td className="p-2.5 text-emerald-800 font-bold">20.5%</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-sans font-bold text-[#1A1917]">Net Profit (PAT Adjusted)</td>
-                    <td className="p-2.5">920</td>
-                    <td className="p-2.5">1,180</td>
-                    <td className="p-2.5">1,450</td>
-                    <td className="p-2.5 text-blue-900 font-bold">1,780</td>
-                    <td className="p-2.5 text-blue-900 font-bold">2,150</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-sans text-[#7A7569]">P/E Ratio (x)</td>
-                    <td className="p-2.5">24.5</td>
-                    <td className="p-2.5">21.8</td>
-                    <td className="p-2.5">18.2</td>
-                    <td className="p-2.5 text-emerald-800 font-bold">15.4</td>
-                    <td className="p-2.5 text-emerald-800 font-bold">12.8</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            {Array.isArray(reportData?.fiveYearSummary) && reportData.fiveYearSummary.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#FAF8F5] text-[#7A7569] font-bold border-b border-[#E3DFD5]">
+                      <th className="p-2.5">Financial Metric</th>
+                      {reportData.fiveYearSummary.map((row) => (
+                        <th key={row.period} className="p-2.5 font-mono">{row.period}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFECE6] font-mono">
+                    {([
+                      { label: "Revenue (₹ Cr)", key: "sales", bold: true, estimate: false },
+                      { label: "Operating EBITDA (₹ Cr)", key: "ebitda", bold: false, estimate: false },
+                      { label: "EBITDA Margin (%)", key: "ebitdaMargin", bold: false, estimate: false, pct: true },
+                      { label: "Net Profit / PAT (₹ Cr)", key: "patAdjusted", bold: true, estimate: false },
+                      { label: "P/E Ratio (x)", key: "pe", bold: false, estimate: false },
+                      { label: "EV / EBITDA (x)", key: "evEbitda", bold: false, estimate: false },
+                      { label: "ROE (%)", key: "roe", bold: false, estimate: false, pct: true },
+                    ] as { label: string; key: keyof typeof reportData.fiveYearSummary[0]; bold: boolean; estimate: boolean; pct?: boolean }[]).map((row) => (
+                      <tr key={row.key}>
+                        <td className={`p-2.5 font-sans ${row.bold ? "font-bold text-[#1A1917]" : "text-[#3D3A32]"}`}>{row.label}</td>
+                        {reportData.fiveYearSummary!.map((period) => {
+                          const val = period[row.key];
+                          const isEstimate = String(period.period).toUpperCase().endsWith("E");
+                          const display = val != null && val !== "" ? (row.pct ? `${val}%` : String(val)) : "—";
+                          return (
+                            <td key={period.period} className={`p-2.5 ${isEstimate ? "text-blue-900 font-bold" : ""}`}>{display}</td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-6 text-center">
+                <p className="text-xs text-[#9E988A] italic">5-year financial summary data is not yet available for this report.</p>
+                <p className="text-[11px] text-[#B0AA9E] mt-1">This section will be populated once multi-year financial statements are extracted from company filings.</p>
+              </div>
+            )}
           </div>
 
           {/* Concall Reality Check */}
@@ -538,49 +538,9 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
               </div>
             </div>
 
-            <div className="space-y-3">
-              {[
-                {
-                  topic: "Capacity Expansion & Capex",
-                  guidance: "Management guided ₹450 Cr capex completion by Q3.",
-                  reality: "Facility commissioned on schedule with trial runs ongoing.",
-                  status: "Delivered",
-                  statusColor: "bg-emerald-100 text-emerald-800",
-                },
-                {
-                  topic: "Export Geographic Expansion",
-                  guidance: "Targeted 25% share of revenue from overseas markets.",
-                  reality: "Export share stabilized at 19% due to Red Sea shipping friction.",
-                  status: "Partial",
-                  statusColor: "bg-amber-100 text-amber-800",
-                },
-                {
-                  topic: "EBITDA Margin Trajectory",
-                  guidance: "Aimed to sustain 19-20% margin corridor.",
-                  reality: "Reported 19.6% EBITDA margin matching guidance.",
-                  status: "Delivered",
-                  statusColor: "bg-emerald-100 text-emerald-800",
-                },
-              ].map((item, idx) => (
-                <div key={idx} className="p-3.5 bg-[#FAF8F5] rounded-xl border border-[#E3DFD5]">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold text-[#1A1917]">{item.topic}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.statusColor}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs mt-2">
-                    <div className="p-2 bg-white rounded-lg border border-[#EAE6DD]">
-                      <span className="text-[10px] uppercase font-bold text-[#7A7569] block">Guidance</span>
-                      <span className="text-[#3D3A32]">{item.guidance}</span>
-                    </div>
-                    <div className="p-2 bg-white rounded-lg border border-[#EAE6DD]">
-                      <span className="text-[10px] uppercase font-bold text-[#7A7569] block">Analyst Assessment</span>
-                      <span className="text-[#3D3A32]">{item.reality}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="py-6 text-center">
+              <p className="text-xs text-[#9E988A] italic">Concall guidance tracking requires a parsed earnings call transcript.</p>
+              <p className="text-[11px] text-[#B0AA9E] mt-1">Once a concall transcript is ingested, management guidance vs. actual execution will be displayed here automatically.</p>
             </div>
           </div>
         </div>

@@ -25,7 +25,7 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
   const rawAny = reportData as any;
   const assumptions = rawAny?.modelingData?.assumptions || {};
 
-  // Extract baseline parameters
+  // Extract baseline parameters — NO synthetic fallbacks permitted
   const baseRevenue =
     typeof assumptions.baseRevenue === "number" && assumptions.baseRevenue > 0
       ? assumptions.baseRevenue
@@ -33,14 +33,17 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       ? assumptions.revenue
       : typeof reportData?.fiveYearSummary?.[reportData?.fiveYearSummary.length - 1]?.sales === "number"
       ? (reportData?.fiveYearSummary[reportData?.fiveYearSummary.length - 1].sales as number)
-      : 10000;
+      : null;
 
   const sharesOutstandingCr =
     typeof reportData?.companyData?.outstandingShares === "number" && reportData.companyData.outstandingShares > 0
       ? reportData.companyData.outstandingShares
       : typeof assumptions.sharesCr === "number" && assumptions.sharesCr > 0
       ? assumptions.sharesCr
-      : 50;
+      : null;
+
+  // If core financial inputs are missing, we cannot run a meaningful DCF model
+  const isDataInsufficient = baseRevenue === null || sharesOutstandingCr === null;
 
   const cmp = typeof initialCmp === "number" && initialCmp > 0 ? initialCmp : null;
 
@@ -84,11 +87,12 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
   const [wacc, setWacc] = useState<number>(defaultWacc);
   const [terminalGrowth, setTerminalGrowth] = useState<number>(defaultTg);
 
-  // Execute Linked 3-Statement Model Dynamically
+  // Execute Linked 3-Statement Model Dynamically (only when real inputs are available)
   const modelResult = useMemo(() => {
+    if (isDataInsufficient) return null;
     const drivers: ThreeStatementDrivers = {
-      baseRevenue,
-      sharesOutstandingCr,
+      baseRevenue: baseRevenue!,
+      sharesOutstandingCr: sharesOutstandingCr!,
       revenueGrowthRate: growthRate / 100,
       ebitdaMargin: ebitdaMargin / 100,
       taxRate: 0.25,
@@ -105,10 +109,10 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       projectionYears: 5,
     };
     return runThreeStatementModel(drivers);
-  }, [baseRevenue, sharesOutstandingCr, growthRate, ebitdaMargin, dso, dio, dpo, capexPct, wacc, terminalGrowth]);
+  }, [isDataInsufficient, baseRevenue, sharesOutstandingCr, growthRate, ebitdaMargin, dso, dio, dpo, capexPct, wacc, terminalGrowth]);
 
-  const targetPrice = modelResult.targetPrice;
-  const upside = cmp ? Math.round(((targetPrice - cmp) / cmp) * 100) : null;
+  const targetPrice = modelResult?.targetPrice ?? null;
+  const upside = cmp && targetPrice ? Math.round(((targetPrice - cmp) / cmp) * 100) : null;
   const isPositiveUpside = (upside ?? 0) >= 0;
 
   // Cash Conversion Cycle (CCC = DSO + DIO - DPO)
@@ -166,6 +170,19 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
 
   return (
     <div className="bg-white border border-[#E3DFD5] rounded-2xl p-5 shadow-xs mb-5 animate-fadeIn">
+      {/* Insufficient data notice */}
+      {isDataInsufficient && (
+        <div className="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-300 bg-amber-50">
+          <span className="text-amber-600 text-base mt-0.5">⚠️</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-900">DCF Model Requires Real Financial Data</p>
+            <p className="text-xs text-amber-800 mt-0.5">
+              Base revenue and shares outstanding could not be extracted from the report. The DCF model will not run on synthetic fallback values.
+              Please ensure financial statements are ingested for this company before using the scenario modeler.
+            </p>
+          </div>
+        </div>
+      )}
       {/* ── 1. Clean Institutional Header & Integrated Valuation Strip ────── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-[#EAE6DD]">
         <div>
@@ -191,7 +208,7 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
           <div className="px-2">
             <div className="text-[9px] uppercase font-bold text-[#7A7569] tracking-wider">DCF Fair Value</div>
             <div suppressHydrationWarning className="text-lg font-black text-[#1A1917] font-mono leading-none mt-0.5">
-              ₹{targetPrice.toLocaleString("en-IN")}
+              {targetPrice != null ? `₹${targetPrice.toLocaleString("en-IN")}` : <span className="text-[#9E988A] text-sm italic">Pending data</span>}
             </div>
           </div>
 
@@ -214,7 +231,7 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
           <div className="px-2 hidden sm:block">
             <div className="text-[9px] uppercase font-bold text-[#7A7569] tracking-wider">Enterprise Value</div>
             <div className="text-xs font-bold text-[#3D3A32] font-mono mt-0.5">
-              {formatCrores(modelResult.enterpriseValue)}
+              {modelResult ? formatCrores(modelResult.enterpriseValue) : "—"}
             </div>
           </div>
 
@@ -513,21 +530,23 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
               </div>
 
               {/* Real-time cash impact insight */}
-              <div className="p-2.5 rounded-lg bg-white border border-[#E5E1D7] text-[11px] text-[#5A554A]">
-                <div className="flex items-center justify-between font-bold mb-0.5">
-                  <span>Year 1 ΔNWC Cash Flow:</span>
-                  <span className={modelResult.projections[0].deltaNwc > 0 ? "text-amber-700" : "text-emerald-700"}>
-                    {modelResult.projections[0].deltaNwc > 0
-                      ? `-₹${modelResult.projections[0].deltaNwc.toLocaleString()} Cr (Drain)`
-                      : `+₹${Math.abs(modelResult.projections[0].deltaNwc).toLocaleString()} Cr (Release)`}
-                  </span>
+              {modelResult && (
+                <div className="p-2.5 rounded-lg bg-white border border-[#E5E1D7] text-[11px] text-[#5A554A]">
+                  <div className="flex items-center justify-between font-bold mb-0.5">
+                    <span>Year 1 ΔNWC Cash Flow:</span>
+                    <span className={modelResult.projections[0].deltaNwc > 0 ? "text-amber-700" : "text-emerald-700"}>
+                      {modelResult.projections[0].deltaNwc > 0
+                        ? `-₹${modelResult.projections[0].deltaNwc.toLocaleString()} Cr (Drain)`
+                        : `+₹${Math.abs(modelResult.projections[0].deltaNwc).toLocaleString()} Cr (Release)`}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-[#7A7569]">
+                    {dso > 65
+                      ? "Elevated DSO is tying up operating cash in receivables."
+                      : "Lean working capital supports operating cash realization."}
+                  </p>
                 </div>
-                <p className="text-[10px] text-[#7A7569]">
-                  {dso > 65
-                    ? "Elevated DSO is tying up operating cash in receivables."
-                    : "Lean working capital supports operating cash realization."}
-                </p>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -536,151 +555,167 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       {/* VIEW B: 5-Year Statement Projections Table */}
       {activeView === "projections" && (
         <div className="pt-4 space-y-3 animate-fadeIn">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-[#1A1917] uppercase tracking-wider">
-              5-Year Integrated Projections (₹ Cr)
-            </span>
-            <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-              ✓ Balance Sheet Variance: ₹0.00 (Balanced)
-            </span>
-          </div>
+          {!modelResult ? (
+            <div className="py-8 text-center text-xs text-[#9E988A] italic">
+              Projection table is unavailable — financial data inputs (base revenue and shares outstanding) are missing for this report.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#1A1917] uppercase tracking-wider">
+                  5-Year Integrated Projections (₹ Cr)
+                </span>
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  ✓ Balance Sheet Variance: ₹0.00 (Balanced)
+                </span>
+              </div>
 
-          <div className="overflow-x-auto border border-[#E3DFD5] rounded-xl bg-white shadow-2xs">
-            <table className="w-full text-xs text-left border-collapse font-mono">
-              <thead>
-                <tr className="bg-[#FAF8F5] text-[#5A554A] font-bold border-b border-[#E3DFD5]">
-                  <th className="p-2.5 font-sans">Statement Line Item</th>
-                  <th className="p-2.5 text-right">{modelResult.baseYear.year} (Base)</th>
-                  {modelResult.projections.map((p) => (
-                    <th key={p.year} className="p-2.5 text-right">{p.year}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EFECE6]">
-                <tr>
-                  <td className="p-2.5 font-sans font-bold text-[#1A1917]">Revenue from Operations</td>
-                  <td className="p-2.5 text-right font-medium">₹{modelResult.baseYear.revenue.toLocaleString()}</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right font-bold text-[#1A1917]">
-                      ₹{p.revenue.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-sans text-[#5A554A]">EBITDA (Operating Profit)</td>
-                  <td className="p-2.5 text-right text-[#5A554A]">₹{Math.round(modelResult.baseYear.revenue * (ebitdaMargin / 100)).toLocaleString()}</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right text-[#5A554A]">
-                      ₹{p.ebitda.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-sans text-[#5A554A]">Depreciation & Amortization</td>
-                  <td className="p-2.5 text-right text-[#7A7569]">₹{Math.round(modelResult.baseYear.grossBlock * 0.09).toLocaleString()}</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right text-[#7A7569]">
-                      ₹{p.depreciation.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-sans font-semibold text-[#1A1917]">Profit After Tax (PAT)</td>
-                  <td className="p-2.5 text-right text-[#7A7569]">—</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right font-semibold text-[#1A1917]">
-                      ₹{p.pat.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-amber-50/40">
-                  <td className="p-2.5 font-sans text-amber-950 font-bold">
-                    Change in Working Capital (ΔNWC)
-                  </td>
-                  <td className="p-2.5 text-right text-amber-900">—</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className={`p-2.5 text-right font-bold ${p.deltaNwc > 0 ? "text-amber-800" : "text-emerald-800"}`}>
-                      {p.deltaNwc > 0 ? `-₹${p.deltaNwc.toLocaleString()} (Drain)` : `+₹${Math.abs(p.deltaNwc).toLocaleString()} (Release)`}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-emerald-50/40 font-bold">
-                  <td className="p-2.5 font-sans text-emerald-950">Operating Cash Flow (CFO)</td>
-                  <td className="p-2.5 text-right text-emerald-900">—</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right text-emerald-900">
-                      ₹{p.cfo.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-[#FAF8F5] font-extrabold border-t-2 border-[#D5D0C3]">
-                  <td className="p-2.5 font-sans text-[#1A1917]">Free Cash Flow to Firm (FCFF)</td>
-                  <td className="p-2.5 text-right text-[#7A7569]">—</td>
-                  {modelResult.projections.map((p) => (
-                    <td key={p.year} className="p-2.5 text-right text-[#1A1917]">
-                      ₹{p.fcff.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+              <div className="overflow-x-auto border border-[#E3DFD5] rounded-xl bg-white shadow-2xs">
+                <table className="w-full text-xs text-left border-collapse font-mono">
+                  <thead>
+                    <tr className="bg-[#FAF8F5] text-[#5A554A] font-bold border-b border-[#E3DFD5]">
+                      <th className="p-2.5 font-sans">Statement Line Item</th>
+                      <th className="p-2.5 text-right">{modelResult.baseYear.year} (Base)</th>
+                      {modelResult.projections.map((p) => (
+                        <th key={p.year} className="p-2.5 text-right">{p.year}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFECE6]">
+                    <tr>
+                      <td className="p-2.5 font-sans font-bold text-[#1A1917]">Revenue from Operations</td>
+                      <td className="p-2.5 text-right font-medium">₹{modelResult.baseYear.revenue.toLocaleString()}</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right font-bold text-[#1A1917]">
+                          ₹{p.revenue.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-sans text-[#5A554A]">EBITDA (Operating Profit)</td>
+                      <td className="p-2.5 text-right text-[#5A554A]">₹{Math.round(modelResult.baseYear.revenue * (ebitdaMargin / 100)).toLocaleString()}</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right text-[#5A554A]">
+                          ₹{p.ebitda.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-sans text-[#5A554A]">Depreciation & Amortization</td>
+                      <td className="p-2.5 text-right text-[#7A7569]">₹{Math.round(modelResult.baseYear.grossBlock * 0.09).toLocaleString()}</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right text-[#7A7569]">
+                          ₹{p.depreciation.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-sans font-semibold text-[#1A1917]">Profit After Tax (PAT)</td>
+                      <td className="p-2.5 text-right text-[#7A7569]">—</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right font-semibold text-[#1A1917]">
+                          ₹{p.pat.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="bg-amber-50/40">
+                      <td className="p-2.5 font-sans text-amber-950 font-bold">
+                        Change in Working Capital (ΔNWC)
+                      </td>
+                      <td className="p-2.5 text-right text-amber-900">—</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className={`p-2.5 text-right font-bold ${p.deltaNwc > 0 ? "text-amber-800" : "text-emerald-800"}`}>
+                          {p.deltaNwc > 0 ? `-₹${p.deltaNwc.toLocaleString()} (Drain)` : `+₹${Math.abs(p.deltaNwc).toLocaleString()} (Release)`}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="bg-emerald-50/40 font-bold">
+                      <td className="p-2.5 font-sans text-emerald-950">Operating Cash Flow (CFO)</td>
+                      <td className="p-2.5 text-right text-emerald-900">—</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right text-emerald-900">
+                          ₹{p.cfo.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="bg-[#FAF8F5] font-extrabold border-t-2 border-[#D5D0C3]">
+                      <td className="p-2.5 font-sans text-[#1A1917]">Free Cash Flow to Firm (FCFF)</td>
+                      <td className="p-2.5 text-right text-[#7A7569]">—</td>
+                      {modelResult.projections.map((p) => (
+                        <td key={p.year} className="p-2.5 text-right text-[#1A1917]">
+                          ₹{p.fcff.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* VIEW C: Sensitivity Matrix (5x5 WACC vs Terminal Growth) */}
       {activeView === "sensitivity" && (
         <div className="pt-4 space-y-3 animate-fadeIn">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-[#1A1917] uppercase tracking-wider">
-              Sensitivity Matrix: WACC vs. Terminal Growth (Target Price ₹)
-            </span>
-            <span className="text-[11px] text-[#7A7569] italic">
-              *Green highlighted cell indicates active slider parameter baseline.
-            </span>
-          </div>
+          {!modelResult ? (
+            <div className="py-8 text-center text-xs text-[#9E988A] italic">
+              Sensitivity matrix is unavailable — financial data inputs are missing for this report.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#1A1917] uppercase tracking-wider">
+                  Sensitivity Matrix: WACC vs. Terminal Growth (Target Price ₹)
+                </span>
+                <span className="text-[11px] text-[#7A7569] italic">
+                  *Green highlighted cell indicates active slider parameter baseline.
+                </span>
+              </div>
 
-          <div className="overflow-x-auto border border-[#E3DFD5] rounded-xl bg-white shadow-2xs">
-            <table className="w-full text-xs text-center border-collapse font-mono">
-              <thead>
-                <tr className="bg-[#1A1917] text-white font-bold">
-                  <th className="p-2 text-left font-sans">WACC \ TG</th>
-                  {modelResult.tgSteps.map((tg) => (
-                    <th key={tg} className="p-2">
-                      {(tg * 100).toFixed(1)}%
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EFECE6]">
-                {modelResult.waccSteps.map((wStep, rIdx) => (
-                  <tr key={wStep} className="hover:bg-[#FAF8F5]">
-                    <td className="p-2 text-left font-sans font-bold bg-[#FAF8F5] text-[#1A1917]">
-                      {(wStep * 100).toFixed(1)}%
-                    </td>
-                    {modelResult.tgSteps.map((_tgStep, cIdx) => {
-                      const price = modelResult.sensitivityMatrix[rIdx][cIdx];
-                      const isBase = rIdx === 2 && cIdx === 2;
-                      return (
-                        <td
-                          key={cIdx}
-                          className={`p-2 transition-all ${
-                            isBase
-                              ? "bg-emerald-100 text-emerald-950 font-black ring-1 ring-emerald-400"
-                              : price >= (cmp || 0)
-                              ? "text-[#1A1917]"
-                              : "text-rose-800"
-                          }`}
-                        >
-                          ₹{price.toFixed(1)}
+              <div className="overflow-x-auto border border-[#E3DFD5] rounded-xl bg-white shadow-2xs">
+                <table className="w-full text-xs text-center border-collapse font-mono">
+                  <thead>
+                    <tr className="bg-[#1A1917] text-white font-bold">
+                      <th className="p-2 text-left font-sans">WACC \ TG</th>
+                      {modelResult.tgSteps.map((tg) => (
+                        <th key={tg} className="p-2">
+                          {(tg * 100).toFixed(1)}%
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFECE6]">
+                    {modelResult.waccSteps.map((wStep, rIdx) => (
+                      <tr key={wStep} className="hover:bg-[#FAF8F5]">
+                        <td className="p-2 text-left font-sans font-bold bg-[#FAF8F5] text-[#1A1917]">
+                          {(wStep * 100).toFixed(1)}%
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        {modelResult.tgSteps.map((_tgStep, cIdx) => {
+                          const price = modelResult.sensitivityMatrix[rIdx][cIdx];
+                          const isBase = rIdx === 2 && cIdx === 2;
+                          return (
+                            <td
+                              key={cIdx}
+                              className={`p-2 transition-all ${
+                                isBase
+                                  ? "bg-emerald-100 text-emerald-950 font-black ring-1 ring-emerald-400"
+                                  : price >= (cmp || 0)
+                                  ? "text-[#1A1917]"
+                                  : "text-rose-800"
+                              }`}
+                            >
+                              ₹{price.toFixed(1)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

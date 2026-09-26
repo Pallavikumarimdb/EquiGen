@@ -98,9 +98,22 @@ export function AgentPanel({
       category: "Valuation Sandbox",
       status: "success",
       durationMs: 1150,
-      summary: reportData?.recommendation?.targetPrice
-        ? `Executed multi-scenario DCF (Base Case: WACC 12.0%, Terminal Growth 5.0%) -> Target: ₹${reportData.recommendation.targetPrice.toLocaleString()}.`
-        : `Executed multi-scenario DCF (Base Case: WACC 12.0%, Terminal Growth 5.0%) -> Valuation model initialized.`,
+      summary: (() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const assumptions = (reportData as any)?.modelingData?.assumptions;
+        const wacc = assumptions?.wacc != null
+          ? `${(Number(assumptions.wacc) <= 1 ? Number(assumptions.wacc) * 100 : Number(assumptions.wacc)).toFixed(1)}%`
+          : null;
+        const tg = assumptions?.terminalGrowth != null
+          ? `${(Number(assumptions.terminalGrowth) <= 1 ? Number(assumptions.terminalGrowth) * 100 : Number(assumptions.terminalGrowth)).toFixed(1)}%`
+          : null;
+        const params = wacc && tg ? `WACC ${wacc}, Terminal Growth ${tg}` : null;
+        const tp = reportData?.recommendation?.targetPrice;
+        if (params && tp) return `Executed multi-scenario DCF (Base Case: ${params}) → Target: ₹${tp.toLocaleString()}.`;
+        if (params) return `Executed multi-scenario DCF (Base Case: ${params}) → Valuation model completed.`;
+        if (tp) return `Executed multi-scenario DCF model → Target: ₹${tp.toLocaleString()}.`;
+        return "Executed multi-scenario DCF model. Valuation model initialized.";
+      })(),
     },
     {
       id: "tool_4",
