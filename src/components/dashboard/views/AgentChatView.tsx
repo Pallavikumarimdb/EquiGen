@@ -44,7 +44,7 @@ interface AgentChatViewProps {
   companyName: string;
   ticker?: string;
   reportData: EquityResearchData | null;
-  currentPersona: PersonaType;
+  currentPersona?: PersonaType;
   onUpdateReportData: (updated: EquityResearchData) => void;
   onSwitchToReport: () => void;
   status?: string;
@@ -57,7 +57,6 @@ export function AgentChatView({
   companyName,
   ticker,
   reportData,
-  currentPersona,
   onUpdateReportData,
   onSwitchToReport,
   status,
@@ -596,7 +595,7 @@ export function AgentChatView({
           companyName,
           ticker,
           reportData,
-          currentPersona,
+          currentPersona: "institutional",
           provider: userProvider,
           apiKey: userApiKey,
           modelName: userModelName,

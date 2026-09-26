@@ -11,52 +11,83 @@ interface MetricGridProps {
 export function MetricGrid({ reportData }: MetricGridProps) {
   const comp = reportData?.companyData;
   const fiveYear = reportData?.fiveYearSummary;
-  const latestSummary = Array.isArray(fiveYear) && fiveYear.length > 0 ? fiveYear[fiveYear.length - 1] : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawAny = reportData as any;
+  const assumptions = rawAny?.modelingData?.assumptions;
+  const valuation = rawAny?.valuationMultiples;
 
-  const peVal = latestSummary?.pe ?? comp?.pe;
-  const evEbitdaVal = latestSummary?.evEbitda ?? comp?.evEbitda;
-  const roeVal = latestSummary?.roe ?? comp?.roe;
-  const deVal = latestSummary?.deRatio ?? comp?.deRatio;
+  // Find latest summary item with at least one metric defined
+  const latestSummary = Array.isArray(fiveYear) && fiveYear.length > 0
+    ? [...fiveYear].reverse().find((s) => s && (s.pe != null || s.roe != null || s.deRatio != null || s.evEbitda != null)) || fiveYear[fiveYear.length - 1]
+    : null;
+
+  // Helper to parse numbers safely
+  const parseNum = (val: unknown): number | null => {
+    if (typeof val === "number" && !isNaN(val)) return val;
+    if (typeof val === "string") {
+      const clean = val.replace(/[^0-9.-]/g, "");
+      const num = parseFloat(clean);
+      return !isNaN(num) ? num : null;
+    }
+    return null;
+  };
+
+  const rawPe = latestSummary?.pe ?? comp?.pe ?? valuation?.pe ?? assumptions?.pe ?? assumptions?.peRatio;
+  const peVal = parseNum(rawPe);
+
+  const rawEvEbitda = latestSummary?.evEbitda ?? comp?.evEbitda ?? valuation?.evEbitda ?? assumptions?.evEbitda;
+  const evEbitdaVal = parseNum(rawEvEbitda);
+
+  const rawRoe = latestSummary?.roe ?? comp?.roe ?? valuation?.roe ?? assumptions?.roe ?? assumptions?.roePercent;
+  const roeVal = parseNum(rawRoe);
+
+  const rawDe = latestSummary?.deRatio ?? comp?.deRatio ?? valuation?.deRatio ?? assumptions?.deRatio ?? assumptions?.debtToEquity;
+  const deVal = parseNum(rawDe);
+
+  const rawMarketCap = comp?.marketCap ?? assumptions?.marketCapCr ?? assumptions?.marketCap ?? valuation?.marketCap;
+  const marketCapVal = parseNum(rawMarketCap);
+
+  const raw52W = comp?.highLow52W || assumptions?.highLow52W || assumptions?.range52W || null;
 
   const metrics = [
     {
       label: "P/E Ratio",
-      value: peVal != null ? `${peVal}x` : "—",
-      subtext: peVal != null ? "Reported P/E" : "Data not reported",
+      value: peVal != null ? `${peVal.toFixed(1)}x` : "—",
+      subtext: peVal != null ? "Reported P/E" : "Under Review",
       icon: Activity,
     },
     {
       label: "EV / EBITDA",
-      value: evEbitdaVal != null ? `${evEbitdaVal}x` : "—",
-      subtext: evEbitdaVal != null ? "EV / EBITDA" : "Data not reported",
+      value: evEbitdaVal != null ? `${evEbitdaVal.toFixed(1)}x` : "—",
+      subtext: evEbitdaVal != null ? "Enterprise Multiple" : "Under Review",
       icon: BarChart2,
     },
     {
       label: "Return on Equity (ROE)",
-      value: roeVal != null ? `${roeVal}%` : "—",
-      subtext: roeVal != null ? "Return metric" : "Data not reported",
+      value: roeVal != null ? `${roeVal.toFixed(1)}%` : "—",
+      subtext: roeVal != null ? "Return metric" : "Under Review",
       icon: Percent,
     },
     {
       label: "Debt / Equity",
-      value: deVal != null ? (typeof deVal === "number" ? `${deVal.toFixed(2)}x` : String(deVal)) : "—",
-      subtext: deVal != null ? "Financial leverage" : "Data not reported",
+      value: deVal != null ? `${deVal.toFixed(2)}x` : "—",
+      subtext: deVal != null ? "Financial leverage" : "Under Review",
       icon: Scale,
     },
     {
       label: "Market Capitalization",
-      value: comp?.marketCap != null
-        ? typeof comp.marketCap === "number"
-          ? `₹${comp.marketCap.toLocaleString("en-IN")} Cr`
-          : String(comp.marketCap)
+      value: marketCapVal != null
+        ? `₹${marketCapVal.toLocaleString("en-IN")} Cr`
+        : typeof comp?.marketCap === "string" && comp.marketCap
+        ? comp.marketCap
         : "—",
-      subtext: comp?.marketCap != null ? "Current market cap" : "Data not reported",
+      subtext: marketCapVal != null ? "Current market cap" : "Under Review",
       icon: DollarSign,
     },
     {
       label: "52-Week Range",
-      value: comp?.highLow52W || "—",
-      subtext: comp?.highLow52W ? "52W High / Low" : "Data not reported",
+      value: raw52W || "—",
+      subtext: raw52W ? "52W High / Low" : "Under Review",
       icon: Shield,
     },
   ];
@@ -74,7 +105,9 @@ export function MetricGrid({ reportData }: MetricGridProps) {
               <span className="text-[10px] font-bold uppercase tracking-wider">{m.label}</span>
               <Icon className="w-3 h-3 text-[#9C978B]" />
             </div>
-            <div suppressHydrationWarning className="text-base font-black text-[#1A1917] font-mono leading-tight">{m.value}</div>
+            <div suppressHydrationWarning className="text-base font-black text-[#1A1917] font-mono leading-tight">
+              {m.value}
+            </div>
             <div className="text-[10px] text-[#7A7569] mt-0.5 truncate">{m.subtext}</div>
           </div>
         );

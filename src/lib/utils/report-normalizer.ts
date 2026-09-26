@@ -189,5 +189,6 @@ export function normalizeEquityResearchData(raw: any): EquityResearchData {
     },
     sections,
     sourceType: raw.sourceType || (sections.length > 0 ? "autonomous" : undefined),
+    forensicAnalysis: raw.forensicAnalysis || null,
   };
 }

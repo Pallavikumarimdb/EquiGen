@@ -7,11 +7,8 @@ import { CoverageSidebar } from "./dashboard/CoverageSidebar";
 import { NewResearchModal } from "./dashboard/NewResearchModal";
 import { AgentChatView } from "./dashboard/views/AgentChatView";
 import { SignoffModal } from "./dashboard/SignoffModal";
-import { BuySideView } from "./dashboard/views/BuySideView";
-import { SellSideView } from "./dashboard/views/SellSideView";
-import { IndividualView } from "./dashboard/views/IndividualView";
+import { UnifiedReportView } from "./dashboard/views/UnifiedReportView";
 import {
-  PersonaType,
   DashboardHistoryItem,
   UserSessionProfile,
   DashboardToast,
@@ -25,9 +22,6 @@ import {
   AlertCircle,
   CheckCircle2,
   X,
-  Sliders,
-  ShieldCheck,
-  Zap,
 } from "lucide-react";
 
 // Initial default fallback company data if workspace is completely fresh
@@ -58,6 +52,10 @@ const DEFAULT_SAMPLE_REPORT: EquityResearchData = {
     freeFloat: "54.2%",
     dividendYield: "0.6%",
     beta: 1.25,
+    pe: 11.2,
+    evEbitda: 5.8,
+    roe: 36.2,
+    deRatio: 0.8,
   },
   executiveSummary:
     "Tata Motors Limited is positioned at the intersection of a luxury SUV super-cycle at JLR and a structural domestic electrification shift. We initiate coverage with a BUY recommendation and a 12-month target price of ₹1,140 based on SOTP and DCF valuation.",
@@ -102,6 +100,43 @@ const DEFAULT_SAMPLE_REPORT: EquityResearchData = {
     { name: "Maruti Suzuki", ticker: "MARUTI", currentPrice: 12150, targetPrice: 13400, recommendation: "ACCUMULATE" },
     { name: "Ashok Leyland", ticker: "ASHOKLEY", currentPrice: 228, targetPrice: 265, recommendation: "BUY" },
   ],
+  forensicAnalysis: {
+    overallHealthScore: 82,
+    riskLevel: "LOW",
+    cfoToPatRatio: {
+      ratio: 1.18,
+      status: "safe",
+      interpretation: "Excellent cash conversion — 118% of reported PAT translated into operating cash flow (CFO: ₹37,500 Cr vs PAT: ₹31,807 Cr).",
+      cfoCr: 37500,
+      patCr: 31807,
+    },
+    altmanZScore: {
+      score: 3.24,
+      zone: "Safe",
+      status: "safe",
+      interpretation: "Altman Z-Score of 3.24 places the company firmly in the Safe Zone with zero imminent distress risk.",
+    },
+    beneishMScore: {
+      score: -2.48,
+      status: "safe",
+      interpretation: "Beneish M-Score of -2.48 (< -1.78) indicates standard accrual run-rate with negligible earnings manipulation probability.",
+    },
+    workingCapitalStress: {
+      receivablesGrowthVsSales: "Sales: +26% YoY | Receivables: +18% YoY",
+      workingCapitalCycleDays: 32,
+      status: "safe",
+      interpretation: "Trade receivables grew slower than top-line revenues, demonstrating healthy debtor collections.",
+    },
+    governanceFlags: {
+      promoterPledgePct: 0.0,
+      promoterHoldingPct: 46.4,
+      institutionalHoldingPct: 35.8,
+      auditorQuality: "Clean",
+      flags: [],
+    },
+    summaryAssessment: "High-quality forensic profile (Score: 82/100). Robust cash conversion, low promoter encumbrance (0% pledge), and rapid balance sheet de-leveraging.",
+    auditedAt: new Date().toISOString(),
+  },
 };
 
 interface DashboardProps {
@@ -112,8 +147,7 @@ interface DashboardProps {
 export default function Dashboard({ initialReportId, initialViewMode = "report" }: DashboardProps) {
   const router = useRouter();
 
-  // Persona State (Buy-Side vs Sell-Side vs Individual)
-  const [currentPersona, setCurrentPersona] = useState<PersonaType>("buyside");
+
 
   // Navigation & Primary View Mode (Report vs Agent)
   const [activeViewMode, setActiveViewMode] = useState<"report" | "agent">(initialViewMode);
@@ -164,29 +198,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }, 4500);
   };
 
-  // Load Persona preference from localStorage on mount
-  useEffect(() => {
-    try {
-      const savedPersona = localStorage.getItem("equigen_persona") as PersonaType;
-      if (savedPersona === "buyside" || savedPersona === "sellside" || savedPersona === "individual") {
-        setCurrentPersona(savedPersona);
-      }
-    } catch { }
-  }, []);
 
-  const handlePersonaChange = (p: PersonaType) => {
-    setCurrentPersona(p);
-    try {
-      localStorage.setItem("equigen_persona", p);
-    } catch { }
-    const formatName =
-      p === "buyside"
-        ? "Investment Committee (IC) Memo"
-        : p === "sellside"
-          ? "Institutional Research Note"
-          : "Executive Brief (1-Pager)";
-    showToast(`Switched deliverable format to ${formatName}`, "info");
-  };
 
   // Fetch Current User
   useEffect(() => {
@@ -881,8 +893,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     <div className="h-screen w-screen flex flex-col bg-[#F6F4EE] text-[#1A1917] antialiased font-sans overflow-hidden">
       {/* ── Top Command Bar ─────────────────────────────────────────────── */}
       <HeaderNav
-        currentPersona={currentPersona}
-        onPersonaChange={handlePersonaChange}
         activeViewMode={activeViewMode}
         onViewModeChange={handleViewModeChange}
         activeCompanyName={companyName}
@@ -932,104 +942,23 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           /* Mode 1: Complete Equity Research Report Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto p-4 sm:p-6 transition-all duration-300">
             {reportData ? (
-              /* Persona-Specific Research View */
-              <div className="w-full max-w-6xl mx-auto pb-12 animate-fadeIn">
-                {/* Deliverable Format Switcher Bar (Clean, single-line, non-intrusive) */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 bg-white px-4 py-2.5 rounded-2xl border border-[#E3DFD5] shadow-2xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex items-center bg-[#F4F1EA] p-1 rounded-xl border border-[#E2DFD6] text-xs font-semibold">
-                      <button
-                        onClick={() => handlePersonaChange("buyside")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "buyside"
-                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
-                          }`}
-                        title="Investment Committee Memo — Fundamental thesis, variant perception & DCF sensitivity"
-                      >
-                        <Sliders className="w-3.5 h-3.5" />
-                        <span>IC Memo</span>
-                      </button>
-
-                      <button
-                        onClick={() => handlePersonaChange("sellside")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "sellside"
-                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
-                          }`}
-                        title="Institutional Research Note — Regulatory disclosures, peer multiples & compliance certification"
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Research Note</span>
-                      </button>
-
-                      <button
-                        onClick={() => handlePersonaChange("individual")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${currentPersona === "individual"
-                            ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                            : "text-[#6E695E] hover:text-[#1A1917] hover:bg-[#EAE6DD]"
-                          }`}
-                        title="Executive Brief — 5-minute investment teardown & high-signal takeaways"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Executive Brief</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="hidden sm:flex items-center gap-2 text-xs text-[#7A7569]">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="font-medium text-[#4A463D]">
-                      {currentPersona === "buyside" && "Investment Committee Fundamental View & DCF Modeler"}
-                      {currentPersona === "sellside" && "Certified Institutional Client Note (SEBI RA 2014)"}
-                      {currentPersona === "individual" && "Executive 1-Pager & 5-Minute Investment Teardown"}
-                    </span>
-                  </div>
-                </div>
-
-                {currentPersona === "buyside" && (
-                  <BuySideView
-                    reportData={reportData}
-                    companyName={companyName}
-                    ticker={ticker}
-                    onDownloadPdf={handleDownloadPdf}
-                    onDownloadExcel={handleDownloadExcel}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isDownloadingExcel={isDownloadingExcel}
-                  />
-                )}
-
-                {currentPersona === "sellside" && (
-                  <SellSideView
-                    reportData={reportData}
-                    companyName={companyName}
-                    ticker={ticker}
-                    onOpenSignoff={() => setIsSignoffOpen(true)}
-                    onDownloadPdf={handleDownloadPdf}
-                    onDownloadExcel={handleDownloadExcel}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isDownloadingExcel={isDownloadingExcel}
-                    reviewerName={reviewerName}
-                    sebiRegNo={sebiRegNo}
-                    approvedAt={approvedAt}
-                    status={activeReportStatus}
-                  />
-                )}
-
-                {currentPersona === "individual" && (
-                  <IndividualView
-                    reportData={reportData}
-                    companyName={companyName}
-                    ticker={ticker}
-                    onAskCopilotPrompt={() => {
-                      setActiveViewMode("agent");
-                    }}
-                    onDownloadPdf={handleDownloadPdf}
-                    onDownloadExcel={handleDownloadExcel}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isDownloadingExcel={isDownloadingExcel}
-                  />
-                )}
-              </div>
+              <UnifiedReportView
+                reportData={reportData}
+                companyName={companyName}
+                ticker={ticker}
+                onOpenSignoff={() => setIsSignoffOpen(true)}
+                onDownloadPdf={handleDownloadPdf}
+                onDownloadExcel={handleDownloadExcel}
+                isDownloadingPdf={isDownloadingPdf}
+                isDownloadingExcel={isDownloadingExcel}
+                onAskCopilotPrompt={(_prompt) => {
+                  setActiveViewMode("agent");
+                }}
+                reviewerName={reviewerName}
+                sebiRegNo={sebiRegNo}
+                approvedAt={approvedAt}
+                status={activeReportStatus}
+              />
             ) : (
               /* Empty State */
               <div className="flex-1 flex items-center justify-center h-full">
@@ -1061,7 +990,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               companyName={companyName}
               ticker={ticker}
               reportData={reportData}
-              currentPersona={currentPersona}
               status={activeReportStatus}
               onUpdateReportData={handleUpdateReportData}
               onSwitchToReport={() => setActiveViewMode("report")}

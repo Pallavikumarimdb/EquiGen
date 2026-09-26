@@ -16,6 +16,7 @@ import { modelingAgent } from "../subagents/modeling-agent";
 import { marketIntelAgent } from "../subagents/market-intel-agent";
 import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
+import { forensicAgent } from "../subagents/forensic-agent";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
@@ -475,6 +476,25 @@ export class MasterOrchestrator {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const effectiveFin = yahooFin ?? (documentOutput as any)?.extractedFinancials;
 
+      // Forensic & Governance Quality Audit
+      let forensicAnalysis = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const screenerPrimary = (mktOut as any)?.peerProfiles?.[0];
+        const fResult = await forensicAgent.run({
+          planId,
+          ticker,
+          companyName,
+          financials: effectiveFin,
+          bseData: screenerPrimary,
+          documentData: documentOutput,
+          apiKey,
+        });
+        forensicAnalysis = fResult.forensicAnalysis;
+      } catch (fErr) {
+        console.warn("[MasterOrchestrator] Forensic quality audit warning:", fErr);
+      }
+
       const rawPayload = {
         sourceType: "autonomous",
         ticker,
@@ -483,6 +503,7 @@ export class MasterOrchestrator {
         sections: finalSections,
         modelingData,
         marketIntelData,
+        forensicAnalysis,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly

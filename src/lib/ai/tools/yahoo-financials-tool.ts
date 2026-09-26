@@ -41,6 +41,9 @@ export interface ExtractedFinancials {
   bookValuePerShare: number | null; // Book value per share
   debtToEquity?: number | null;     // Debt to equity ratio / multiplier
   roe?: number | null;              // Return on equity as percentage
+  operatingCashflowCr?: number | null; // CFO in ₹ Crores
+  currentRatio?: number | null;     // Current assets / current liabilities
+  quickRatio?: number | null;       // Quick ratio
 
   // Market Data
   currentPrice: number | null;
@@ -337,7 +340,7 @@ async function fetchBseMarketData(ticker: string): Promise<Partial<ExtractedFina
  *   Tier 4: BSE market data API                    → price + market cap (no session)
  */
 export async function fetchYahooFinancials(nseTicker: string): Promise<ExtractedFinancials> {
-  let upper = nseTicker.trim().toUpperCase();
+  let upper = String(nseTicker || "").trim().toUpperCase();
 
   // If ticker looks like an unresolved slice, company name or has spaces, auto-resolve it
   if (upper.length > 8 || upper.includes(" ") || upper === "PONDYOXIDE") {
@@ -474,6 +477,9 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           bookValuePerShare:   safe(stats.bookValue?.raw),
           debtToEquity:        deVal,
           roe:                 roeVal,
+          operatingCashflowCr: toCrores(safe(fin.operatingCashflow?.raw), currency),
+          currentRatio:        safe(fin.currentRatio?.raw),
+          quickRatio:          safe(fin.quickRatio?.raw),
           currentPrice:        priceRaw,
           marketCapCr:         toCrores(mktCapRaw, currency),
           enterpriseValueCr:   toCrores(evRaw, currency),

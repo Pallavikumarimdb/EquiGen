@@ -15,11 +15,9 @@ import {
   Shield,
   ChevronDown,
 } from "lucide-react";
-import { PersonaType, UserSessionProfile } from "./types";
+import { UserSessionProfile } from "./types";
 
 interface HeaderNavProps {
-  currentPersona?: PersonaType;
-  onPersonaChange?: (persona: PersonaType) => void;
   activeViewMode: "report" | "agent";
   onViewModeChange: (mode: "report" | "agent") => void;
   activeCompanyName?: string;
@@ -35,8 +33,6 @@ interface HeaderNavProps {
 }
 
 export function HeaderNav({
-  currentPersona,
-  onPersonaChange,
   activeViewMode,
   onViewModeChange,
   onOpenNewResearch,

@@ -166,6 +166,51 @@ export interface EquityResearchData {
   fiveYearSummary?: FiveYearSummaryData[] | null;
   headlineTakeaway?: string | null;
   modelUsedForFinancials?: string | null;
+  forensicAnalysis?: ForensicQualityData | null;
+}
+
+export interface ForensicRedFlag {
+  title: string;
+  severity: "info" | "warning" | "danger";
+  detail: string;
+}
+
+export interface ForensicQualityData {
+  overallHealthScore: number; // 0-100 score
+  riskLevel: "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+  cfoToPatRatio: {
+    ratio: number | null;
+    status: "safe" | "caution" | "alert";
+    interpretation: string;
+    cfoCr?: number | null;
+    patCr?: number | null;
+  };
+  altmanZScore: {
+    score: number | null;
+    zone: "Safe" | "Grey" | "Distress";
+    status: "safe" | "caution" | "alert";
+    interpretation: string;
+  };
+  beneishMScore: {
+    score: number | null;
+    status: "safe" | "alert" | "neutral";
+    interpretation: string;
+  };
+  workingCapitalStress: {
+    receivablesGrowthVsSales?: string | null;
+    workingCapitalCycleDays?: number | null;
+    status: "safe" | "caution" | "alert";
+    interpretation: string;
+  };
+  governanceFlags: {
+    promoterPledgePct: number | null;
+    promoterHoldingPct: number | null;
+    institutionalHoldingPct: number | null;
+    auditorQuality: "Clean" | "Qualified" | "Adverse" | "Standard";
+    flags: ForensicRedFlag[];
+  };
+  summaryAssessment: string;
+  auditedAt?: string;
 }
 
 export interface ParseResult {
