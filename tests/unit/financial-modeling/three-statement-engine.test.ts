@@ -107,7 +107,7 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
   });
 
   it("4. Generates institutional Excel workbook with working live formulas instead of hardcoded numbers", async () => {
-    const mockReport: any = {
+    const mockReport = {
       company: { name: "Tata Motors Limited", ticker: "TATAMOTORS", sector: "Automotive" },
       recommendation: { rating: "BUY", targetPrice: 1140, currentPrice: 948 },
       companyData: { outstandingShares: 332, marketCap: 348500 },
@@ -127,7 +127,7 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
       },
     };
 
-    const buffer = await excelGenerationService.generateReportExcel(mockReport, "approved", {
+    const buffer = await excelGenerationService.generateReportExcel(mockReport as unknown as Parameters<typeof excelGenerationService.generateReportExcel>[0], "approved", {
       reviewerName: "Research Analyst",
       sebiRegNo: "INH000001234",
     });
@@ -137,7 +137,7 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
 
     // Load back workbook with ExcelJS to inspect formulas and structure
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer as any);
+    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
 
     const sheetNames = workbook.worksheets.map((w) => w.name);
     expect(sheetNames).toContain("Executive Summary");

@@ -54,6 +54,7 @@ export function CopilotDrawer({
       handleSendMessage(initialPrompt.trim());
       if (onClearInitialPrompt) onClearInitialPrompt();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
   const scrollToBottom = () => {

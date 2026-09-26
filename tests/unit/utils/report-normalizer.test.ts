@@ -49,7 +49,7 @@ describe("normalizeEquityResearchData", () => {
     expect(normalized.recommendation.currentPrice).toBe(1850);
     expect(normalized.recommendation.upsidePotential).toBeCloseTo(13.5, 1);
     expect(normalized.recommendation.rating).toBe("ACCUMULATE"); // upside <= 15% but target > cmp
-    const cData = normalized.companyData as any;
+    const cData = normalized.companyData as Record<string, unknown>;
     expect(cData.pe).toBe(26.5);
     expect(cData.evEbitda).toBe(18.2);
     expect(cData.roe).toBe(31.4);
@@ -103,7 +103,7 @@ describe("normalizeEquityResearchData", () => {
     };
 
     const normalized = normalizeEquityResearchData(raw);
-    const cData = normalized.companyData as any;
+    const cData = normalized.companyData as Record<string, unknown>;
     expect(cData.pe).toBeNull();
     expect(cData.evEbitda).toBeNull();
     expect(cData.roe).toBeNull();

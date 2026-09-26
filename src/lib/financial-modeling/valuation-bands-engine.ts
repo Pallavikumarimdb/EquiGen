@@ -125,7 +125,7 @@ export function classifyValuationRegime(
     return {
       regime: "CYCLICAL_PEAK",
       regimeLabel: "Extreme Peak (+2σ)",
-      regimeDescription: `Trading at +${zScore.toFixed(2)}σ above historical mean. Multiple is at historical upper extremes, indicating severe multiple compression vulnerability or cyclical peak earnings euphoria.`,
+      regimeDescription: `Trading at +${zScore.toFixed(2)}σ above historical mean. ${metricName} multiple is at historical upper extremes, indicating severe multiple compression vulnerability or cyclical peak earnings euphoria.`,
       cyclicalRecommendation: `High multiple compression risk. For cyclical commodities/metals, historical data shows a negative expected 12-month return from +2σ peaks. Trim position or implement tactical downside hedges.`,
     };
   }
@@ -134,7 +134,7 @@ export function classifyValuationRegime(
     return {
       regime: "ELEVATED",
       regimeLabel: "Elevated (+1σ to +2σ)",
-      regimeDescription: `Trading +${zScore.toFixed(2)}σ above average. Valuation is in the upper quartile of historical trading bands.`,
+      regimeDescription: `Trading +${zScore.toFixed(2)}σ above average. ${metricName} valuation is in the upper quartile of historical trading bands.`,
       cyclicalRecommendation: `Requires aggressive operational delivery to sustain. Multiple expansion upside is limited; earnings growth must drive price appreciation.`,
     };
   }
@@ -143,7 +143,7 @@ export function classifyValuationRegime(
     return {
       regime: "FAIR_VALUE",
       regimeLabel: "Fair Value Corridor (±1σ)",
-      regimeDescription: `Trading within the normal ±1σ historical corridor (Z: ${zScore >= 0 ? "+" : ""}${zScore.toFixed(2)}σ). Well-aligned with historical median fundamentals.`,
+      regimeDescription: `Trading within the normal ±1σ historical corridor (Z: ${zScore >= 0 ? "+" : ""}${zScore.toFixed(2)}σ). ${metricName} multiple is well-aligned with historical median fundamentals.`,
       cyclicalRecommendation: `Neutral valuation headwind. Stock price is expected to compound in line with underlying business earnings and FCF growth.`,
     };
   }
@@ -152,7 +152,7 @@ export function classifyValuationRegime(
     return {
       regime: "DISCOUNTED",
       regimeLabel: "Discounted (-1σ to -2σ)",
-      regimeDescription: `Trading at ${zScore.toFixed(2)}σ below historical mean. Attractive historical discount corridor with moderate margin of safety.`,
+      regimeDescription: `Trading at ${zScore.toFixed(2)}σ below historical mean. Attractive historical ${metricName} discount corridor with moderate margin of safety.`,
       cyclicalRecommendation: `Valuation expansion tailwind. Historical precedent indicates favorable risk-reward for long-term capital deployment.`,
     };
   }
@@ -160,7 +160,7 @@ export function classifyValuationRegime(
   return {
     regime: "CYCLICAL_TROUGH",
     regimeLabel: "Deep Value / Cyclical Trough (-2σ)",
-    regimeDescription: `Trading at ${zScore.toFixed(2)}σ below historical mean, probing the lower -2σ boundary. Extreme historical undervaluation or peak market pessimism.`,
+    regimeDescription: `Trading at ${zScore.toFixed(2)}σ below historical mean, probing the lower -2σ boundary. Extreme historical ${metricName} undervaluation or peak market pessimism.`,
     cyclicalRecommendation: `Exceptional contrarian entry point. In cyclical sectors (steel, metals, infrastructure), buying at -2σ standard deviation corridors historically yields superior multi-year compound returns upon cycle recovery.`,
   };
 }

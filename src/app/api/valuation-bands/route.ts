@@ -12,17 +12,28 @@ import {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const ticker = searchParams.get("ticker");
-
-    if (!ticker) {
+    const rawTicker = searchParams.get("ticker");
+    if (!rawTicker) {
       return NextResponse.json(
         { error: "Query parameter 'ticker' is required." },
         { status: 400 }
       );
     }
 
-    const metric = (searchParams.get("metric") || "PE") as ValuationMetric;
-    const lookback = (searchParams.get("lookback") || "5Y") as LookbackPeriod;
+    const cleanTicker = rawTicker.trim().toUpperCase();
+    if (!/^[A-Z0-9_.-]{1,15}$/.test(cleanTicker)) {
+      return NextResponse.json(
+        { error: "Invalid ticker format. Must be 1-15 alphanumeric characters." },
+        { status: 400 }
+      );
+    }
+
+    const rawMetric = searchParams.get("metric");
+    const metric: ValuationMetric = rawMetric === "EV_EBITDA" ? "EV_EBITDA" : "PE";
+
+    const rawLookback = searchParams.get("lookback");
+    const lookback: LookbackPeriod = rawLookback === "3Y" ? "3Y" : "5Y";
+
     const currentPriceParam = searchParams.get("currentPrice");
     const currentMultipleParam = searchParams.get("currentMultiple");
 
@@ -30,11 +41,11 @@ export async function GET(req: NextRequest) {
     const currentMultiple = currentMultipleParam ? parseFloat(currentMultipleParam) : undefined;
 
     const result = await buildValuationBands({
-      ticker,
+      ticker: cleanTicker,
       metric,
       lookback,
-      currentPrice,
-      currentMultiple,
+      currentPrice: currentPrice && !isNaN(currentPrice) && currentPrice > 0 ? currentPrice : undefined,
+      currentMultiple: currentMultiple && !isNaN(currentMultiple) && currentMultiple > 0 ? currentMultiple : undefined,
     });
 
     return NextResponse.json(result, { status: 200 });

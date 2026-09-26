@@ -6,10 +6,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   CheckCircle2,
-  TrendingDown,
   Info,
-  Scale,
-  Zap,
 } from "lucide-react";
 import { ForensicQualityData } from "@/types";
 
@@ -45,7 +42,6 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
 
   const isLowRisk = riskLevel === "LOW";
   const isModRisk = riskLevel === "MODERATE";
-  const isHighRisk = riskLevel === "HIGH" || riskLevel === "CRITICAL";
 
   return (
     <div className="bg-white border border-[#E3DFD5] rounded-2xl p-5 shadow-xs space-y-5">

@@ -215,7 +215,7 @@ export class ExcelGenerationService {
 
     // SECTION 1: Model Assumptions Table (Row mR to mR+10)
     // We note the exact row coordinates to reference them in live formulas!
-    const assumptionsStartRow = mR;
+    const _assumptionsStartRow = mR;
     modelSheet.getCell(`A${mR}`).value = "MODEL DRIVERS & ASSUMPTIONS";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
@@ -261,7 +261,7 @@ export class ExcelGenerationService {
     mR += 2;
 
     // Table Column Headers: Metric, Base Year (Col B), FY+1 (Col C) ... FY+5 (Col G)
-    const tableHeaderRow = mR;
+    const _tableHeaderRow = mR;
     const yearCols = ["B", "C", "D", "E", "F", "G"];
     const colLabels = ["Metric", modelResult.baseYear.year, ...modelResult.projections.map((p) => p.year)];
 
@@ -345,7 +345,7 @@ export class ExcelGenerationService {
     );
 
     // Gross Profit
-    const rGrossProfit = addFinancialRow(
+    const _rGrossProfit = addFinancialRow(
       "Gross Profit",
       modelResult.baseYear.revenue - Math.round(modelResult.baseYear.revenue * (1 - drivers.ebitdaMargin * 0.65)),
       yearCols.slice(1).map((c) => `${c}${rRevenue}-${c}${rCogs}`),
@@ -627,7 +627,7 @@ export class ExcelGenerationService {
     );
 
     // Balance Sheet Check
-    const rCheck = addFinancialRow(
+    const _rCheck = addFinancialRow(
       "Balance Sheet Variance (Assets - Liab)",
       0,
       yearCols.slice(1).map((c) => `${c}${rTotalAssets}-${c}${rTotalLiab}`),

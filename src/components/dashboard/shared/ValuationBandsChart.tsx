@@ -4,12 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   TrendingUp,
   Activity,
-  Layers,
-  AlertTriangle,
-  CheckCircle2,
-  Calendar,
   Sparkles,
-  Info,
 } from "lucide-react";
 import {
   ValuationMetric,
@@ -18,6 +13,9 @@ import {
   buildValuationBands,
 } from "@/lib/financial-modeling/valuation-bands-engine";
 import { EquityResearchData } from "@/types";
+
+// SVG Chart Geometry dimensions constant
+const CHART_DIMS = { width: 880, height: 320, padL: 60, padR: 40, padT: 30, padB: 40 };
 
 interface ValuationBandsChartProps {
   reportData?: EquityResearchData;
@@ -111,9 +109,6 @@ export function ValuationBandsChart({
     };
   }, [ticker, companyName, metric, lookback, reportData]);
 
-  // SVG Chart Geometry calculations
-  const chartDims = { width: 880, height: 320, padL: 60, padR: 40, padT: 30, padB: 40 };
-
   const plotMetrics = useMemo(() => {
     if (!bandsData || bandsData.series.length === 0) return null;
     const series = bandsData.series;
@@ -154,14 +149,14 @@ export function ValuationBandsChart({
     const domainMin = Math.max(0, minY - yRange * 0.08);
     const domainMax = maxY + yRange * 0.08;
 
-    const plotW = chartDims.width - chartDims.padL - chartDims.padR;
-    const plotH = chartDims.height - chartDims.padT - chartDims.padB;
+    const plotW = CHART_DIMS.width - CHART_DIMS.padL - CHART_DIMS.padR;
+    const plotH = CHART_DIMS.height - CHART_DIMS.padT - CHART_DIMS.padB;
 
     const getX = (idx: number) =>
-      chartDims.padL + (idx / (series.length - 1)) * plotW;
+      CHART_DIMS.padL + (idx / (series.length - 1)) * plotW;
 
     const getY = (val: number) =>
-      chartDims.padT + plotH - ((val - domainMin) / (domainMax - domainMin)) * plotH;
+      CHART_DIMS.padT + plotH - ((val - domainMin) / (domainMax - domainMin)) * plotH;
 
     // Build SVG path strings
     const priceLine = series.map((d, i) => `${i === 0 ? "M" : "L"} ${getX(i).toFixed(1)} ${getY(viewMode === "price" ? d.price : d.multiple).toFixed(1)}`).join(" ");
@@ -224,10 +219,10 @@ export function ValuationBandsChart({
     if (!bandsData || bandsData.series.length === 0 || !plotMetrics) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const svgX = (x / rect.width) * chartDims.width;
+    const svgX = (x / rect.width) * CHART_DIMS.width;
 
-    const plotW = chartDims.width - chartDims.padL - chartDims.padR;
-    const relX = Math.max(0, Math.min(plotW, svgX - chartDims.padL));
+    const plotW = CHART_DIMS.width - CHART_DIMS.padL - CHART_DIMS.padR;
+    const relX = Math.max(0, Math.min(plotW, svgX - CHART_DIMS.padL));
     const idx = Math.round((relX / plotW) * (bandsData.series.length - 1));
 
     setHoverIndex(idx);
@@ -489,7 +484,7 @@ export function ValuationBandsChart({
             </div>
 
             <svg
-              viewBox={`0 0 ${chartDims.width} ${chartDims.height}`}
+              viewBox={`0 0 ${CHART_DIMS.width} ${CHART_DIMS.height}`}
               className="w-full h-auto overflow-visible cursor-crosshair"
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
@@ -509,16 +504,16 @@ export function ValuationBandsChart({
               {plotMetrics.yTicks.map((tick, idx) => (
                 <g key={idx}>
                   <line
-                    x1={chartDims.padL}
+                    x1={CHART_DIMS.padL}
                     y1={tick.y}
-                    x2={chartDims.width - chartDims.padR}
+                    x2={CHART_DIMS.width - CHART_DIMS.padR}
                     y2={tick.y}
                     stroke="#EFECE6"
                     strokeWidth="1"
                     strokeDasharray="2 2"
                   />
                   <text
-                    x={chartDims.padL - 8}
+                    x={CHART_DIMS.padL - 8}
                     y={tick.y + 3.5}
                     textAnchor="end"
                     className="text-[9px] font-mono fill-[#7A7569]"
@@ -614,7 +609,7 @@ export function ValuationBandsChart({
                 <text
                   key={idx}
                   x={xt.x}
-                  y={chartDims.height - chartDims.padB + 16}
+                  y={CHART_DIMS.height - CHART_DIMS.padB + 16}
                   textAnchor="middle"
                   className="text-[9px] font-mono fill-[#7A7569]"
                 >
@@ -627,9 +622,9 @@ export function ValuationBandsChart({
                 <g>
                   <line
                     x1={plotMetrics.getX(hoverIndex)}
-                    y1={chartDims.padT}
+                    y1={CHART_DIMS.padT}
                     x2={plotMetrics.getX(hoverIndex)}
-                    y2={chartDims.height - chartDims.padB}
+                    y2={CHART_DIMS.height - CHART_DIMS.padB}
                     stroke="#1A1917"
                     strokeWidth="1"
                     strokeDasharray="3 3"

@@ -27,6 +27,9 @@ describe("Issue 3: Historical Valuation Multiples Bands (P/E & EV/EBITDA)", () =
     expect(plus1Sigma).toBeGreaterThan(mean);
     expect(mean).toBeGreaterThan(minus1Sigma);
     expect(minus1Sigma).toBeGreaterThan(minus2Sigma);
+
+    // Percentile rank
+    expect(calculatePercentileRank(16, sampleMultiples)).toBe(57);
   });
 
   it("2. Accurately classifies cyclical extremes (Peak vs Trough) by Z-Score", () => {

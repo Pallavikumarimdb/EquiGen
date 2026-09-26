@@ -31,6 +31,12 @@ export interface SandboxExecutionResult {
   executionTimeMs: number;
 }
 
+const DANGEROUS_PATTERNS = [
+  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
+  /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
+  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|system\s*\()/i,
+];
+
 export class PythonExecutor {
   /**
    * Executes a quantitative Python code snippet or financial model in the sandbox environment.
@@ -41,6 +47,22 @@ export class PythonExecutor {
   ): Promise<SandboxExecutionResult> {
     const { runId, timeoutMs = 30000 } = options;
     const startTime = Date.now();
+
+    // 0. Static safety verification to prevent arbitrary RCE
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(codeText)) {
+        const securityErr = `Security violation: code contains forbidden system operation (${pattern.source}). Execution blocked.`;
+        if (runId) {
+          await this.recordArtifact(runId, "python_script", codeText, "", securityErr, 1);
+        }
+        return {
+          stdout: "",
+          stderr: securityErr,
+          exitCode: 1,
+          executionTimeMs: Date.now() - startTime,
+        };
+      }
+    }
 
     let stdout = "";
     let stderr = "";

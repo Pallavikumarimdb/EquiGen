@@ -393,6 +393,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   useEffect(() => {
     fetchHistory(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   // Polling interval to auto-update status when any item is running or pending
@@ -405,6 +406,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }, 4000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history]);
 
   // Select Report

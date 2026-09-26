@@ -66,7 +66,7 @@ describe("GET /api/eval/run", () => {
           { name: "executive_summary", content: "A".repeat(150) },
         ],
       },
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof prisma.reportHistory.findFirst>>);
 
     vi.mocked(pipelineEval.run).mockResolvedValue({
       ticker: "RELIANCE",

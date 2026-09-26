@@ -5,15 +5,8 @@ import {
   Sliders,
   TrendingUp,
   TrendingDown,
-  Clock,
   Layers,
-  Sparkles,
-  RotateCcw,
   FileSpreadsheet,
-  CheckCircle2,
-  Percent,
-  DollarSign,
-  Activity,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import {
@@ -27,7 +20,7 @@ interface ScenarioModelerProps {
   reportData?: EquityResearchData;
 }
 
-export function ScenarioModeler({ initialTargetPrice, initialCmp, reportData }: ScenarioModelerProps) {
+export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initialCmp, reportData }: ScenarioModelerProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawAny = reportData as any;
   const assumptions = rawAny?.modelingData?.assumptions || {};

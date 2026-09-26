@@ -56,7 +56,13 @@ export async function middleware(request: NextRequest) {
 
   // 5. Internal developer / headless agent secret bypass (ONLY when NO user cookie session exists)
   const apiSecret = request.headers.get("x-api-secret");
-  if (apiSecret === "equigen-internal") {
+  const configuredSecret = process.env.API_SECRET;
+  const isDevOrTest = process.env.NODE_ENV !== "production";
+  const isValidSecret =
+    (configuredSecret && apiSecret === configuredSecret) ||
+    (isDevOrTest && apiSecret === "equigen-internal");
+
+  if (apiSecret && isValidSecret) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-user-id", "agent-user");
     requestHeaders.set("x-org-id", "default-org");

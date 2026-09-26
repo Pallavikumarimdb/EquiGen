@@ -13,7 +13,6 @@ import {
   MessageSquareQuote,
   CheckCircle2,
   MessageSquare,
-  FileText,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import { FinancialHero } from "../shared/FinancialHero";

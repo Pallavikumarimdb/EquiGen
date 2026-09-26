@@ -19,10 +19,12 @@ export function requireApiSecret(req: NextRequest): NextResponse | null {
   // Auth passed via Next.js Middleware header injection
   if (userId && orgId) return null;
 
-  // Local development / API client bypass check
-  const secret = process.env.API_SECRET || "equigen-internal";
+  // API client bypass check (requires configured API_SECRET in production)
+  const secret = process.env.API_SECRET;
+  const isDevOrTest = process.env.NODE_ENV !== "production";
   const provided = req.headers.get("x-api-secret");
-  if (provided === secret || provided === "equigen-internal") return null;
+  if (secret && provided === secret) return null;
+  if (isDevOrTest && (provided === "equigen-internal" || (!secret && provided === "equigen-internal"))) return null;
 
   return NextResponse.json(
     {
