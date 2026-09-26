@@ -70,8 +70,49 @@ export async function GET(req: NextRequest) {
       },
     }).catch(() => []);
 
+    // Also fetch active/recent ExtractionJob records (documents in processing)
+    const activeJobs = await prisma.extractionJob.findMany({
+      where: orgId ? { OR: [{ orgId }, { orgId: null }] } : {},
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        companyName: true,
+        fileName: true,
+        status: true,
+        stepIndex: true,
+        reportId: true,
+        createdAt: true,
+      },
+    }).catch(() => []);
+
     const existingReportIds = new Set(reports.map((r) => r.id));
     const existingCleanIds = new Set(reports.map((r) => r.id.replace(/^rep_/, "")));
+
+    const activeJobItems = activeJobs
+      .filter((j) => !j.reportId || (!existingReportIds.has(j.reportId) && !existingCleanIds.has(j.reportId)))
+      .map((j) => ({
+        id: j.id,
+        companyName: j.companyName || "Uploaded Document",
+        fileName: j.fileName || "Financial Document",
+        reportData: {
+          sourceType: "upload",
+          companyName: j.companyName,
+          fileName: j.fileName,
+          jobId: j.id,
+          status: j.status,
+          stepIndex: j.stepIndex,
+        },
+        pdfBase64: null,
+        status: j.status || "running",
+        reviewerName: null,
+        sebiRegNo: null,
+        approvedAt: null,
+        contentHash: null,
+        versionNo: 1,
+        modelUsedForFinancials: "Document Extraction Pipeline",
+        createdAt: j.createdAt.toISOString(),
+      }));
 
     const activePlanItems = activePlans
       .filter((p) => !existingReportIds.has(p.id) && !existingReportIds.has(`rep_${p.id}`) && !existingCleanIds.has(p.id))
@@ -97,7 +138,7 @@ export async function GET(req: NextRequest) {
         createdAt: p.createdAt.toISOString(),
       }));
 
-    const combined = [...activePlanItems, ...reports];
+    const combined = [...activeJobItems, ...activePlanItems, ...reports];
     return NextResponse.json(combined);
   } catch (error) {
     console.error("Failed to fetch history (returning empty list fallback):", error);

@@ -87,11 +87,23 @@ export async function POST(req: NextRequest) {
     const effectiveFileName = existingJob?.fileName ?? fileName;
     const effectiveRawText = existingJob?.rawText ?? rawText;
 
+    // Verify if userId actually exists in the database to prevent foreign key violations (e.g. agent-user)
+    let validUserId: string | null = null;
+    if (userId) {
+      const userExists = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      }).catch(() => null);
+      if (userExists) {
+        validUserId = userExists.id;
+      }
+    }
+
     await prisma.extractionJob.upsert({
       where: { id: activeJobId },
       update: {
         orgId,
-        createdById: userId,
+        createdById: validUserId,
         companyName: effectiveCompanyName,
         fileName: effectiveFileName,
         rawText: effectiveRawText,
@@ -108,7 +120,7 @@ export async function POST(req: NextRequest) {
       create: {
         id: activeJobId,
         orgId,
-        createdById: userId,
+        createdById: validUserId,
         companyName: effectiveCompanyName,
         fileName: effectiveFileName,
         rawText: effectiveRawText,

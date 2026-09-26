@@ -201,15 +201,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   // This prevents the browser from attempting to navigate to file:/// links, which triggers Security Errors
   useEffect(() => {
     const preventFileDropNavigation = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
-        e.preventDefault();
-      }
+      e.preventDefault();
     };
-    window.addEventListener("dragover", preventFileDropNavigation, false);
-    window.addEventListener("drop", preventFileDropNavigation, false);
+    window.addEventListener("dragenter", preventFileDropNavigation, true);
+    window.addEventListener("dragover", preventFileDropNavigation, true);
+    window.addEventListener("drop", preventFileDropNavigation, true);
     return () => {
-      window.removeEventListener("dragover", preventFileDropNavigation, false);
-      window.removeEventListener("drop", preventFileDropNavigation, false);
+      window.removeEventListener("dragenter", preventFileDropNavigation, true);
+      window.removeEventListener("dragover", preventFileDropNavigation, true);
+      window.removeEventListener("drop", preventFileDropNavigation, true);
     };
   }, []);
 
@@ -299,6 +299,21 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             setReportPdfBase64(existing.reportPdfBase64);
           }
           return;
+        }
+
+        // If activeReportId was an extraction job and a generated report for it is now present
+        if (activeReportId.startsWith("job_")) {
+          const generatedReport = uniqueItems.find(
+            (i) => !i.id.startsWith("job_") && !i.id.startsWith("plan_") && (i.companyName === companyName || (i.reportData as any)?.jobId === activeReportId)
+          );
+          if (generatedReport) {
+            setActiveReportId(generatedReport.id);
+            setActiveReportStatus(generatedReport.status || "draft");
+            if (generatedReport.reportData) setReportData(generatedReport.reportData);
+            if (generatedReport.companyName) setCompanyName(generatedReport.companyName);
+            if (generatedReport.reportPdfBase64) setReportPdfBase64(generatedReport.reportPdfBase64);
+            return;
+          }
         }
       }
 
@@ -479,28 +494,53 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     showToast(`Uploading and parsing ${file.name}...`, "info");
 
     try {
-      // 1. Secure multipart/form-data upload using browser File API
-      const formData = new FormData();
-      formData.append("file", file);
+      let rawText = "";
+      let documentId: string | null = null;
+      let targetingVerdict: string | null = null;
 
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "x-api-secret": "equigen-internal" },
-        body: formData,
-      });
+      // Vercel serverless functions enforce a strict 4.5 MB request body limit.
+      // Financial filings are frequently 10-60 MB. For files > 4MB, parse client-side
+      // using the HTML5 File API and unpdf to send only extracted text (hundreds of KB).
+      // For files <= 4MB, try /api/upload first and fall back gracefully if needed.
+      const isLargeFile = file.size > 4 * 1024 * 1024;
 
-      if (!uploadRes.ok) {
-        const errData = await uploadRes.json().catch(() => ({}));
-        throw new Error(errData.message || `Upload failed with status ${uploadRes.status}`);
+      if (!isLargeFile) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const uploadRes = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "x-api-secret": "equigen-internal" },
+            body: formData,
+          });
+
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            rawText = uploadData.text || "";
+            documentId = uploadData.targeting?.documentId ?? null;
+            targetingVerdict = uploadData.targeting?.verdict ?? null;
+          }
+        } catch {
+          // Fall through to in-browser extraction
+        }
       }
 
-      const uploadData = await uploadRes.json();
-      const rawText = uploadData.text;
+      // If server upload skipped or failed (due to Vercel body limits or network constraints),
+      // parse the document in the browser directly using the File API + unpdf
       if (!rawText) {
-        throw new Error("Unable to extract text content from the uploaded document.");
+        showToast(`Reading document in browser (${(file.size / (1024 * 1024)).toFixed(1)} MB)...`, "info");
+        const { extractText } = await import("unpdf");
+        const arrayBuffer = await file.arrayBuffer();
+        const extracted = await extractText(new Uint8Array(arrayBuffer), { mergePages: true });
+        rawText = (extracted.text as string) || "";
       }
 
-      // 2. Trigger background extraction job
+      if (!rawText || rawText.trim().length === 0) {
+        throw new Error("Unable to extract text content from the uploaded document. Please check the PDF.");
+      }
+
+      // 2. Trigger background extraction job with parsed text (always < 4MB JSON)
       showToast(`Analyzing financial statements & ratios for ${targetComp}...`, "info");
       const extractRes = await fetch("/api/extract", {
         method: "POST",
@@ -512,8 +552,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           companyName: targetComp,
           rawText,
           fileName: file.name,
-          documentId: uploadData.targeting?.documentId ?? null,
-          targetingVerdict: uploadData.targeting?.verdict ?? null,
+          documentId,
+          targetingVerdict,
         }),
       });
 
@@ -525,47 +565,75 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       const extractData = await extractRes.json();
       const jobId = extractData.jobId;
 
-      // 3. Poll extraction job status
+      // Immediately display the processing document in the sidebar and switch to the live agent workspace
+      const optimisticItem: DashboardHistoryItem = {
+        id: jobId,
+        companyName: targetComp,
+        fileName: file.name,
+        createdAt: new Date().toISOString(),
+        reportData: {
+          company: { name: targetComp },
+          sourceType: "upload",
+          fileName: file.name,
+          jobId,
+          status: "running",
+        } as any,
+        reportPdfBase64: null,
+        status: "running",
+        sourceType: "manual",
+      };
+
+      setHistory((prev) => [optimisticItem, ...prev.filter((h) => h.id !== jobId)]);
+      setActiveReportId(jobId);
+      setActiveSessionId(jobId);
+      setCompanyName(targetComp);
+      setReportData(null);
+      setReportPdfBase64(null);
+      setActiveReportStatus("running");
+      setActiveViewMode("agent");
+      syncUrl(jobId, "agent");
+      setLoading(false);
+      showToast(`Document uploaded! Processing ${targetComp} in live workspace...`, "success");
+
+      // Refetch history in background to synchronize with server state
+      fetchHistory(false);
+
+      // Background status tracking (non-blocking)
       if (jobId) {
-        let attempts = 0;
-        const maxAttempts = 60; // Up to 2 minutes
-        let completed = false;
+        (async () => {
+          let attempts = 0;
+          const maxAttempts = 60; // Up to 2 minutes
+          let completed = false;
 
-        while (attempts < maxAttempts && !completed) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          attempts++;
+          while (attempts < maxAttempts && !completed) {
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            attempts++;
 
-          try {
-            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(jobId)}`, {
-              headers: { "x-api-secret": "equigen-internal" },
-            });
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              if (statusData.status === "completed") {
-                completed = true;
-                showToast(`Financial extraction completed for ${targetComp}!`, "success");
-                await fetchHistory();
-                if (statusData.reportId) {
-                  setActiveReportId(statusData.reportId);
+            try {
+              const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(jobId)}`, {
+                headers: { "x-api-secret": "equigen-internal" },
+              });
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.status === "completed") {
+                  completed = true;
+                  showToast(`Financial extraction completed for ${targetComp}!`, "success");
+                  await fetchHistory(false);
+                  if (statusData.reportId) {
+                    setActiveReportId(statusData.reportId);
+                    setActiveReportStatus("completed");
+                  }
+                  break;
+                } else if (statusData.status === "failed") {
+                  showToast(statusData.errorMessage || "Extraction job failed.", "error");
+                  break;
                 }
-                break;
-              } else if (statusData.status === "failed") {
-                throw new Error(statusData.errorMessage || "Extraction job failed.");
               }
-            }
-          } catch (pollErr) {
-            if (pollErr instanceof Error && pollErr.message.includes("failed")) {
-              throw pollErr;
+            } catch {
+              // Ignore background polling glitches
             }
           }
-        }
-
-        if (!completed) {
-          showToast(`Extraction is processing in the background for ${targetComp}.`, "info");
-          await fetchHistory();
-        }
-      } else {
-        await fetchHistory();
+        })();
       }
     } catch (err: unknown) {
       console.error("[Dashboard] handleLaunchUpload error:", err);

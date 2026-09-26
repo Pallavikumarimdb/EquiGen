@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { langchainAIService } from "@/lib/ai/langchain-service";
 import { computeSHA256 } from "@/lib/utils/hash";
+import { trajectoryBus } from "@/lib/ai/trajectory-emitter";
 import type { Prisma } from "@prisma/client";
 
 // In-memory set as a fast local guard — prevents double-triggering within the same process instance.
@@ -142,6 +143,16 @@ async function finalizeExtractionJob(
     );
   }
 
+  trajectoryBus.emitEvent(jobId, "milestone_done", {
+    milestoneId: "m5",
+    title: "Financial Research Report Finalized",
+  });
+
+  trajectoryBus.emitEvent(jobId, "plan_complete", {
+    reportId,
+    summary: `Financial model and report generated successfully for ${companyName}`,
+  });
+
   console.log(
     `[QueueWorker] Job ${jobId} ${degraded ? "completed with degraded chunks" : "successfully completed"}. Created report: ${reportId} (dataQuality: ${degraded ? "degraded" : "ok"})`,
   );
@@ -178,10 +189,23 @@ export function triggerBackgroundJob(
         return;
       }
 
+      trajectoryBus.emitEvent(jobId, "subagent_start", {
+        agentName: "Document Agent",
+        stepTitle: `Ingesting ${currentJob.fileName} for ${companyName}`,
+      });
+      trajectoryBus.emitEvent(jobId, "planner_thought", {
+        thought: `Extracting 5-year financial statements and tables from ${currentJob.fileName} for ${companyName}`,
+      });
+
       // Update state in database to running
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: { status: "running", stepIndex: 1 },
+      });
+
+      trajectoryBus.emitEvent(jobId, "tool_call", {
+        toolName: "Financial Statement Table Extractor",
+        params: { fileName: currentJob.fileName },
       });
 
       // Run pipeline
@@ -194,10 +218,20 @@ export function triggerBackgroundJob(
           false,
         );
 
+      trajectoryBus.emitEvent(jobId, "tool_result", {
+        toolName: "Financial Statement Table Extractor",
+        result: `Extracted audited statements and cash flows for ${companyName}`,
+      });
+
       // Extraction phase done — UI moves to formatting/compile locally
       await prisma.extractionJob.update({
         where: { id: jobId },
         data: { stepIndex: 2 },
+      });
+
+      trajectoryBus.emitEvent(jobId, "draft_updated", {
+        sectionName: "keyFinancials",
+        summary: `Saved audited financial model baseline for ${companyName}`,
       });
 
       await finalizeExtractionJob(
@@ -212,6 +246,9 @@ export function triggerBackgroundJob(
       console.error(`[QueueWorker] Job ${jobId} failed:`, error);
 
       const errMsg = error instanceof Error ? error.message : String(error);
+      trajectoryBus.emitEvent(jobId, "error", {
+        errorMessage: errMsg,
+      });
       const isThrottled =
         (error &&
           typeof error === "object" &&

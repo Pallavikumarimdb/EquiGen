@@ -80,6 +80,18 @@ export function AgentChatView({
   const rating = rec?.rating ?? null;
   const upside = rec?.upsidePotential ?? (tp != null && cmp != null && cmp > 0 ? parseFloat((((tp - cmp) / cmp) * 100).toFixed(1)) : null);
 
+  const isUploadJob = cleanPlanId.startsWith("job_") || (reportData as any)?.sourceType === "upload";
+
+  // Document Extraction Pipeline Milestones
+  const documentMilestones = [
+    { id: "m1", title: "1. Document Parsing", agent: "Parser Service", time: "250ms", desc: "Native text extraction & targeting", status: "completed" },
+    { id: "m2", title: "2. Statement Extractor", agent: "Document Agent", time: "890ms", desc: "Audited balance sheet, P&L, and cash flows", status: status === "running" ? "running" : "completed" },
+    { id: "m3", title: "3. Ratios & Margins", agent: "Modeling Agent", time: "1,150ms", desc: "EBITDA, ROCE, and Working Capital", status: status === "running" ? "pending" : "completed" },
+    { id: "m4", title: "4. Quantitative Model", agent: "Valuation Agent", time: "340ms", desc: "DCF valuation baseline and multiples", status: status === "running" ? "pending" : "completed" },
+    { id: "m5", title: "5. Note Synthesis", agent: "Synthesis Agent", time: "650ms", desc: "Institutional note and SWOT synthesis", status: status === "running" ? "pending" : "completed" },
+    { id: "m6", title: "6. SEBI Audit", agent: "Compliance Agent", time: "210ms", desc: "Statutory RA 2014 regulatory audit", status: status === "running" ? "pending" : "completed" },
+  ];
+
   // 6 Decomposed Autonomous Milestones
   const autonomousMilestones = [
     { id: "m1", title: "1. Fetch Exchange Filings", agent: "Document Agent", time: "420ms", desc: "BSE/NSE archives, quarterly disclosures & concall transcripts", status: "completed" },
@@ -89,6 +101,8 @@ export function AgentChatView({
     { id: "m5", title: "5. Synthesise Research Note", agent: "Synthesis Agent", time: "650ms", desc: "Institutional note composition with executive teardowns", status: "completed" },
     { id: "m6", title: "6. SEBI Compliance Audit", agent: "Compliance Agent", time: "210ms", desc: "Statutory RA 2014 regulatory checks, disclaimers, and arithmetic audit", status: "completed" },
   ];
+
+  const displayedMilestones = isUploadJob ? documentMilestones : autonomousMilestones;
 
   // Detailed Tool Execution Runs with Inspection Payloads
   const detailedToolRuns = [
@@ -229,11 +243,13 @@ export function AgentChatView({
     const welcome: ChatMessage = {
       id: "init_1",
       role: "agent",
-      content: `Hello! I am your **AI Research Agent** for **${companyName}**${ticker ? ` (${ticker})` : ""}.\n\nI have complete access to this company's financial model, DCF valuation, exchange filings, and research draft. You can chat with me, ask deep analytical questions, or instruct me to **update, fix, or modify** any part of the report in real time.`,
+      content: isUploadJob && status === "running"
+        ? `📄 **Document AI Extraction In Progress for ${companyName}**\n\nThe multi-agent document pipeline is currently parsing and extracting financial tables, balance sheets, and cash flows from your uploaded document.\n\n• **Status**: Live Statement Ingestion & Ratio Verification\n• **Live Sandbox**: Watch real-time execution steps and subagent milestones in the panel on the right.`
+        : `Hello! I am your **AI Research Agent** for **${companyName}**${ticker ? ` (${ticker})` : ""}.\n\nI have complete access to this company's financial model, DCF valuation, exchange filings, and research draft. You can chat with me, ask deep analytical questions, or instruct me to **update, fix, or modify** any part of the report in real time.`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setMessages([welcome]);
-  }, [reportId, companyName, ticker, storageKey]);
+  }, [reportId, companyName, ticker, storageKey, isUploadJob, status]);
 
   // Save chat history
   useEffect(() => {
@@ -471,7 +487,9 @@ export function AgentChatView({
               {status === "running" ? (
                 <span className="text-amber-700 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                  Autonomous Swarm Running · Subagent Execution Stream Active
+                  {isUploadJob
+                    ? "Document AI Extraction Pipeline Active · Extracting Financial Statements"
+                    : "Autonomous Swarm Running · Subagent Execution Stream Active"}
                 </span>
               ) : status === "failed" ? (
                 <span className="text-red-600 font-bold flex items-center gap-1.5">
@@ -838,20 +856,32 @@ export function AgentChatView({
                     </span>
                   </div>
 
-                  {/* 6 Decomposed Pipeline Milestones */}
+                  {/* Decomposed Pipeline Milestones */}
                   <div className="space-y-1 pt-1 border-t border-[#EFECE6]">
                     <div className="flex items-center justify-between text-[10px] font-bold text-[#7A7569] uppercase tracking-wider">
-                      <span>Decomposed Research Pipeline</span>
-                      <span>6/6 Completed</span>
+                      <span>{isUploadJob ? "Document AI Pipeline" : "Decomposed Research Pipeline"}</span>
+                      <span>{status === "running" ? (isUploadJob ? "Processing..." : "Executing...") : "6/6 Completed"}</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-0.5">
-                      {autonomousMilestones.map((m) => (
+                      {displayedMilestones.map((m) => (
                         <div
                           key={m.id}
-                          className="p-1.5 bg-[#FAF8F5] border border-[#E3DFD5] rounded-lg text-[10px] flex items-center justify-between"
+                          className={`p-1.5 border rounded-lg text-[10px] flex items-center justify-between ${
+                            m.status === "running"
+                              ? "bg-amber-50 border-amber-300 text-amber-900"
+                              : m.status === "pending"
+                              ? "bg-[#FAF8F5] border-[#E5E1D7] text-[#8C877D] opacity-60"
+                              : "bg-[#FAF8F5] border-[#E3DFD5] text-[#1A1917]"
+                          }`}
                         >
                           <span className="font-semibold text-[#1A1917] truncate mr-1">{m.title}</span>
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          {m.status === "running" ? (
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                          ) : m.status === "pending" ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#C5C0B4] shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          )}
                         </div>
                       ))}
                     </div>
