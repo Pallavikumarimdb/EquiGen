@@ -30,6 +30,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ message: "Job not found." }, { status: 404 });
     }
 
+    // Auto-detect and fail jobs running or pending for > 15 minutes without progress
+    if (
+      (job.status === "running" || job.status === "pending") &&
+      Date.now() - new Date(job.updatedAt).getTime() > 15 * 60 * 1000
+    ) {
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          errorMessage: "Process timed out after inactivity.",
+        },
+      }).catch(() => null);
+      job.status = "failed";
+      job.errorMessage = "Process timed out after inactivity.";
+    }
+
     const waitUntilMs = job.waitUntil ? job.waitUntil.getTime() : null;
     const waitSeconds =
       waitUntilMs !== null

@@ -25,15 +25,15 @@ export async function GET(req: NextRequest) {
 
     const whereClause = orgId
       ? {
-          OR: [
-            { orgId },
-            ...(userId && userId !== "system-test-user" ? [{ createdById: userId }] : []),
-            ...(orgId === "default-org" ? [{ orgId: null }, { orgId: "default-org" }] : []),
-          ],
-        }
+        OR: [
+          { orgId },
+          ...(userId && userId !== "system-test-user" ? [{ createdById: userId }] : []),
+          ...(orgId === "default-org" ? [{ orgId: null }, { orgId: "default-org" }] : []),
+        ],
+      }
       : userId
-      ? { createdById: userId }
-      : {};
+        ? { createdById: userId }
+        : {};
 
     const reports = await prisma.reportHistory.findMany({
       where: whereClause,
@@ -69,6 +69,19 @@ export async function GET(req: NextRequest) {
         goalText: true,
       },
     }).catch(() => []);
+
+    // Auto-mark stale extraction jobs running for > 30 minutes as failed so they don't linger forever
+    const staleCutoff = new Date(Date.now() - 30 * 60 * 1000);
+    await prisma.extractionJob.updateMany({
+      where: {
+        status: { in: ["running", "pending"] },
+        updatedAt: { lt: staleCutoff },
+      },
+      data: {
+        status: "failed",
+        errorMessage: "Process timed out after exceeding maximum duration.",
+      },
+    }).catch(() => null);
 
     // Also fetch active/recent ExtractionJob records (documents in processing)
     const activeJobs = await prisma.extractionJob.findMany({

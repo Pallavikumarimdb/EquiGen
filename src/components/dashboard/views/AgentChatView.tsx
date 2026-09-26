@@ -24,6 +24,7 @@ import {
   Cpu,
   Square,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 import { PersonaType } from "../types";
 import { EquityResearchData } from "@/types";
@@ -185,6 +186,18 @@ export function AgentChatView({
     };
   }, [status, effectiveJobId, cleanPlanId, onPlanComplete]);
 
+  const getMilestoneStatus = (stepNum: number) => {
+    if (status === "completed" || status === "published" || status === "approved") return "completed";
+    if (liveStepIndex > stepNum) return "completed";
+    if (liveStepIndex === stepNum) {
+      if (status === "failed") return "failed";
+      if (status === "cancelled") return "cancelled";
+      if (status === "running") return "running";
+      return "pending";
+    }
+    return "pending";
+  };
+
   // Document Extraction Pipeline Milestones (Dynamic)
   const documentMilestones = [
     {
@@ -193,7 +206,7 @@ export function AgentChatView({
       title: "1. Document Parsing",
       agent: "Parser Service",
       desc: "Native text extraction & targeting",
-      status: liveStepIndex > 1 || status === "completed" ? "completed" : liveStepIndex === 1 || (status === "running" && liveStepIndex === 0) ? "running" : "pending",
+      status: getMilestoneStatus(1),
     },
     {
       id: "m2",
@@ -201,7 +214,7 @@ export function AgentChatView({
       title: "2. Statement Extractor",
       agent: "Document Agent",
       desc: "Audited balance sheet, P&L, and cash flows",
-      status: liveStepIndex > 2 || status === "completed" ? "completed" : liveStepIndex === 2 ? "running" : "pending",
+      status: getMilestoneStatus(2),
     },
     {
       id: "m3",
@@ -209,7 +222,7 @@ export function AgentChatView({
       title: "3. Ratios & Margins",
       agent: "Modeling Agent",
       desc: "EBITDA, ROCE, and Working Capital",
-      status: liveStepIndex > 3 || status === "completed" ? "completed" : liveStepIndex === 3 ? "running" : "pending",
+      status: getMilestoneStatus(3),
     },
     {
       id: "m4",
@@ -217,7 +230,7 @@ export function AgentChatView({
       title: "4. Quantitative Model",
       agent: "Valuation Agent",
       desc: "DCF valuation baseline and multiples",
-      status: liveStepIndex > 4 || status === "completed" ? "completed" : liveStepIndex === 4 ? "running" : "pending",
+      status: getMilestoneStatus(4),
     },
     {
       id: "m5",
@@ -225,7 +238,7 @@ export function AgentChatView({
       title: "5. Note Synthesis",
       agent: "Synthesis Agent",
       desc: "Institutional note and SWOT synthesis",
-      status: liveStepIndex > 5 || status === "completed" ? "completed" : liveStepIndex === 5 ? "running" : "pending",
+      status: getMilestoneStatus(5),
     },
     {
       id: "m6",
@@ -233,7 +246,7 @@ export function AgentChatView({
       title: "6. SEBI Audit",
       agent: "Compliance Agent",
       desc: "Statutory RA 2014 regulatory audit",
-      status: liveStepIndex >= 6 || status === "completed" ? "completed" : liveStepIndex === 6 ? "running" : "pending",
+      status: getMilestoneStatus(6),
     },
   ];
 
@@ -245,7 +258,7 @@ export function AgentChatView({
       title: "1. Fetch Exchange Filings",
       agent: "Document Agent",
       desc: "BSE/NSE archives, quarterly disclosures & concall transcripts",
-      status: liveStepIndex > 1 || status === "completed" ? "completed" : liveStepIndex === 1 || (status === "running" && liveStepIndex === 0) ? "running" : "pending",
+      status: getMilestoneStatus(1),
     },
     {
       id: "m2",
@@ -253,7 +266,7 @@ export function AgentChatView({
       title: "2. Extract Financial Statements",
       agent: "Modeling Agent",
       desc: "5-year audited balance sheets, P&L statements, and OCF reconciliation",
-      status: liveStepIndex > 2 || status === "completed" ? "completed" : liveStepIndex === 2 ? "running" : "pending",
+      status: getMilestoneStatus(2),
     },
     {
       id: "m3",
@@ -261,7 +274,7 @@ export function AgentChatView({
       title: "3. Build Quantitative DCF Model",
       agent: "Valuation Agent",
       desc: "Python sandbox DCF valuation engine with WACC sensitivity matrix",
-      status: liveStepIndex > 3 || status === "completed" ? "completed" : liveStepIndex === 3 ? "running" : "pending",
+      status: getMilestoneStatus(3),
     },
     {
       id: "m4",
@@ -269,7 +282,7 @@ export function AgentChatView({
       title: "4. Peer Comps & Multiples",
       agent: "Market Intel Agent",
       desc: "Sector EV/EBITDA and forward P/E benchmarking matrix",
-      status: liveStepIndex > 4 || status === "completed" ? "completed" : liveStepIndex === 4 ? "running" : "pending",
+      status: getMilestoneStatus(4),
     },
     {
       id: "m5",
@@ -277,7 +290,7 @@ export function AgentChatView({
       title: "5. Synthesise Research Note",
       agent: "Synthesis Agent",
       desc: "Institutional note composition with executive teardowns",
-      status: liveStepIndex > 5 || status === "completed" ? "completed" : liveStepIndex === 5 ? "running" : "pending",
+      status: getMilestoneStatus(5),
     },
     {
       id: "m6",
@@ -285,7 +298,7 @@ export function AgentChatView({
       title: "6. SEBI Compliance Audit",
       agent: "Compliance Agent",
       desc: "Statutory RA 2014 regulatory checks, disclaimers, and arithmetic audit",
-      status: liveStepIndex >= 6 || status === "completed" ? "completed" : liveStepIndex === 6 ? "running" : "pending",
+      status: getMilestoneStatus(6),
     },
   ];
 
@@ -848,12 +861,18 @@ export function AgentChatView({
                       {displayedMilestones.map((step) => {
                         const isDone = step.status === "completed";
                         const isCurrent = step.status === "running";
+                        const isFailed = step.status === "failed";
+                        const isCancelled = step.status === "cancelled";
                         return (
                           <div
                             key={step.id}
                             className={`p-2.5 rounded-xl border text-xs transition-all flex items-start gap-2.5 ${
                               isCurrent
                                 ? "bg-white border-[#1A1917] shadow-sm text-[#1A1917] ring-1 ring-amber-300"
+                                : isFailed
+                                ? "bg-rose-50 border-rose-300 text-rose-900"
+                                : isCancelled
+                                ? "bg-zinc-100 border-zinc-300 text-zinc-700"
                                 : isDone
                                 ? "bg-[#FAF8F5] border-[#E3DFD5] text-[#3D3A32]"
                                 : "bg-[#F5F2EA] border-[#E5E1D7] text-[#8C877D] opacity-60"
@@ -864,6 +883,10 @@ export function AgentChatView({
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                               ) : isCurrent ? (
                                 <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                              ) : isFailed ? (
+                                <AlertCircle className="w-4 h-4 text-rose-600" />
+                              ) : isCancelled ? (
+                                <Square className="w-3.5 h-3.5 text-zinc-500 fill-zinc-500" />
                               ) : (
                                 <Clock className="w-4 h-4 text-[#A8A398]" />
                               )}
