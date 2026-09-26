@@ -379,6 +379,7 @@ Rating: ${rec?.rating || "BUY"} | Target Price: ${targetPriceDisplay} | CMP: ${c
           <ScenarioModeler
             initialTargetPrice={targetPrice ?? 1140}
             initialCmp={cmp ?? 948}
+            reportData={reportData}
           />
 
           {/* Peer Valuation Multiples Table */}

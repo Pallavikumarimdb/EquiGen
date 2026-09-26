@@ -178,11 +178,16 @@ export class PythonExecutor {
 
 // ─── Pure TS DCF & Sensitivity Math Functions ───────────────────────────────
 
+import { runThreeStatementModel, ThreeStatementDrivers } from "../financial-modeling/three-statement-engine";
+
 export interface DCFCalculationParams {
   baseRevenue: number;         // in Cr
   revenueGrowthRate?: number; // e.g. 0.15 for 15%
   ebitdaMargin?: number;      // e.g. 0.20 for 20%
   taxRate?: number;           // e.g. 0.25 for 25%
+  dso?: number;               // Days Sales Outstanding (Receivables)
+  dio?: number;               // Days Inventory Outstanding
+  dpo?: number;               // Days Payables Outstanding
   capexAsPercentRevenue?: number; // e.g. 0.05 for 5%
   wacc?: number;              // e.g. 0.11 for 11%
   terminalGrowth?: number;    // e.g. 0.04 for 4%
@@ -197,6 +202,9 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     revenueGrowthRate = 0.12,
     ebitdaMargin = 0.18,
     taxRate = 0.25,
+    dso = 55,
+    dio = 45,
+    dpo = 40,
     capexAsPercentRevenue = 0.05,
     wacc = 0.115,
     terminalGrowth = 0.04,
@@ -205,42 +213,39 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     sharesOutstandingCr = 50,
   } = params;
 
-  // Dynamic fiscal year base: Indian FY runs Apr–Mar
-  const now = new Date();
-  const baseFY = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  // Run full integrated 3-statement model
+  const drivers: ThreeStatementDrivers = {
+    baseRevenue,
+    sharesOutstandingCr,
+    revenueGrowthRate,
+    ebitdaMargin,
+    taxRate,
+    dso,
+    dio,
+    dpo,
+    capexAsPercentRevenue,
+    wacc,
+    terminalGrowth,
+    projectionYears,
+    baseDebt: netDebt > 0 ? netDebt : 0,
+    baseCash: netDebt < 0 ? Math.abs(netDebt) : 0,
+  };
 
-  const projections = [];
-  let currentRev = baseRevenue;
-  let pvTotalFcff = 0;
+  const modelResult = runThreeStatementModel(drivers);
 
-  for (let yr = 1; yr <= projectionYears; yr++) {
-    currentRev *= 1 + revenueGrowthRate;
-    const ebitda = currentRev * ebitdaMargin;
-    const ebit = ebitda * 0.85; // Depreciation est
-    const nopat = ebit * (1 - taxRate);
-    const capex = currentRev * capexAsPercentRevenue;
-    const fcff = nopat - capex;
-    const discountFactor = Math.pow(1 + wacc, yr);
-    const pvFcff = fcff / discountFactor;
+  const projections = modelResult.projections.map((p) => ({
+    year: p.year,
+    revenue: p.revenue,
+    ebitda: p.ebitda,
+    ebit: p.ebit,
+    pat: p.pat,
+    cfo: p.cfo,
+    fcff: p.fcff,
+    pvFcff: p.pvFcff,
+    balanceSheetDiff: p.balanceSheetDiff,
+  }));
 
-    pvTotalFcff += pvFcff;
-
-    projections.push({
-      year: `FY${baseFY + yr}`,
-      revenue: Math.round(currentRev),
-      ebitda: Math.round(ebitda),
-      ebit: Math.round(ebit),
-      fcff: Math.round(fcff),
-      pvFcff: Math.round(pvFcff),
-    });
-  }
-
-  // Terminal Value (Gordon Growth Model)
-  const lastFcff = projections[projections.length - 1].fcff;
-  const terminalValue = (lastFcff * (1 + terminalGrowth)) / (wacc - terminalGrowth);
-  const pvTerminalValue = terminalValue / Math.pow(1 + wacc, projectionYears);
-
-  const enterpriseValue = pvTotalFcff + pvTerminalValue;
+  const enterpriseValue = modelResult.enterpriseValue;
   const equityValue = enterpriseValue - netDebt;
   const targetPrice = Math.max(1, Math.round((equityValue / sharesOutstandingCr) * 100) / 100);
 
@@ -297,8 +302,8 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     bearCasePrice,
     enterpriseValueCr: Math.round(enterpriseValue),
     equityValueCr: Math.round(equityValue),
-    pvExplicitPeriodCr: Math.round(pvTotalFcff),
-    pvTerminalValueCr: Math.round(pvTerminalValue),
+    pvExplicitPeriodCr: modelResult.sumPvFcff,
+    pvTerminalValueCr: modelResult.pvTerminalValue,
     assumptions: {
       baseRevenue,
       revenueGrowthRate: `${(revenueGrowthRate * 100).toFixed(1)}%`,
