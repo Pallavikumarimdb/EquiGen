@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextRequest } from "next/server";
 import { POST } from "@/app/api/agent/modify/route";
 import { buildReportContextMarkdown } from "@/lib/ai/central-client";
 import { prisma } from "@/lib/db";
@@ -38,6 +39,7 @@ const sampleReport: EquityResearchData = {
     ticker: "TATASTEEL",
     sector: "Metals & Mining",
     industry: "Steel",
+    reportDate: "2026-03-31",
   },
   recommendation: {
     rating: "BUY",
@@ -50,7 +52,7 @@ const sampleReport: EquityResearchData = {
   keyFinancials: {
     incomeStatement: [],
     balanceSheet: [],
-    cashFlowStatement: [],
+    cashFlow: [],
   },
   valuationAnalysis: "Valued using 5-year FCFF DCF model.",
   investmentRisks: ["Coking coal price volatility", "European energy costs"],
@@ -116,14 +118,15 @@ const sampleReport: EquityResearchData = {
   competitors: [
     {
       name: "JSW Steel",
+      currentPrice: 920,
       cmp: 920,
       targetPrice: 1050,
       rating: "BUY",
+      recommendation: "BUY",
       pe: 22.4,
       evEbitda: 10.5,
     },
   ],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   modelingData: {
     baseTargetPrice: 165,
     assumptions: {
@@ -138,7 +141,7 @@ const sampleReport: EquityResearchData = {
       dpo: 50,
       capexAsPercentRevenue: 0.07,
     },
-  } as any,
+  },
 };
 
 beforeEach(() => {
@@ -216,7 +219,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -224,7 +227,7 @@ describe("POST /api/agent/modify", () => {
     expect(data.updatedReport.recommendation.targetPrice).toBe(180);
     // CMP is 145, new upside = ((180-145)/145)*100 = 24.1%
     expect(data.updatedReport.recommendation.upsidePotential).toBe(24.1);
-    expect(data.appliedChanges.some((c: any) => c.field === "recommendation.targetPrice")).toBe(true);
+    expect(data.appliedChanges.some((c: { field: string }) => c.field === "recommendation.targetPrice")).toBe(true);
   });
 
   it("modifies rating to ACCUMULATE", async () => {
@@ -237,7 +240,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -255,13 +258,13 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(200);
     const data = await res.json();
 
     expect(data.success).toBe(true);
     expect(data.updatedReport.modelingData.assumptions.wacc).toBe(0.105);
-    expect(data.appliedChanges.some((c: any) => c.field === "modelingData.assumptions.wacc")).toBe(true);
+    expect(data.appliedChanges.some((c: { field: string }) => c.field === "modelingData.assumptions.wacc")).toBe(true);
     // Lower WACC from 11.5% to 10.5% recalculates model and yields a valid target price
     expect(data.updatedReport.modelingData.baseTargetPrice).toBeGreaterThan(0);
     expect(data.updatedReport.recommendation.targetPrice).toBeGreaterThan(0);
@@ -277,7 +280,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -296,7 +299,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -309,7 +312,7 @@ describe("POST /api/agent/modify", () => {
     vi.mocked(prisma.reportHistory.findUnique).mockResolvedValue({
       id: "rep_other_123",
       orgId: "tenant_xyz",
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof prisma.reportHistory.findUnique>>);
 
     const req = new Request("http://localhost:3000/api/agent/modify", {
       method: "POST",
@@ -325,7 +328,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as any);
+    const res = await POST(req as unknown as NextRequest);
     expect(res.status).toBe(403);
     const data = await res.json();
     expect(data.message).toContain("Forbidden");

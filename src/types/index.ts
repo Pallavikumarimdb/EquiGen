@@ -34,8 +34,12 @@ export interface CompetitorInfo {
   ticker?: string;
   industry?: string;
   recommendation?: string;
+  rating?: string;
   currentPrice?: number;
+  cmp?: number;
   targetPrice?: number;
+  pe?: number;
+  evEbitda?: number;
 }
 
 export interface CompanyData {
@@ -167,6 +171,7 @@ export interface EquityResearchData {
   headlineTakeaway?: string | null;
   modelUsedForFinancials?: string | null;
   forensicAnalysis?: ForensicQualityData | null;
+  modelingData?: Record<string, unknown> | null;
 }
 
 export interface ForensicRedFlag {
