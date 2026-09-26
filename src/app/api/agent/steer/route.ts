@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Update database ResearchPlan status for state-modifying steering actions
+    // Update database ResearchPlan or ExtractionJob status for state-modifying steering actions
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = prisma as any;
@@ -265,8 +265,20 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+
+      if (db.extractionJob) {
+        const jobExists = await db.extractionJob.findUnique({ where: { id: planId } });
+        if (jobExists) {
+          if (eventType === "cancel") {
+            await db.extractionJob.update({
+              where: { id: planId },
+              data: { status: "cancelled", errorMessage: "Manually stopped by user." },
+            });
+          }
+        }
+      }
     } catch (err) {
-      console.warn("[/api/agent/steer] Failed to update plan status:", err);
+      console.warn("[/api/agent/steer] Failed to update plan/job status:", err);
     }
 
     return NextResponse.json({

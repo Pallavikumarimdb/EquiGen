@@ -8,36 +8,64 @@ import { TrajectoryEvent } from "@/types/plan4";
  */
 export async function GET(req: NextRequest) {
   const planId = req.nextUrl.searchParams.get("planId");
-  if (!planId) {
+  const altPlanId = req.nextUrl.searchParams.get("altPlanId") || req.nextUrl.searchParams.get("jobId");
+
+  if (!planId && !altPlanId) {
     return new Response("Missing planId query parameter", { status: 400 });
   }
+
+  const primaryId = planId || altPlanId || "";
 
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
 
       // Send initial heartbeat connection event
-      const initialPayload = `event: connected\ndata: ${JSON.stringify({ planId, connectedAt: new Date().toISOString() })}\n\n`;
+      const initialPayload = `event: connected\ndata: ${JSON.stringify({ planId: primaryId, altPlanId, connectedAt: new Date().toISOString() })}\n\n`;
       controller.enqueue(encoder.encode(initialPayload));
 
-      // Stream any existing buffered real events for this planId
-      const pastEvents = trajectoryBus.getHistory(planId);
+      // Stream any existing buffered real events for primary planId and altPlanId
+      const pastEvents = [
+        ...trajectoryBus.getHistory(primaryId),
+        ...(altPlanId && altPlanId !== primaryId ? trajectoryBus.getHistory(altPlanId) : []),
+      ];
+      // Deduplicate by timestamp + eventType
+      const seen = new Set<string>();
       pastEvents.forEach((ev) => {
+        const key = `${ev.timestamp}_${ev.eventType}_${JSON.stringify(ev.data).slice(0, 30)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         try {
           const sseFormatted = `event: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`;
           controller.enqueue(encoder.encode(sseFormatted));
         } catch {}
       });
 
-      // Subscribe to TrajectoryBus for this planId
-      const unsubscribe = trajectoryBus.subscribe(planId, (event: TrajectoryEvent) => {
-        try {
-          const sseFormatted = `event: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`;
-          controller.enqueue(encoder.encode(sseFormatted));
-        } catch {
-          // Client disconnected
-        }
-      });
+      // Subscribe to TrajectoryBus for primaryId
+      const unsubs: Array<() => void> = [];
+      unsubs.push(
+        trajectoryBus.subscribe(primaryId, (event: TrajectoryEvent) => {
+          try {
+            const sseFormatted = `event: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`;
+            controller.enqueue(encoder.encode(sseFormatted));
+          } catch {
+            // Client disconnected
+          }
+        })
+      );
+
+      if (altPlanId && altPlanId !== primaryId) {
+        unsubs.push(
+          trajectoryBus.subscribe(altPlanId, (event: TrajectoryEvent) => {
+            try {
+              const sseFormatted = `event: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`;
+              controller.enqueue(encoder.encode(sseFormatted));
+            } catch {
+              // Client disconnected
+            }
+          })
+        );
+      }
 
       // Keepalive timer every 15s to prevent cloud proxy timeouts
       const keepAliveInterval = setInterval(() => {
@@ -50,7 +78,7 @@ export async function GET(req: NextRequest) {
 
       req.signal.addEventListener("abort", () => {
         clearInterval(keepAliveInterval);
-        unsubscribe();
+        unsubs.forEach((u) => u());
         try {
           controller.close();
         } catch {

@@ -19,6 +19,7 @@ import { TrajectoryEvent, TrajectoryEventType } from "@/types/plan4";
 
 interface TrajectoryFeedProps {
   planId: string;
+  altPlanId?: string;
   autoScroll?: boolean;
   onPlanComplete?: (planId: string) => void;
 }
@@ -51,7 +52,7 @@ const EVENT_COLORS: Record<TrajectoryEventType, string> = {
   error:            "#f87171",
 };
 
-export function TrajectoryFeed({ planId, autoScroll = true, onPlanComplete }: TrajectoryFeedProps) {
+export function TrajectoryFeed({ planId, altPlanId, autoScroll = true, onPlanComplete }: TrajectoryFeedProps) {
   const [events, setEvents] = useState<TrajectoryEvent[]>([]);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
@@ -69,7 +70,10 @@ export function TrajectoryFeed({ planId, autoScroll = true, onPlanComplete }: Tr
       return;
     }
 
-    const eventSource = new EventSource(`/api/agent/stream?planId=${encodeURIComponent(planId)}`);
+    const queryUrl = `/api/agent/stream?planId=${encodeURIComponent(planId)}${
+      altPlanId ? `&altPlanId=${encodeURIComponent(altPlanId)}` : ""
+    }`;
+    const eventSource = new EventSource(queryUrl);
 
     eventSource.onopen = () => setIsConnected(true);
     eventSource.onerror = () => setIsConnected(false);
@@ -92,8 +96,20 @@ export function TrajectoryFeed({ planId, autoScroll = true, onPlanComplete }: Tr
       eventSource.addEventListener(type, (e: MessageEvent) => {
         try {
           const parsed: TrajectoryEvent = JSON.parse(e.data);
-          if (!parsed.planId || parsed.planId === planId) {
-            setEvents((prev) => [...prev, parsed]);
+          const isMatch =
+            !parsed.planId ||
+            parsed.planId === planId ||
+            parsed.planId === altPlanId ||
+            (altPlanId && parsed.planId.includes(altPlanId)) ||
+            parsed.planId.includes(planId);
+
+          if (isMatch) {
+            setEvents((prev) => {
+              // Deduplicate
+              const key = `${parsed.timestamp}_${parsed.eventType}`;
+              if (prev.some((p) => `${p.timestamp}_${p.eventType}` === key)) return prev;
+              return [...prev, parsed];
+            });
             if (type === "plan_complete") {
               onPlanCompleteRef.current?.(parsed.planId || planId);
             }
@@ -108,7 +124,7 @@ export function TrajectoryFeed({ planId, autoScroll = true, onPlanComplete }: Tr
       eventSource.close();
       setIsConnected(false);
     };
-  }, [planId]);
+  }, [planId, altPlanId]);
 
   useEffect(() => {
     if (autoScroll && feedEndRef.current) {
@@ -169,9 +185,11 @@ export function TrajectoryFeed({ planId, autoScroll = true, onPlanComplete }: Tr
               <Activity className="w-6 h-6 animate-pulse text-[#1A1917]" />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#1A1917]">Waiting for agent execution events…</p>
-              <p className="text-[10px] text-[#59554A] mt-1 max-w-[220px] font-medium">
-                Approve a research plan to begin streaming agent thoughts, tool calls & sandbox outputs.
+              <p className="text-xs font-bold text-[#1A1917]">
+                {isConnected ? "Listening to live execution stream…" : "Connecting to agent telemetry…"}
+              </p>
+              <p className="text-[10px] text-[#59554A] mt-1 max-w-[260px] font-medium">
+                Real-time subagent thoughts, statement extractor tool calls, and sandbox models will stream here.
               </p>
             </div>
           </div>

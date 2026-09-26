@@ -423,6 +423,53 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
+  // Stop / Interrupt Running Agent or Extraction Job
+  const handleStopProcess = async (e?: React.MouseEvent, idToStop?: string) => {
+    if (e) e.stopPropagation();
+    const targetId = idToStop || activeReportId;
+    if (!targetId) return;
+
+    const cleanId = targetId.replace(/^rep_/, "");
+
+    // Optimistically mark as cancelled in local history state immediately
+    setHistory((prev) =>
+      prev.map((h) =>
+        h.id === targetId || h.id === cleanId || h.id === `rep_${cleanId}`
+          ? { ...h, status: "cancelled" }
+          : h
+      )
+    );
+
+    if (activeReportId === targetId || activeReportId === cleanId) {
+      setActiveReportStatus("cancelled");
+    }
+
+    try {
+      showToast("Interrupting & stopping running agent...", "info");
+      const res = await fetch("/api/agent/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: targetId }),
+      });
+
+      if (res.ok) {
+        showToast("Agent process stopped successfully", "success");
+      } else {
+        // Fallback: steer cancel
+        await fetch("/api/agent/steer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ planId: cleanId, eventType: "cancel" }),
+        });
+        showToast("Agent process stopped", "info");
+      }
+      fetchHistory(false);
+    } catch (err) {
+      console.error("Failed to stop process:", err);
+      showToast("Failed to stop agent process", "error");
+    }
+  };
+
   // Launch Autonomous Swarm
   const handleLaunchAutonomous = async (compName: string, depth: "quick" | "standard" | "deep", goalText?: string) => {
     setLoading(true);
@@ -789,6 +836,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           activeReportId={activeReportId}
           onSelectReport={handleSelectReport}
           onDeleteReport={handleDeleteReport}
+          onStopProcess={handleStopProcess}
           historyFilter={historyFilter}
           onFilterChange={setHistoryFilter}
           searchQuery={searchQuery}
@@ -894,6 +942,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               onUpdateReportData={handleUpdateReportData}
               onSwitchToReport={() => setActiveViewMode("report")}
               onPlanComplete={() => fetchHistory(false)}
+              onStopAgent={() => handleStopProcess(undefined, activeReportId || undefined)}
             />
           </main>
         )}

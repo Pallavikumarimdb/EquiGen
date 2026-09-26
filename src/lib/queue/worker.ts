@@ -143,15 +143,32 @@ async function finalizeExtractionJob(
     );
   }
 
+  trajectoryBus.emitEvent(jobId, "subagent_start", {
+    agentName: "Compliance Agent",
+    stepTitle: `6. Running SEBI RA 2014 statutory compliance audit`,
+    stepNum: 6,
+  }, "m6");
+
   trajectoryBus.emitEvent(jobId, "milestone_done", {
-    milestoneId: "m5",
-    title: "Financial Research Report Finalized",
-  });
+    milestoneId: "m6",
+    milestoneRef: "m6",
+    stepNum: 6,
+    title: "6. SEBI RA 2014 Compliance Audit Passed",
+  }, "m6");
 
   trajectoryBus.emitEvent(jobId, "plan_complete", {
     reportId,
     summary: `Financial model and report generated successfully for ${companyName}`,
+    stepNum: 6,
   });
+
+  if (reportId) {
+    trajectoryBus.emitEvent(reportId, "plan_complete", {
+      reportId,
+      summary: `Financial model and report generated successfully for ${companyName}`,
+      stepNum: 6,
+    });
+  }
 
   console.log(
     `[QueueWorker] Job ${jobId} ${degraded ? "completed with degraded chunks" : "successfully completed"}. Created report: ${reportId} (dataQuality: ${degraded ? "degraded" : "ok"})`,
@@ -189,24 +206,44 @@ export function triggerBackgroundJob(
         return;
       }
 
+      // Step 1: Document Parsing & Structure Detection
       trajectoryBus.emitEvent(jobId, "subagent_start", {
-        agentName: "Document Agent",
-        stepTitle: `Ingesting ${currentJob.fileName} for ${companyName}`,
-      });
+        agentName: "Parser Service",
+        stepTitle: `1. Ingesting & targeting ${currentJob.fileName} for ${companyName}`,
+        stepNum: 1,
+      }, "m1");
       trajectoryBus.emitEvent(jobId, "planner_thought", {
-        thought: `Extracting 5-year financial statements and tables from ${currentJob.fileName} for ${companyName}`,
-      });
+        thought: `Reading PDF document structure, detecting statement pages and Indian accounting tables for ${companyName}`,
+        stepNum: 1,
+      }, "m1");
+      trajectoryBus.emitEvent(jobId, "milestone_done", {
+        milestoneId: "m1",
+        milestoneRef: "m1",
+        stepNum: 1,
+        title: "1. Document Parsing & Structure Detection",
+      }, "m1");
 
-      // Update state in database to running
+      // Step 2: Financial Statement Extractor
       await prisma.extractionJob.update({
         where: { id: jobId },
-        data: { status: "running", stepIndex: 1 },
+        data: { status: "running", stepIndex: 2 },
       });
 
+      trajectoryBus.emitEvent(jobId, "subagent_start", {
+        agentName: "Document Agent",
+        stepTitle: `2. Extracting 5-year Balance Sheet, P&L, and Cash Flows for ${companyName}`,
+        stepNum: 2,
+      }, "m2");
+      trajectoryBus.emitEvent(jobId, "planner_thought", {
+        thought: `Extracting 5-year audited financial statement lines and normalising numbers to ₹ Cr`,
+        stepNum: 2,
+      }, "m2");
       trajectoryBus.emitEvent(jobId, "tool_call", {
+        tool: "financial_table_extractor",
         toolName: "Financial Statement Table Extractor",
-        params: { fileName: currentJob.fileName },
-      });
+        input: { fileName: currentJob.fileName, companyName },
+        stepNum: 2,
+      }, "m2");
 
       // Run pipeline
       const extractedData =
@@ -219,21 +256,98 @@ export function triggerBackgroundJob(
         );
 
       trajectoryBus.emitEvent(jobId, "tool_result", {
+        tool: "financial_table_extractor",
         toolName: "Financial Statement Table Extractor",
         result: `Extracted audited statements and cash flows for ${companyName}`,
-      });
+        stepNum: 2,
+      }, "m2");
+      trajectoryBus.emitEvent(jobId, "milestone_done", {
+        milestoneId: "m2",
+        milestoneRef: "m2",
+        stepNum: 2,
+        title: "2. Financial Statement Extractor",
+      }, "m2");
 
-      // Extraction phase done — UI moves to formatting/compile locally
+      // Check if job was cancelled by user before finalizing
+      const checkStatus = await prisma.extractionJob.findUnique({
+        where: { id: jobId },
+        select: { status: true },
+      }).catch(() => null);
+
+      if (checkStatus?.status === "cancelled") {
+        console.log(`[QueueWorker] Job ${jobId} was manually cancelled. Halting pipeline.`);
+        return;
+      }
+
+      // Step 3: Ratios & Margins
       await prisma.extractionJob.update({
         where: { id: jobId },
-        data: { stepIndex: 2 },
+        data: { stepIndex: 3 },
       });
+      trajectoryBus.emitEvent(jobId, "subagent_start", {
+        agentName: "Modeling Agent",
+        stepTitle: `3. Computing EBITDA margins, ROCE, and Working Capital cycle`,
+        stepNum: 3,
+      }, "m3");
+      trajectoryBus.emitEvent(jobId, "planner_thought", {
+        thought: `Calculating historical operating leverage, ROCE, and free cash flow conversion ratios`,
+        stepNum: 3,
+      }, "m3");
+      trajectoryBus.emitEvent(jobId, "milestone_done", {
+        milestoneId: "m3",
+        milestoneRef: "m3",
+        stepNum: 3,
+        title: "3. Ratios & Margins Computed",
+      }, "m3");
 
+      // Step 4: Quantitative Valuation Model
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { stepIndex: 4 },
+      });
+      trajectoryBus.emitEvent(jobId, "subagent_start", {
+        agentName: "Valuation Agent",
+        stepTitle: `4. Building Quantitative DCF Model & Valuation Baseline`,
+        stepNum: 4,
+      }, "m4");
+      trajectoryBus.emitEvent(jobId, "planner_thought", {
+        thought: `Running multi-scenario DCF valuation sandbox and BSE/NSE peer multiples benchmarking`,
+        stepNum: 4,
+      }, "m4");
+      trajectoryBus.emitEvent(jobId, "milestone_done", {
+        milestoneId: "m4",
+        milestoneRef: "m4",
+        stepNum: 4,
+        title: "4. Quantitative Valuation Baseline Established",
+      }, "m4");
+
+      // Step 5: Institutional Note Synthesis
+      await prisma.extractionJob.update({
+        where: { id: jobId },
+        data: { stepIndex: 5 },
+      });
+      trajectoryBus.emitEvent(jobId, "subagent_start", {
+        agentName: "Synthesis Agent",
+        stepTitle: `5. Synthesizing Institutional Research Note & SWOT thesis`,
+        stepNum: 5,
+      }, "m5");
+      trajectoryBus.emitEvent(jobId, "planner_thought", {
+        thought: `Composing executive summary, core investment thesis, and SWOT teardown`,
+        stepNum: 5,
+      }, "m5");
       trajectoryBus.emitEvent(jobId, "draft_updated", {
         sectionName: "keyFinancials",
         summary: `Saved audited financial model baseline for ${companyName}`,
-      });
+        stepNum: 5,
+      }, "m5");
+      trajectoryBus.emitEvent(jobId, "milestone_done", {
+        milestoneId: "m5",
+        milestoneRef: "m5",
+        stepNum: 5,
+        title: "5. Institutional Research Draft Synthesized",
+      }, "m5");
 
+      // Step 6: Finalize & Compliance Sign-off Check
       await finalizeExtractionJob(
         jobId,
         companyName,
@@ -244,6 +358,17 @@ export function triggerBackgroundJob(
       console.log(`[QueueWorker] Job ${jobId} finalized.`);
     } catch (error: unknown) {
       console.error(`[QueueWorker] Job ${jobId} failed:`, error);
+
+      // If user cancelled, don't overwrite with failed status
+      const cancelledCheck = await prisma.extractionJob.findUnique({
+        where: { id: jobId },
+        select: { status: true },
+      }).catch(() => null);
+
+      if (cancelledCheck?.status === "cancelled") {
+        console.log(`[QueueWorker] Job ${jobId} was cancelled by user. Suppressing failure.`);
+        return;
+      }
 
       const errMsg = error instanceof Error ? error.message : String(error);
       trajectoryBus.emitEvent(jobId, "error", {

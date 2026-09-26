@@ -22,6 +22,8 @@ import {
   Activity,
   Split,
   Cpu,
+  Square,
+  Clock,
 } from "lucide-react";
 import { PersonaType } from "../types";
 import { EquityResearchData } from "@/types";
@@ -46,6 +48,7 @@ interface AgentChatViewProps {
   onSwitchToReport: () => void;
   status?: string;
   onPlanComplete?: (planId: string) => void;
+  onStopAgent?: () => void;
 }
 
 export function AgentChatView({
@@ -58,6 +61,7 @@ export function AgentChatView({
   onSwitchToReport,
   status,
   onPlanComplete,
+  onStopAgent,
 }: AgentChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -72,6 +76,11 @@ export function AgentChatView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "default_sample";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawReportData = reportData as any;
+  const effectiveJobId = cleanPlanId.startsWith("job_")
+    ? cleanPlanId
+    : rawReportData?.jobId || rawReportData?.planId || cleanPlanId;
   const storageKey = `equigen_chatgpt_agent_${cleanPlanId}`;
 
   const rec = reportData?.recommendation;
@@ -80,26 +89,204 @@ export function AgentChatView({
   const rating = rec?.rating ?? null;
   const upside = rec?.upsidePotential ?? (tp != null && cmp != null && cmp > 0 ? parseFloat((((tp - cmp) / cmp) * 100).toFixed(1)) : null);
 
-  const isUploadJob = cleanPlanId.startsWith("job_") || (reportData as any)?.sourceType === "upload";
+  const isUploadJob = cleanPlanId.startsWith("job_") || rawReportData?.sourceType === "upload" || !!rawReportData?.jobId;
 
-  // Document Extraction Pipeline Milestones
+  // Live execution pipeline tracking state
+  const [liveStepIndex, setLiveStepIndex] = useState<number>(() => {
+    if (status === "completed" || status === "published" || status === "approved") return 6;
+    if (typeof rawReportData?.stepIndex === "number" && rawReportData.stepIndex > 0) {
+      return rawReportData.stepIndex;
+    }
+    return status === "running" ? 2 : 0;
+  });
+  const [liveStepMessage, setLiveStepMessage] = useState<string>("");
+
+  // Sync stepIndex when status or report changes
+  useEffect(() => {
+    if (status === "completed" || status === "published" || status === "approved") {
+      setLiveStepIndex(6);
+    } else if (status === "running") {
+      setLiveStepIndex((prev) => (prev > 0 ? prev : 2));
+    }
+  }, [status, reportId]);
+
+  // Live polling and SSE connection for running tasks
+  useEffect(() => {
+    if (status !== "running" || !effectiveJobId || effectiveJobId === "default_sample") return;
+
+    let isSubscribed = true;
+
+    // 1. Subscribe to SSE stream for live subagent progress events
+    const queryUrl = `/api/agent/stream?planId=${encodeURIComponent(cleanPlanId)}&altPlanId=${encodeURIComponent(effectiveJobId)}`;
+    const eventSource = new EventSource(queryUrl);
+
+    eventSource.addEventListener("subagent_start", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (typeof payload?.stepNum === "number") {
+          setLiveStepIndex(payload.stepNum);
+        }
+        if (payload?.stepTitle) {
+          setLiveStepMessage(payload.stepTitle);
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("planner_thought", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (payload?.thought) {
+          setLiveStepMessage(payload.thought);
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("milestone_done", (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const payload = parsed?.data || parsed;
+        if (typeof payload?.stepNum === "number") {
+          setLiveStepIndex(Math.min(payload.stepNum + 1, 6));
+        }
+      } catch {}
+    });
+
+    eventSource.addEventListener("plan_complete", () => {
+      setLiveStepIndex(6);
+      onPlanComplete?.(effectiveJobId);
+    });
+
+    // 2. Periodic status check for ExtractionJob records
+    const pollInterval = setInterval(async () => {
+      if (!isSubscribed) return;
+      try {
+        const res = await fetch(`/api/extract/status?jobId=${encodeURIComponent(effectiveJobId)}`, {
+          headers: { "x-api-secret": "equigen-internal" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.stepIndex === "number" && data.stepIndex > 0) {
+            setLiveStepIndex((prev) => Math.max(prev, data.stepIndex));
+          }
+          if (data.status === "completed") {
+            setLiveStepIndex(6);
+            onPlanComplete?.(effectiveJobId);
+          }
+        }
+      } catch {}
+    }, 2500);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+      eventSource.close();
+    };
+  }, [status, effectiveJobId, cleanPlanId, onPlanComplete]);
+
+  // Document Extraction Pipeline Milestones (Dynamic)
   const documentMilestones = [
-    { id: "m1", title: "1. Document Parsing", agent: "Parser Service", time: "250ms", desc: "Native text extraction & targeting", status: "completed" },
-    { id: "m2", title: "2. Statement Extractor", agent: "Document Agent", time: "890ms", desc: "Audited balance sheet, P&L, and cash flows", status: status === "running" ? "running" : "completed" },
-    { id: "m3", title: "3. Ratios & Margins", agent: "Modeling Agent", time: "1,150ms", desc: "EBITDA, ROCE, and Working Capital", status: status === "running" ? "pending" : "completed" },
-    { id: "m4", title: "4. Quantitative Model", agent: "Valuation Agent", time: "340ms", desc: "DCF valuation baseline and multiples", status: status === "running" ? "pending" : "completed" },
-    { id: "m5", title: "5. Note Synthesis", agent: "Synthesis Agent", time: "650ms", desc: "Institutional note and SWOT synthesis", status: status === "running" ? "pending" : "completed" },
-    { id: "m6", title: "6. SEBI Audit", agent: "Compliance Agent", time: "210ms", desc: "Statutory RA 2014 regulatory audit", status: status === "running" ? "pending" : "completed" },
+    {
+      id: "m1",
+      stepNum: 1,
+      title: "1. Document Parsing",
+      agent: "Parser Service",
+      desc: "Native text extraction & targeting",
+      status: liveStepIndex > 1 || status === "completed" ? "completed" : liveStepIndex === 1 || (status === "running" && liveStepIndex === 0) ? "running" : "pending",
+    },
+    {
+      id: "m2",
+      stepNum: 2,
+      title: "2. Statement Extractor",
+      agent: "Document Agent",
+      desc: "Audited balance sheet, P&L, and cash flows",
+      status: liveStepIndex > 2 || status === "completed" ? "completed" : liveStepIndex === 2 ? "running" : "pending",
+    },
+    {
+      id: "m3",
+      stepNum: 3,
+      title: "3. Ratios & Margins",
+      agent: "Modeling Agent",
+      desc: "EBITDA, ROCE, and Working Capital",
+      status: liveStepIndex > 3 || status === "completed" ? "completed" : liveStepIndex === 3 ? "running" : "pending",
+    },
+    {
+      id: "m4",
+      stepNum: 4,
+      title: "4. Quantitative Model",
+      agent: "Valuation Agent",
+      desc: "DCF valuation baseline and multiples",
+      status: liveStepIndex > 4 || status === "completed" ? "completed" : liveStepIndex === 4 ? "running" : "pending",
+    },
+    {
+      id: "m5",
+      stepNum: 5,
+      title: "5. Note Synthesis",
+      agent: "Synthesis Agent",
+      desc: "Institutional note and SWOT synthesis",
+      status: liveStepIndex > 5 || status === "completed" ? "completed" : liveStepIndex === 5 ? "running" : "pending",
+    },
+    {
+      id: "m6",
+      stepNum: 6,
+      title: "6. SEBI Audit",
+      agent: "Compliance Agent",
+      desc: "Statutory RA 2014 regulatory audit",
+      status: liveStepIndex >= 6 || status === "completed" ? "completed" : liveStepIndex === 6 ? "running" : "pending",
+    },
   ];
 
-  // 6 Decomposed Autonomous Milestones
+  // 6 Decomposed Autonomous Milestones (Dynamic)
   const autonomousMilestones = [
-    { id: "m1", title: "1. Fetch Exchange Filings", agent: "Document Agent", time: "420ms", desc: "BSE/NSE archives, quarterly disclosures & concall transcripts", status: "completed" },
-    { id: "m2", title: "2. Extract Financial Statements", agent: "Modeling Agent", time: "890ms", desc: "5-year audited balance sheets, P&L statements, and OCF reconciliation", status: "completed" },
-    { id: "m3", title: "3. Build Quantitative DCF Model", agent: "Valuation Agent", time: "1,150ms", desc: "Python sandbox DCF valuation engine with WACC sensitivity matrix", status: "completed" },
-    { id: "m4", title: "4. Peer Comps & Multiples", agent: "Market Intel Agent", time: "340ms", desc: "Sector EV/EBITDA and forward P/E benchmarking matrix", status: "completed" },
-    { id: "m5", title: "5. Synthesise Research Note", agent: "Synthesis Agent", time: "650ms", desc: "Institutional note composition with executive teardowns", status: "completed" },
-    { id: "m6", title: "6. SEBI Compliance Audit", agent: "Compliance Agent", time: "210ms", desc: "Statutory RA 2014 regulatory checks, disclaimers, and arithmetic audit", status: "completed" },
+    {
+      id: "m1",
+      stepNum: 1,
+      title: "1. Fetch Exchange Filings",
+      agent: "Document Agent",
+      desc: "BSE/NSE archives, quarterly disclosures & concall transcripts",
+      status: liveStepIndex > 1 || status === "completed" ? "completed" : liveStepIndex === 1 || (status === "running" && liveStepIndex === 0) ? "running" : "pending",
+    },
+    {
+      id: "m2",
+      stepNum: 2,
+      title: "2. Extract Financial Statements",
+      agent: "Modeling Agent",
+      desc: "5-year audited balance sheets, P&L statements, and OCF reconciliation",
+      status: liveStepIndex > 2 || status === "completed" ? "completed" : liveStepIndex === 2 ? "running" : "pending",
+    },
+    {
+      id: "m3",
+      stepNum: 3,
+      title: "3. Build Quantitative DCF Model",
+      agent: "Valuation Agent",
+      desc: "Python sandbox DCF valuation engine with WACC sensitivity matrix",
+      status: liveStepIndex > 3 || status === "completed" ? "completed" : liveStepIndex === 3 ? "running" : "pending",
+    },
+    {
+      id: "m4",
+      stepNum: 4,
+      title: "4. Peer Comps & Multiples",
+      agent: "Market Intel Agent",
+      desc: "Sector EV/EBITDA and forward P/E benchmarking matrix",
+      status: liveStepIndex > 4 || status === "completed" ? "completed" : liveStepIndex === 4 ? "running" : "pending",
+    },
+    {
+      id: "m5",
+      stepNum: 5,
+      title: "5. Synthesise Research Note",
+      agent: "Synthesis Agent",
+      desc: "Institutional note composition with executive teardowns",
+      status: liveStepIndex > 5 || status === "completed" ? "completed" : liveStepIndex === 5 ? "running" : "pending",
+    },
+    {
+      id: "m6",
+      stepNum: 6,
+      title: "6. SEBI Compliance Audit",
+      agent: "Compliance Agent",
+      desc: "Statutory RA 2014 regulatory checks, disclaimers, and arithmetic audit",
+      status: liveStepIndex >= 6 || status === "completed" ? "completed" : liveStepIndex === 6 ? "running" : "pending",
+    },
   ];
 
   const displayedMilestones = isUploadJob ? documentMilestones : autonomousMilestones;
@@ -491,6 +678,11 @@ export function AgentChatView({
                     ? "Document AI Extraction Pipeline Active · Extracting Financial Statements"
                     : "Autonomous Swarm Running · Subagent Execution Stream Active"}
                 </span>
+              ) : status === "cancelled" ? (
+                <span className="text-zinc-600 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-zinc-400" />
+                  Agent Execution Stopped Manually · Historical Trajectory Preserved
+                </span>
               ) : status === "failed" ? (
                 <span className="text-red-600 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-500" />
@@ -507,6 +699,18 @@ export function AgentChatView({
 
         {/* Center/Right: Studio View Selector & Actions */}
         <div className="flex items-center flex-wrap gap-2">
+          {status === "running" && onStopAgent && (
+            <button
+              type="button"
+              onClick={onStopAgent}
+              title="Interrupt & Stop Running Agent"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-900 border border-rose-300 rounded-xl text-xs font-bold transition-all shadow-2xs hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <Square className="w-3 h-3 fill-rose-600 text-rose-600" />
+              <span>Stop Agent</span>
+            </button>
+          )}
+
           {/* Studio Tab Switcher */}
           <div className="flex items-center bg-[#EFECE6] p-1 rounded-xl border border-[#DDD9CE] text-xs font-semibold">
             <button
@@ -599,8 +803,89 @@ export function AgentChatView({
               <div className={`${
                 activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
               } mx-auto space-y-5`}>
-                {/* Welcome Screen Cards if only welcome message exists */}
-                {messages.length === 1 && (
+                {/* Live Running Execution Pipeline Card */}
+                {status === "running" && (
+                  <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-amber-300 shadow-sm space-y-3.5 animate-fadeIn select-none mb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-2 rounded-xl bg-amber-100 text-amber-900 shadow-2xs">
+                          <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
+                        </span>
+                        <div>
+                          <div className="text-xs font-black text-[#1A1917] uppercase tracking-wide flex items-center gap-2">
+                            <span>
+                              Step {Math.min(Math.max(liveStepIndex, 1), 6)} of 6:{" "}
+                              {displayedMilestones[Math.min(Math.max(liveStepIndex, 1) - 1, 5)].title.replace(/^\d+\.\s*/, "")}
+                            </span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                              {Math.round((Math.min(Math.max(liveStepIndex, 1), 6) / 6) * 100)}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#59554A] font-medium mt-0.5">
+                            {liveStepMessage ||
+                              (isUploadJob
+                                ? `Ingesting financial statements and ratios for ${companyName}...`
+                                : `Autonomous multi-agent research swarm active for ${companyName}...`)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-amber-900 bg-amber-100/90 px-2.5 py-1 rounded-full border border-amber-300 shadow-2xs">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                        <span>LIVE EXECUTION</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-[#E5E1D7] h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-[#1A1917] h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${Math.round((Math.min(Math.max(liveStepIndex, 1), 6) / 6) * 100)}%` }}
+                      />
+                    </div>
+
+                    {/* 6 Step Cards Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                      {displayedMilestones.map((step) => {
+                        const isDone = step.status === "completed";
+                        const isCurrent = step.status === "running";
+                        return (
+                          <div
+                            key={step.id}
+                            className={`p-2.5 rounded-xl border text-xs transition-all flex items-start gap-2.5 ${
+                              isCurrent
+                                ? "bg-white border-[#1A1917] shadow-sm text-[#1A1917] ring-1 ring-amber-300"
+                                : isDone
+                                ? "bg-[#FAF8F5] border-[#E3DFD5] text-[#3D3A32]"
+                                : "bg-[#F5F2EA] border-[#E5E1D7] text-[#8C877D] opacity-60"
+                            }`}
+                          >
+                            <div className="shrink-0 mt-0.5">
+                              {isDone ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              ) : isCurrent ? (
+                                <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                              ) : (
+                                <Clock className="w-4 h-4 text-[#A8A398]" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-[11px] truncate flex items-center justify-between">
+                                <span>{step.title}</span>
+                                <span className="text-[9px] font-mono text-[#7A7569]">{step.agent}</span>
+                              </div>
+                              <p className="text-[10px] text-[#7A7569] leading-tight mt-0.5 line-clamp-1">
+                                {step.desc}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Welcome Screen Cards if only welcome message exists and not running */}
+                {messages.length === 1 && status !== "running" && (
                   <div className="text-center py-4 space-y-3 animate-fadeIn">
                     <div className="w-10 h-10 rounded-2xl bg-[#1A1917] text-white flex items-center justify-center mx-auto shadow-md select-none">
                       <Sparkles className="w-5 h-5 text-amber-400" />
@@ -890,7 +1175,7 @@ export function AgentChatView({
 
                 {/* Embedded Live Trajectory Feed */}
                 <div className="flex-1 min-h-0 overflow-hidden relative">
-                  <TrajectoryFeed planId={cleanPlanId} onPlanComplete={onPlanComplete} />
+                  <TrajectoryFeed planId={cleanPlanId} altPlanId={effectiveJobId} onPlanComplete={onPlanComplete} />
                 </div>
               </div>
             )}

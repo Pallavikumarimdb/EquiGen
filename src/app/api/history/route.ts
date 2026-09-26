@@ -324,14 +324,33 @@ export async function DELETE(req: Request) {
       },
     }).catch(() => ({ count: 0 }));
 
-    if (deletedReports.count === 0 && deletedPlans.count === 0) {
+    // Delete associated ChunkExtraction rows first if job exists
+    await prisma.chunkExtraction.deleteMany({
+      where: {
+        OR: [
+          { jobId: id },
+          { jobId: cleanId },
+        ],
+      },
+    }).catch(() => ({ count: 0 }));
+
+    const deletedJobs = await prisma.extractionJob.deleteMany({
+      where: {
+        OR: [
+          { id: id },
+          { id: cleanId },
+        ],
+      },
+    }).catch(() => ({ count: 0 }));
+
+    if (deletedReports.count === 0 && deletedPlans.count === 0 && deletedJobs.count === 0) {
       return NextResponse.json(
-        { message: "Report or ResearchPlan not found" },
+        { message: "Report, ResearchPlan, or ExtractionJob not found" },
         { status: 404 },
       );
     }
 
-    return NextResponse.json({ message: "Report deleted successfully" });
+    return NextResponse.json({ message: "Item deleted successfully" });
   } catch (error) {
     console.error("Failed to delete history item:", error);
     return NextResponse.json(

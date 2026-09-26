@@ -11,6 +11,7 @@ import {
   Building2,
   Sparkles,
   Settings,
+  Square,
 } from "lucide-react";
 import { DashboardHistoryItem, HistoryFilterType } from "./types";
 
@@ -21,6 +22,7 @@ interface CoverageSidebarProps {
   activeReportId: string | null;
   onSelectReport: (item: DashboardHistoryItem) => void;
   onDeleteReport: (e: React.MouseEvent, id: string) => void;
+  onStopProcess?: (e: React.MouseEvent, id: string) => void;
   historyFilter: HistoryFilterType;
   onFilterChange: (filter: HistoryFilterType) => void;
   searchQuery: string;
@@ -35,6 +37,7 @@ export function CoverageSidebar({
   activeReportId,
   onSelectReport,
   onDeleteReport,
+  onStopProcess,
   historyFilter,
   onFilterChange,
   searchQuery,
@@ -182,21 +185,38 @@ export function CoverageSidebar({
             const targetPrice = item.reportData?.recommendation?.targetPrice;
             const ticker = item.reportData?.company?.ticker;
 
+            const isRunning = item.status === "running" || item.status === "pending";
+            const isCancelled = item.status === "cancelled";
+
             if (!isOpen) {
               // Collapsed Mini Icon Rail
               return (
-                <button
-                  key={item.id}
-                  onClick={() => onSelectReport(item)}
-                  title={`${item.companyName} (${ticker || "TICKER"})`}
-                  className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-all ${
-                    isSelected
-                      ? "bg-[#1A1917] text-white font-bold shadow-sm"
-                      : "text-[#59554A] hover:bg-[#E4E0D6]"
-                  }`}
-                >
-                  {isAuto ? <Bot className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                </button>
+                <div key={item.id} className="relative group/mini flex justify-center">
+                  <button
+                    onClick={() => onSelectReport(item)}
+                    title={`${item.companyName} (${ticker || "TICKER"})${isRunning ? " [RUNNING - Click to view]" : isCancelled ? " [STOPPED]" : ""}`}
+                    className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-all relative ${
+                      isSelected
+                        ? "bg-[#1A1917] text-white font-bold shadow-sm"
+                        : "text-[#59554A] hover:bg-[#E4E0D6]"
+                    }`}
+                  >
+                    {isAuto ? <Bot className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                    {isRunning && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    )}
+                  </button>
+                  {isRunning && onStopProcess && (
+                    <button
+                      type="button"
+                      onClick={(e) => onStopProcess(e, item.id)}
+                      title="Stop Agent Process"
+                      className="absolute -top-1 -right-1 hidden group-hover/mini:flex w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-700 text-white items-center justify-center shadow-md z-30 transition-transform hover:scale-110"
+                    >
+                      <Square className="w-2 h-2 fill-white" />
+                    </button>
+                  )}
+                </div>
               );
             }
 
@@ -226,10 +246,27 @@ export function CoverageSidebar({
                     </span>
                   </div>
 
-                  {item.status === "running" || item.status === "pending" ? (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 animate-pulse flex items-center gap-1 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                      RUNNING
+                  {isRunning ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 animate-pulse flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                        RUNNING
+                      </span>
+                      {onStopProcess && (
+                        <button
+                          type="button"
+                          onClick={(e) => onStopProcess(e, item.id)}
+                          title="Interrupt and stop this running process"
+                          className="px-1.5 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-900 border border-rose-200 text-[9px] font-bold flex items-center gap-1 transition-all shadow-2xs hover:scale-105 active:scale-95 cursor-pointer"
+                        >
+                          <Square className="w-2 h-2 fill-rose-600 text-rose-600" />
+                          <span>Stop</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : isCancelled ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-200 text-zinc-700 border border-zinc-300 shrink-0">
+                      STOPPED
                     </span>
                   ) : item.status === "failed" ? (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200 shrink-0">
