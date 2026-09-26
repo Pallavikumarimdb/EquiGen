@@ -483,16 +483,41 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   // Launch Autonomous Swarm
   const handleLaunchAutonomous = async (compName: string, depth: "quick" | "standard" | "deep", goalText?: string) => {
+    setIsNewResearchOpen(false);
     setLoading(true);
+
+    const derivedTicker = compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
+    const tempPlanId = `plan_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
+    const newSessionId = `session_${Date.now()}`;
+
+    // 1. Immediately create optimistic item in sidebar
+    const optimisticPlanItem: DashboardHistoryItem = {
+      id: tempPlanId,
+      companyName: compName,
+      fileName: "Autonomous Research",
+      createdAt: new Date().toISOString(),
+      reportData: {
+        company: { name: compName, ticker: derivedTicker },
+        sourceType: "autonomous",
+        planId: tempPlanId,
+        status: "running",
+      } as unknown as EquityResearchData,
+      reportPdfBase64: null,
+      status: "running",
+      sourceType: "autonomous",
+    };
+
+    // 2. Immediately switch active report & sidebar selection to this new run
+    setHistory((prev) => [optimisticPlanItem, ...prev.filter((h) => h.id !== tempPlanId)]);
+    setActiveReportId(tempPlanId);
+    setActiveSessionId(newSessionId);
     setCompanyName(compName);
     setReportData(null);
     setReportPdfBase64(null);
     setActiveReportStatus("running");
     setActiveViewMode("agent");
+    syncUrl(tempPlanId, "agent");
     showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
-
-    const derivedTicker = compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
-    const newSessionId = `session_${Date.now()}`;
 
     try {
       const fullGoal = goalText || `Initiation of coverage on ${compName} — 5-year DCF, peer multiples, and SEBI compliance audit`;
@@ -512,6 +537,25 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         const data = await res.json();
         const plan = data.plan;
         if (plan && plan.id) {
+          // Replace tempPlanId with real plan.id across history and active state
+          setHistory((prev) =>
+            prev.map((item) =>
+              item.id === tempPlanId
+                ? {
+                    ...item,
+                    id: plan.id,
+                    reportData: {
+                      ...(item.reportData as unknown as Record<string, unknown>),
+                      planId: plan.id,
+                    } as unknown as EquityResearchData,
+                  }
+                : item
+            )
+          );
+          setActiveReportId(plan.id);
+          setActiveSessionId(plan.sessionId || `session_${plan.id}`);
+          syncUrl(plan.id, "agent");
+
           // Auto approve research plan
           await fetch(`/api/agent/plan/${plan.id}/approve`, {
             method: "PUT",
@@ -526,10 +570,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             body: JSON.stringify({ planId: plan.id }),
           }).catch((err) => console.warn("[Dashboard] Failed to trigger execution:", err));
 
-          setActiveReportId(plan.id);
-          setActiveSessionId(plan.sessionId || `session_${plan.id}`);
           showToast(`Autonomous swarm running for ${compName}`, "success");
-          fetchHistory();
+          fetchHistory(false);
         }
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -546,9 +588,40 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   // Launch Assisted PDF Upload using standard File API + FormData upload form
   const handleLaunchUpload = async (file: File, uploadCompanyName: string) => {
+    setIsNewResearchOpen(false);
     setLoading(true);
+
     const targetComp = uploadCompanyName || file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
+    const tempJobId = "job_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
+
+    // 1. Immediately create optimistic item in sidebar
+    const optimisticItem: DashboardHistoryItem = {
+      id: tempJobId,
+      companyName: targetComp,
+      fileName: file.name,
+      createdAt: new Date().toISOString(),
+      reportData: {
+        company: { name: targetComp },
+        sourceType: "upload",
+        fileName: file.name,
+        jobId: tempJobId,
+        status: "running",
+      } as unknown as EquityResearchData,
+      reportPdfBase64: null,
+      status: "running",
+      sourceType: "manual",
+    };
+
+    // 2. Immediately switch active report, clear old chat/reportData, and sync URL
+    setHistory((prev) => [optimisticItem, ...prev.filter((h) => h.id !== tempJobId)]);
+    setActiveReportId(tempJobId);
+    setActiveSessionId(tempJobId);
     setCompanyName(targetComp);
+    setReportData(null);
+    setReportPdfBase64(null);
+    setActiveReportStatus("running");
+    setActiveViewMode("agent");
+    syncUrl(tempJobId, "agent");
     showToast(`Uploading and parsing ${file.name}...`, "info");
 
     try {
@@ -598,7 +671,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         throw new Error("Unable to extract text content from the uploaded document. Please check the PDF.");
       }
 
-      // 2. Trigger background extraction job with parsed text (always < 4MB JSON)
+      // 2. Trigger background extraction job with parsed text (passing pre-generated tempJobId)
       showToast(`Analyzing financial statements & ratios for ${targetComp}...`, "info");
       const extractRes = await fetch("/api/extract", {
         method: "POST",
@@ -607,6 +680,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           "x-api-secret": "equigen-internal",
         },
         body: JSON.stringify({
+          jobId: tempJobId,
           companyName: targetComp,
           rawText,
           fileName: file.name,
@@ -621,35 +695,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       }
 
       const extractData = await extractRes.json();
-      const jobId = extractData.jobId;
+      const finalJobId = extractData.jobId || tempJobId;
 
-      // Immediately display the processing document in the sidebar and switch to the live agent workspace
-      const optimisticItem: DashboardHistoryItem = {
-        id: jobId,
-        companyName: targetComp,
-        fileName: file.name,
-        createdAt: new Date().toISOString(),
-        reportData: {
-          company: { name: targetComp },
-          sourceType: "upload",
-          fileName: file.name,
-          jobId,
-          status: "running",
-        } as unknown as EquityResearchData,
-        reportPdfBase64: null,
-        status: "running",
-        sourceType: "manual",
-      };
-
-      setHistory((prev) => [optimisticItem, ...prev.filter((h) => h.id !== jobId)]);
-      setActiveReportId(jobId);
-      setActiveSessionId(jobId);
-      setCompanyName(targetComp);
-      setReportData(null);
-      setReportPdfBase64(null);
-      setActiveReportStatus("running");
-      setActiveViewMode("agent");
-      syncUrl(jobId, "agent");
       setLoading(false);
       showToast(`Document uploaded! Processing ${targetComp} in live workspace...`, "success");
 
@@ -657,42 +704,40 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       fetchHistory(false);
 
       // Background status tracking (non-blocking)
-      if (jobId) {
-        (async () => {
-          let attempts = 0;
-          const maxAttempts = 60; // Up to 2 minutes
-          let completed = false;
+      (async () => {
+        let attempts = 0;
+        const maxAttempts = 60; // Up to 2.5 minutes
+        let completed = false;
 
-          while (attempts < maxAttempts && !completed) {
-            await new Promise((resolve) => setTimeout(resolve, 2500));
-            attempts++;
+        while (attempts < maxAttempts && !completed) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          attempts++;
 
-            try {
-              const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(jobId)}`, {
-                headers: { "x-api-secret": "equigen-internal" },
-              });
-              if (statusRes.ok) {
-                const statusData = await statusRes.json();
-                if (statusData.status === "completed") {
-                  completed = true;
-                  showToast(`Financial extraction completed for ${targetComp}!`, "success");
-                  await fetchHistory(false);
-                  if (statusData.reportId) {
-                    setActiveReportId(statusData.reportId);
-                    setActiveReportStatus("completed");
-                  }
-                  break;
-                } else if (statusData.status === "failed") {
-                  showToast(statusData.errorMessage || "Extraction job failed.", "error");
-                  break;
+          try {
+            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(finalJobId)}`, {
+              headers: { "x-api-secret": "equigen-internal" },
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.status === "completed") {
+                completed = true;
+                showToast(`Financial extraction completed for ${targetComp}!`, "success");
+                await fetchHistory(false);
+                if (statusData.reportId) {
+                  setActiveReportId(statusData.reportId);
+                  setActiveReportStatus("completed");
                 }
+                break;
+              } else if (statusData.status === "failed") {
+                showToast(statusData.errorMessage || "Extraction job failed.", "error");
+                break;
               }
-            } catch {
-              // Ignore background polling glitches
             }
+          } catch {
+            // Ignore background polling glitches
           }
-        })();
-      }
+        }
+      })();
     } catch (err: unknown) {
       console.error("[Dashboard] handleLaunchUpload error:", err);
       const msg = err instanceof Error ? err.message : "Extraction failed";
@@ -944,6 +989,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           /* Mode 2: Complete ChatGPT-Style AI Agent & Chat Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-white animate-fadeIn">
             <AgentChatView
+              key={activeReportId || "agent_view_empty"}
               reportId={activeReportId}
               companyName={companyName}
               ticker={ticker}
