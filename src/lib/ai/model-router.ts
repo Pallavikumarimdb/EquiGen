@@ -37,8 +37,8 @@ export const FALLBACK_GROQ_MODEL = MODEL_IDS.BULK_8B;
 /** Vision model used by the table-extraction ladder / OCR fallback path. */
 export { VISION_MODEL as GROQ_VISION_MODEL } from "./budget/model-limit-registry";
 
-// Completion token buffer: don't consume the entire window on a single request
-const COMPLETION_TOKEN_BUFFER = 2500;
+// Completion token buffer: conservative reserve for structured response tokens
+const COMPLETION_TOKEN_BUFFER = 1200;
 
 let budgetStoreAttached = false;
 
@@ -176,6 +176,27 @@ export async function getModelForRequest(
 
   // --- Pre-flight: request itself too large for the model, no waiting will help ---
   if (estimated > primaryLimit && !forcePreferred) {
+    if (openRouterKey) {
+      console.warn(
+        `[ModelRouter] Request (~${estimated} tokens) exceeds ${targetModel}'s ${primaryLimit} TPM ceiling. ` +
+        `Rerouting to OpenRouter high-context fallback model.`,
+      );
+      return {
+        model: new ChatOpenAI({
+          apiKey: openRouterKey,
+          configuration: {
+            baseURL: "https://openrouter.ai/api/v1",
+          },
+          modelName: "meta-llama/llama-3.3-70b-instruct:free",
+          temperature: 0.1,
+          maxRetries: 3,
+          timeout: 120000,
+        }),
+        modelName: "meta-llama/llama-3.3-70b-instruct:free",
+        downgraded: true,
+      };
+    }
+
     console.warn(
       `[ModelRouter] Request (~${estimated} tokens) exceeds ${targetModel}'s ${primaryLimit} TPM ceiling. ` +
       `Rerouting to ${FALLBACK_GROQ_MODEL}.`,

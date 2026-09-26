@@ -473,6 +473,9 @@ async function extractCompanyGeneralNode(
   if (!contextText) {
     contextText = state.condensedContext || state.rawText;
   }
+  if (contextText && contextText.length > 16000) {
+    contextText = contextText.slice(0, 16000);
+  }
   const systemPrompt = `You are an expert SEBI-registered equity research analyst. Write in the house style of Geojit's "Retail Equity Research" reports.
 Read the provided document text and extract the following:
 1. companyName (exact full official name)
@@ -583,6 +586,9 @@ async function extractSwotNode(
   }
   if (!contextText) {
     contextText = state.condensedContext || state.rawText;
+  }
+  if (contextText && contextText.length > 16000) {
+    contextText = contextText.slice(0, 16000);
   }
   const systemPrompt = `You are an expert equity research auditor. Read the text and extract strategic qualitative metrics:
 1. highlights: exactly 10-12 short quantitative/factual bullet points detailing key positive facts, segment growth, and strategic gains. The first 5 bullets MUST represent headline-level financial stats - e.g. revenue and margin growth; the remaining 5-7 bullets MUST represent deeper qualitative/operational insights.
@@ -701,6 +707,9 @@ async function extractFinancialsNode(
   }
   if (!contextText || contextText.trim().length === 0) {
     contextText = state.condensedContext || state.rawText;
+  }
+  if (contextText && contextText.length > 18000) {
+    contextText = contextText.slice(0, 18000);
   }
   let feedback = "";
   if (state.mathErrors && state.mathErrors.length > 0) {

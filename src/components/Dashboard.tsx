@@ -276,7 +276,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         });
       }
 
-      setHistory(uniqueItems);
+      // When merging background updates into history, preserve any active/running jobs
+      setHistory((prev) => {
+        const runningFromPrev = prev.filter(
+          (p) =>
+            (p.status === "running" || p.status === "pending" || p.status === "throttled") &&
+            !uniqueItems.some((u) => u.id === p.id)
+        );
+        return [...runningFromPrev, ...uniqueItems];
+      });
 
       // If activeReportId is set and this is a background sync/refetch
       if (activeReportId && !isInitial) {
@@ -307,8 +315,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             (i) =>
               !i.id.startsWith("job_") &&
               !i.id.startsWith("plan_") &&
-              (i.companyName === companyName ||
-                (i.reportData as unknown as Record<string, unknown> | null)?.jobId === activeReportId)
+              (i.reportData as unknown as Record<string, unknown> | null)?.jobId === activeReportId
           );
           if (generatedReport) {
             setActiveReportId(generatedReport.id);

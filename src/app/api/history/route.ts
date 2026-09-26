@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
 
     // Also fetch active/recent ExtractionJob records (documents in processing)
     const activeJobs = await prisma.extractionJob.findMany({
-      where: orgId ? { OR: [{ orgId }, { orgId: null }] } : {},
+      where: orgId ? { OR: [{ orgId }, { orgId: null }, { orgId: "default-org" }] } : {},
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
