@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { agentOrchestrator } from "@/lib/ai/agent-orchestrator";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
-import { executeCentralizedAIChat } from "@/lib/ai/central-client";
+import { executeCentralizedAIChat, executeCentralizedAIChatStream } from "@/lib/ai/central-client";
 
 /**
  * POST /api/agent/chat
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     // 2. Execute via Centralized AI Client (Single source of truth for models, budget & API keys)
     const rec = reportData?.recommendation;
-    const result = await executeCentralizedAIChat({
+    const chatParams = {
       prompt: cleanPrompt,
       provider: validatedProvider,
       apiKey: validatedApiKey,
@@ -95,7 +95,42 @@ export async function POST(req: NextRequest) {
       tp: rec?.targetPrice ?? undefined,
       rating: rec?.rating ?? undefined,
       persona: currentPersona || "Institutional Research",
-    });
+    };
+
+    const wantsStream = body.stream !== false;
+
+    if (wantsStream) {
+      const generator = executeCentralizedAIChatStream(chatParams);
+      const encoder = new TextEncoder();
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const event of generator) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            }
+            controller.close();
+          } catch (err: unknown) {
+            console.error("[Chat API Stream Error]:", err);
+            const errMsg = err instanceof Error ? err.message : "Chat streaming failed";
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "error", error: errMsg })}\n\n`)
+            );
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(readableStream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
+    const result = await executeCentralizedAIChat(chatParams);
 
     return NextResponse.json({
       success: true,

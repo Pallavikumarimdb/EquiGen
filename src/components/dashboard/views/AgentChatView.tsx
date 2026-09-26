@@ -111,6 +111,11 @@ export function AgentChatView({
     }
   }, [status, reportId]);
 
+  // Auto-scroll chat stream as messages arrive or stream in
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
   // Live polling and SSE connection for running tasks
   useEffect(() => {
     if (status !== "running" || !effectiveJobId || effectiveJobId === "default_sample") return;
@@ -568,10 +573,23 @@ export function AgentChatView({
         }
       } catch {}
 
-      // General or analytical conversational query (ChatGPT style)
+      // Prepare the placeholder message for streaming tokens
+      const agentMsgId = "msg_" + Math.random().toString(36).substring(2, 9);
+      const agentPlaceholder: ChatMessage = {
+        id: agentMsgId,
+        role: "agent",
+        content: "",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setMessages((prev) => [...prev, agentPlaceholder]);
+
+      // General or analytical conversational query (ChatGPT style with streaming)
       const chatRes = await fetch("/api/agent/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
         body: JSON.stringify({
           sessionId: reportId ? reportId.replace(/^rep_/, "") : "session-demo",
           prompt: textToSend,
@@ -582,39 +600,90 @@ export function AgentChatView({
           provider: userProvider,
           apiKey: userApiKey,
           modelName: userModelName,
+          stream: true,
         }),
       }).catch(() => null);
 
       if (chatRes && chatRes.ok) {
+        const contentType = chatRes.headers.get("content-type") || "";
+
+        if (contentType.includes("text/event-stream") && chatRes.body) {
+          const reader = chatRes.body.getReader();
+          const decoder = new TextDecoder();
+          let accumulated = "";
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split("\n\n");
+            buffer = blocks.pop() || "";
+
+            for (const block of blocks) {
+              const trimmed = block.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (!jsonStr) continue;
+              try {
+                const ev = JSON.parse(jsonStr);
+                if (ev.type === "delta" && typeof ev.text === "string") {
+                  accumulated += ev.text;
+                  setMessages((prev) =>
+                    prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: accumulated } : msg))
+                  );
+                } else if (ev.type === "error") {
+                  accumulated += (accumulated ? "\n\n" : "") + `⚠️ **Error**: ${ev.error}`;
+                  setMessages((prev) =>
+                    prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: accumulated } : msg))
+                  );
+                }
+              } catch {}
+            }
+          }
+
+          if (!accumulated.trim()) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === agentMsgId ? { ...msg, content: "Analysis processed." } : msg
+              )
+            );
+          }
+          return;
+        }
+
+        // Fallback for non-streaming JSON responses
         const data = await chatRes.json();
         const replyText = data.response || data.reply || "Analysis processed.";
-        const agentReply: ChatMessage = {
-          id: "msg_" + Math.random().toString(36).substring(2, 9),
-          role: "agent",
-          content: replyText,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        setMessages((prev) => [...prev, agentReply]);
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: replyText } : msg))
+        );
         return;
       } else {
         const errorData = chatRes ? await chatRes.json().catch(() => null) : null;
         const serverMsg = errorData?.response || errorData?.message || `Server returned HTTP ${chatRes?.status || "error"}`;
-        const errorReply: ChatMessage = {
-          id: "msg_" + Math.random().toString(36).substring(2, 9),
-          role: "agent",
-          content: `⚠️ **Research Service Notice**: ${serverMsg}. In accordance with strict financial data integrity standards, unverified estimates or synthetic responses are suppressed.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        setMessages((prev) => [...prev, errorReply]);
+        const errorNotice = `⚠️ **Research Service Notice**: ${serverMsg}. In accordance with strict financial data integrity standards, unverified estimates or synthetic responses are suppressed.`;
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: errorNotice } : msg))
+        );
       }
     } catch {
-      const errMsg: ChatMessage = {
-        id: "msg_err_" + Date.now(),
-        role: "agent",
-        content: `⚠️ **Connection Error**: Unable to reach the EquiGen AI research engine. To guarantee financial accuracy, unverified placeholder estimates are disabled. Please check your network connectivity or API configuration.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setMessages((prev) => [...prev, errMsg]);
+      const errMsg = `⚠️ **Connection Error**: Unable to reach the EquiGen AI research engine. To guarantee financial accuracy, unverified placeholder estimates are disabled. Please check your network connectivity or API configuration.`;
+      setMessages((prev) => {
+        const hasPlaceholder = prev.some((m) => m.role === "agent" && !m.content);
+        if (hasPlaceholder) {
+          return prev.map((m) => (m.role === "agent" && !m.content ? { ...m, content: errMsg } : m));
+        }
+        return [
+          ...prev,
+          {
+            id: "msg_err_" + Date.now(),
+            role: "agent",
+            content: errMsg,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+        ];
+      });
     } finally {
       setLoading(false);
     }
@@ -812,10 +881,10 @@ export function AgentChatView({
             }`}
           >
             {/* Message Stream */}
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 select-text">
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 select-text min-w-0">
               <div className={`${
                 activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
-              } mx-auto space-y-5`}>
+              } mx-auto space-y-5 w-full min-w-0`}>
                 {/* Live Running Execution Pipeline Card */}
                 {status === "running" && (
                   <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-amber-300 shadow-sm space-y-3.5 animate-fadeIn select-none mb-2">
@@ -949,7 +1018,7 @@ export function AgentChatView({
                 {messages.map((m) => (
                   <div
                     key={m.id}
-                    className={`flex items-start gap-3 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                    className={`flex items-start gap-3 w-full min-w-0 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                   >
                     <div
                       className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-2xs select-none ${
@@ -961,15 +1030,22 @@ export function AgentChatView({
                       {m.role === "user" ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-amber-600" />}
                     </div>
 
-                    <div className="max-w-[88%] space-y-1.5 select-text">
+                    <div className="max-w-[88%] min-w-0 space-y-1.5 select-text">
                       <div
-                        className={`rounded-2xl p-3.5 leading-relaxed text-xs select-text cursor-text selection:bg-[#F59E0B]/30 selection:text-[#1A1917] ${
+                        className={`rounded-2xl p-3.5 leading-relaxed text-xs select-text cursor-text break-words [overflow-wrap:anywhere] overflow-hidden selection:bg-[#F59E0B]/30 selection:text-[#1A1917] ${
                           m.role === "user"
                             ? "bg-[#1A1917] text-white font-medium selection:bg-white/30 selection:text-white"
                             : "bg-[#FAF8F5] border border-[#E3DFD5] text-[#1A1917] shadow-2xs"
                         }`}
                       >
-                        <FormattedChatMessage content={m.content} isUser={m.role === "user"} />
+                        {m.content ? (
+                          <FormattedChatMessage content={m.content} isUser={m.role === "user"} />
+                        ) : (
+                          <div className="flex items-center gap-2 text-stone-500 py-1">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600 shrink-0" />
+                            <span className="italic text-[11px] animate-pulse">Formulating institutional analysis...</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Live Report Updated Card */}
@@ -1037,7 +1113,7 @@ export function AgentChatView({
                   </div>
                 ))}
 
-                {loading && (
+                {loading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
                   <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] w-fit shadow-2xs">
                     <Loader2 className="w-4 h-4 animate-spin text-[#1A1917]" />
                     <span className="text-xs text-[#59554A] font-medium">

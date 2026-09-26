@@ -50,55 +50,55 @@ export function FormattedChatMessage({ content, isUser = false }: FormattedChatM
   const processedContent = preprocessMarkdown(content);
 
   return (
-    <div className="prose prose-sm max-w-none text-[#1A1917] select-text">
+    <div className="prose prose-sm max-w-none text-[#1A1917] select-text break-words [overflow-wrap:anywhere] min-w-0">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="text-lg font-black text-[#1A1917] mt-4 mb-2 pb-1.5 border-b border-[#E3DFD5] tracking-tight">
+            <h1 className="text-lg font-black text-[#1A1917] mt-4 mb-2 pb-1.5 border-b border-[#E3DFD5] tracking-tight break-words [overflow-wrap:anywhere]">
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-base font-extrabold text-[#1A1917] mt-3.5 mb-1.5 pb-1 border-b border-[#EAE7DE] tracking-tight">
+            <h2 className="text-base font-extrabold text-[#1A1917] mt-3.5 mb-1.5 pb-1 border-b border-[#EAE7DE] tracking-tight break-words [overflow-wrap:anywhere]">
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-sm font-bold text-[#1A1917] mt-3 mb-1 tracking-tight">
+            <h3 className="text-sm font-bold text-[#1A1917] mt-3 mb-1 tracking-tight break-words [overflow-wrap:anywhere]">
               {children}
             </h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#59554A] mt-2.5 mb-1">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#59554A] mt-2.5 mb-1 break-words [overflow-wrap:anywhere]">
               {children}
             </h4>
           ),
           p: ({ children }) => (
-            <p className="my-1.5 text-sm leading-relaxed text-[#2C2A26]">
+            <p className="my-1.5 text-sm leading-relaxed text-[#2C2A26] break-words [overflow-wrap:anywhere]">
               {children}
             </p>
           ),
           ul: ({ children }) => (
-            <ul className="my-2 ml-4 list-disc space-y-1 text-sm text-[#2C2A26]">
+            <ul className="my-2 ml-4 list-disc space-y-1 text-sm text-[#2C2A26] min-w-0">
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="my-2 ml-4 list-decimal space-y-1 text-sm text-[#2C2A26]">
+            <ol className="my-2 ml-4 list-decimal space-y-1 text-sm text-[#2C2A26] min-w-0">
               {children}
             </ol>
           ),
           li: ({ children }) => (
-            <li className="leading-relaxed pl-1">{children}</li>
+            <li className="leading-relaxed pl-1 break-words [overflow-wrap:anywhere] min-w-0">{children}</li>
           ),
           blockquote: ({ children }) => (
-            <blockquote className="my-3 border-l-4 border-amber-400/80 bg-[#FAF8F5] px-3.5 py-2 rounded-r-xl text-xs text-[#3D3A33] shadow-2xs">
+            <blockquote className="my-3 border-l-4 border-amber-400/80 bg-[#FAF8F5] px-3.5 py-2 rounded-r-xl text-xs text-[#3D3A33] shadow-2xs break-words [overflow-wrap:anywhere]">
               {children}
             </blockquote>
           ),
           table: ({ children }) => (
-            <div className="my-3.5 overflow-x-auto rounded-xl border border-[#E3DFD5] shadow-2xs">
+            <div className="my-3.5 overflow-x-auto rounded-xl border border-[#E3DFD5] shadow-2xs max-w-full">
               <table className="w-full text-left text-xs border-collapse">
                 {children}
               </table>
@@ -129,13 +129,13 @@ export function FormattedChatMessage({ content, isUser = false }: FormattedChatM
             const isBlock = className?.includes("language-");
             if (isBlock) {
               return (
-                <div className="my-2 p-3 rounded-xl bg-[#1A1917] text-amber-200 font-mono text-xs overflow-x-auto">
+                <div className="my-2 p-3 rounded-xl bg-[#1A1917] text-amber-200 font-mono text-xs overflow-x-auto max-w-full">
                   <code>{children}</code>
                 </div>
               );
             }
             return (
-              <code className="px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#1A1917] font-mono text-xs border border-[#DDD9CE]">
+              <code className="px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#1A1917] font-mono text-xs border border-[#DDD9CE] break-all">
                 {children}
               </code>
             );
@@ -157,16 +157,36 @@ export function FormattedChatMessage({ content, isUser = false }: FormattedChatM
                 href.startsWith("#"));
             const safeHref = isSafe ? href : "#";
 
+            const rawText = Array.isArray(children)
+              ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+              : typeof children === "string"
+              ? children
+              : "";
+
+            // Format raw long URLs into clean hostname + path preview
+            let displayNode: React.ReactNode = children;
+            if (rawText && (rawText.startsWith("http://") || rawText.startsWith("https://"))) {
+              try {
+                const u = new URL(rawText);
+                const host = u.hostname.replace(/^www\./, "");
+                const path = u.pathname.length > 30 ? u.pathname.slice(0, 22) + "…" : u.pathname;
+                displayNode = `${host}${path}`;
+              } catch {
+                displayNode = rawText.length > 50 ? rawText.slice(0, 47) + "…" : rawText;
+              }
+            }
+
             return (
               <a
                 href={safeHref}
+                title={safeHref}
                 target={isSafe && href.startsWith("http") ? "_blank" : undefined}
                 rel={isSafe && href.startsWith("http") ? "noopener noreferrer" : undefined}
-                className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-600 transition-colors mx-0.5"
+                className="inline font-semibold text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-600 transition-colors mx-0.5 break-all [overflow-wrap:anywhere] [word-break:break-word]"
               >
-                <span>{children}</span>
+                <span className="break-all [overflow-wrap:anywhere]">{displayNode}</span>
                 {isSafe && href.startsWith("http") && (
-                  <ExternalLink className="w-3 h-3 inline-block shrink-0 opacity-80" />
+                  <ExternalLink className="w-3 h-3 inline-block ml-1 align-baseline shrink-0 opacity-70" />
                 )}
               </a>
             );

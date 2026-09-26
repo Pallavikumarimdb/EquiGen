@@ -94,7 +94,7 @@ async function generateEquityResearchViaAI(
   const baseURL = isOpenRouter
     ? "https://openrouter.ai/api/v1"
     : "https://api.groq.com/openai/v1";
-  const modelName = isOpenRouter ? "openai/gpt-oss-120b" : "qwen/qwen3.6-27b";
+  const modelName = isOpenRouter ? "openai/gpt-oss-120b" : "qwen/qwen3.8-27b";
 
   const model = new ChatOpenAI({
     apiKey,

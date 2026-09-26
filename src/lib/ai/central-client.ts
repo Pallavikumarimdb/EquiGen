@@ -8,6 +8,7 @@
  */
 
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createLangChainChatModel } from "./langchain-service";
 import { fetchNewsAndFilings, NewsArticle } from "./tools/news-search-tool";
 
@@ -79,17 +80,27 @@ Guidelines:
    - Synthesize the publicly available institutional broker coverage, consensus ratings, target price benchmarks, key investment catalysts, and risk factors in structured tables and bullet points.
    - Never truncate or cut off mid-response; ensure every section and risk table is fully written out.
 6. REAL RETRIEVED SOURCES ONLY (STRICTLY NO DUMMY OR PLACEHOLDER URLS):
-   - In your '### Sources & Reference Verification' section, list ONLY the exact URLs and articles that were actually retrieved by tools and visited for this query.
+   - In your '### Sources & Reference Verification' section, format links as markdown: [Article Title or Publisher Name](Exact Reference URL).
    - NEVER invent, hallucinate, or insert generic dummy homepages (e.g. do NOT output generic "bseindia.com" or "moneycontrol.com" homepages).
-   - If no external web sources were retrieved (such as for pure valuation math, WACC formula explanations, or internal report updates), state that the analysis is based on the active report's internal financial model and do not attach unvisited web URLs.`;
+   - If no external web sources were retrieved (such as for pure valuation math, WACC formula explanations, or internal report updates), state that the analysis is based on the active report's internal financial model and do not attach unvisited web URLs.
+7. DIRECT STRUCTURED MARKDOWN OUTPUT ONLY (STRICTLY NO TOOL CALLS):
+   - You MUST NEVER invoke or output external tool calls, functions, or execution commands (such as "web.run", browsing actions, or JSON tool syntax).
+   - All necessary web research, company filings, and market news context have already been fetched and provided to you directly as reference text.
+   - Formulate your entire answer directly as comprehensive institutional markdown text with clear headings, analysis, and tables.`;
 }
 
+export type ChatStreamEvent =
+  | { type: "meta"; modelUsed: string; source: "groq" | "openai" | "openrouter" | "fallback_synthesis"; visitedUrls: string[] }
+  | { type: "delta"; text: string }
+  | { type: "done" }
+  | { type: "error"; error: string };
+
 /**
- * Executes a chat or analytical completion using the centralized model router.
+ * Streams chat tokens from the centralized model router in real-time.
  */
-export async function executeCentralizedAIChat(
+export async function* executeCentralizedAIChatStream(
   req: CentralizedChatRequest,
-): Promise<CentralizedChatResponse> {
+): AsyncGenerator<ChatStreamEvent, void, unknown> {
   const fullSystemPrompt = buildInstitutionalSystemPrompt(req);
 
   // Proactively check if the user query requires live web data/reports/filings
@@ -126,20 +137,48 @@ export async function executeCentralizedAIChat(
 
   let userContent = req.prompt;
   if (liveArticles.length > 0) {
-    userContent += `\n\n[Live Web Tool Retrieval Data]:\nThe agent actually visited and retrieved the following live articles and reports for this company:\n` +
+    userContent += `\n\n[Verified Reference Context & Recent Market News]:\nThe following verified reports, filings, and articles are provided for reference:\n` +
       liveArticles
         .map(
           (a, i) =>
-            `${i + 1}. Title: ${a.title}\n   Source/Publisher: ${a.source}\n   Published Date: ${a.publishedAt}\n   Visited URL: ${a.url}`,
+            `${i + 1}. Title: ${a.title}\n   Source/Publisher: ${a.source}\n   Published Date: ${a.publishedAt}\n   Reference URL: ${a.url}`,
         )
         .join("\n\n") +
-      `\n\n(IMPORTANT: In '### Sources & Reference Verification', list ONLY the exact Visited URLs above from which this data was retrieved. Do not invent any dummy or unvisited URLs).`;
+      `\n\n(IMPORTANT: In '### Sources & Reference Verification', format links as [Article Title or Source](Reference URL) using ONLY the exact Reference URLs above. Do not invent any dummy or unvisited URLs. Do not attempt to invoke web browsing tools or functions; all references are already provided above).`;
   }
 
   const langChainMessages = [
     new SystemMessage(fullSystemPrompt),
     new HumanMessage(userContent),
   ];
+
+  const visitedUrls = liveArticles.map((a) => a.url).filter(Boolean) as string[];
+
+  // Helper generator to stream from a LangChain BaseChatModel
+  async function* streamFromModel(
+    model: BaseChatModel,
+    modelUsed: string,
+    source: "groq" | "openai" | "openrouter" | "fallback_synthesis",
+  ) {
+    let sentMeta = false;
+    let accumulated = "";
+    const responseStream = await model.stream(langChainMessages);
+    for await (const chunk of responseStream) {
+      const text = typeof chunk.content === "string" ? chunk.content : JSON.stringify(chunk.content);
+      if (!text) continue;
+      accumulated += text;
+      if (!sentMeta) {
+        yield { type: "meta" as const, modelUsed, source, visitedUrls };
+        sentMeta = true;
+      }
+      yield { type: "delta" as const, text };
+    }
+
+    if (!sentMeta && accumulated.trim().length > 0) {
+      yield { type: "meta" as const, modelUsed, source, visitedUrls };
+    }
+    yield { type: "done" as const };
+  }
 
   // 1. Direct BYOK execution (if user passed specific API key or selected provider)
   if (req.apiKey && req.provider) {
@@ -152,27 +191,20 @@ export async function executeCentralizedAIChat(
         maxTokens: req.maxTokens ?? 4096,
       });
 
-      const response = await byokModel.invoke(langChainMessages);
-      const text = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
-      const isUnsafeRefusal =
-        text.includes("User Safety: unsafe") ||
-        text.includes("Unauthorized Advice") ||
-        text.includes("I cannot provide investment advice");
-
-      if (text && text.trim().length > 10 && !isUnsafeRefusal) {
-        return {
-          content: text.trim(),
-          modelUsed: req.modelName || (req.provider === "groq" ? "openai/gpt-oss-120b" : "custom-model"),
-          source: req.provider === "openrouter" ? "openrouter" : req.provider === "openai" ? "openai" : "groq",
-          visitedUrls: liveArticles.map((a) => a.url).filter(Boolean) as string[],
-        };
+      const modelUsed = req.modelName || (req.provider === "groq" ? "openai/gpt-oss-120b" : "custom-model");
+      const source = req.provider === "openrouter" ? "openrouter" : req.provider === "openai" ? "openai" : "groq";
+      let yieldedAny = false;
+      for await (const event of streamFromModel(byokModel, modelUsed, source)) {
+        yieldedAny = true;
+        yield event;
       }
+      if (yieldedAny) return;
     } catch (byokErr) {
-      console.warn("[CentralizedAI] User BYOK execution failed, falling back to central ladder:", byokErr);
+      console.warn("[CentralizedAI] User BYOK streaming failed, falling back to central ladder:", byokErr);
     }
   }
 
-  // 2. Centralized Model Ladder using LangChain (Groq Primary -> OpenRouter Fallback)
+  // 2. Centralized Model Ladder using LangChain (Groq 120B -> Groq Qwen 27B -> OpenRouter Fallback)
   const groqKey = process.env.GROQ_API_KEY;
   const openRouterKey = process.env.OPENROUTER_API_KEY;
 
@@ -187,23 +219,33 @@ export async function executeCentralizedAIChat(
         maxTokens: 4096,
       });
 
-      const response = await groqModel.invoke(langChainMessages);
-      const text = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
-      const isUnsafeRefusal =
-        text.includes("User Safety: unsafe") ||
-        text.includes("Unauthorized Advice") ||
-        text.includes("I cannot provide investment advice");
-
-      if (text && text.trim().length > 10 && !isUnsafeRefusal) {
-        return {
-          content: text.trim(),
-          modelUsed: "openai/gpt-oss-120b",
-          source: "groq",
-          visitedUrls: liveArticles.map((a) => a.url).filter(Boolean) as string[],
-        };
+      let yieldedAny = false;
+      for await (const event of streamFromModel(groqModel, "openai/gpt-oss-120b", "groq")) {
+        yieldedAny = true;
+        yield event;
       }
+      if (yieldedAny) return;
     } catch (err) {
-      console.warn("[CentralizedAI] Central LangChain Groq 120B attempt failed, attempting OpenRouter:", err);
+      console.warn("[CentralizedAI] Central LangChain Groq 120B stream failed, attempting Groq Qwen 27B fallback:", err);
+      // Secondary Groq attempt with Qwen 27B
+      try {
+        const groqQwenModel = createLangChainChatModel({
+          provider: "groq",
+          apiKey: groqKey,
+          modelName: "qwen/qwen3.8-27b",
+          temperature: 0.2,
+          maxTokens: 4096,
+        });
+
+        let yieldedAny = false;
+        for await (const event of streamFromModel(groqQwenModel, "qwen/qwen3.8-27b", "groq")) {
+          yieldedAny = true;
+          yield event;
+        }
+        if (yieldedAny) return;
+      } catch (qwenErr) {
+        console.warn("[CentralizedAI] Groq Qwen 27B stream fallback also failed, attempting OpenRouter:", qwenErr);
+      }
     }
   }
 
@@ -218,23 +260,14 @@ export async function executeCentralizedAIChat(
         maxTokens: 4096,
       });
 
-      const response = await openRouterModel.invoke(langChainMessages);
-      const text = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
-      const isUnsafeRefusal =
-        text.includes("User Safety: unsafe") ||
-        text.includes("Unauthorized Advice") ||
-        text.includes("I cannot provide investment advice");
-
-      if (text && text.trim().length > 10 && !isUnsafeRefusal) {
-        return {
-          content: text.trim(),
-          modelUsed: "meta-llama/llama-3.3-70b-instruct",
-          source: "openrouter",
-          visitedUrls: liveArticles.map((a) => a.url).filter(Boolean) as string[],
-        };
+      let yieldedAny = false;
+      for await (const event of streamFromModel(openRouterModel, "meta-llama/llama-3.3-70b-instruct", "openrouter")) {
+        yieldedAny = true;
+        yield event;
       }
+      if (yieldedAny) return;
     } catch (orErr) {
-      console.warn("[CentralizedAI] Central LangChain OpenRouter attempt failed:", orErr);
+      console.warn("[CentralizedAI] Central LangChain OpenRouter stream attempt failed:", orErr);
     }
   }
 
@@ -244,4 +277,35 @@ export async function executeCentralizedAIChat(
   throw new Error(
     `AI Research Service unavailable: Could not establish a connection to verified AI models. To guarantee financial data integrity and avoid misleading predictions, synthetic fallback data is strictly disabled. Please verify your API keys or network connectivity and try again.`
   );
+}
+
+/**
+ * Non-streaming wrapper that aggregates the streamed tokens into a complete response.
+ */
+export async function executeCentralizedAIChat(
+  req: CentralizedChatRequest,
+): Promise<CentralizedChatResponse> {
+  let content = "";
+  let modelUsed = "openai/gpt-oss-120b";
+  let source: "groq" | "openai" | "openrouter" | "fallback_synthesis" = "groq";
+  let visitedUrls: string[] = [];
+
+  for await (const event of executeCentralizedAIChatStream(req)) {
+    if (event.type === "meta") {
+      modelUsed = event.modelUsed;
+      source = event.source;
+      visitedUrls = event.visitedUrls;
+    } else if (event.type === "delta") {
+      content += event.text;
+    } else if (event.type === "error") {
+      throw new Error(event.error);
+    }
+  }
+
+  return {
+    content: content.trim(),
+    modelUsed,
+    source,
+    visitedUrls,
+  };
 }

@@ -27,8 +27,8 @@ const CONFIGURED_DEFAULTS: Record<string, ModelLimitRecord> = {
     tpd: 97000,
     source: "configured",
   },
-  "qwen/qwen3.6-27b": {
-    model: "qwen/qwen3.6-27b",
+  "qwen/qwen3.8-27b": {
+    model: "qwen/qwen3.8-27b",
     tpm: 6000,
     tpd: 97000,
     source: "configured",
