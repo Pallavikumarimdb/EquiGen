@@ -36,7 +36,25 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3b. Internal developer / Agent secret bypass
+  // 4. User is authenticated via cookie session — inject authentic user session
+  if (session) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-user-id", session.userId);
+    requestHeaders.set("x-org-id", session.orgId);
+    requestHeaders.set("x-user-role", session.role);
+    requestHeaders.set("x-user-name", session.name);
+    if (session.sebiRegNo) {
+      requestHeaders.set("x-user-sebi-reg-no", session.sebiRegNo);
+    }
+
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+  }
+
+  // 5. Internal developer / headless agent secret bypass (ONLY when NO user cookie session exists)
   const apiSecret = request.headers.get("x-api-secret");
   if (apiSecret === "equigen-internal") {
     const requestHeaders = new Headers(request.headers);
@@ -47,33 +65,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // 4. Deny access if no session is active
-  if (!session) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { message: "Unauthorized. Please sign in." },
-        { status: 401 }
-      );
-    }
-    // Redirect web requests to login page
-    return NextResponse.redirect(new URL("/signin", request.url));
+  // 6. Deny access if no session is active and no internal secret
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { message: "Unauthorized. Please sign in." },
+      { status: 401 }
+    );
   }
-
-  // 5. User is authenticated, clone request headers and append user session information
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-user-id", session.userId);
-  requestHeaders.set("x-org-id", session.orgId);
-  requestHeaders.set("x-user-role", session.role);
-  requestHeaders.set("x-user-name", session.name);
-  if (session.sebiRegNo) {
-    requestHeaders.set("x-user-sebi-reg-no", session.sebiRegNo);
-  }
-
-  return NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  });
+  // Redirect web requests to login page
+  return NextResponse.redirect(new URL("/signin", request.url));
 }
 
 export const config = {

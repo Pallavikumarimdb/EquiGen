@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { computeSHA256 } from "@/lib/utils/hash";
 
@@ -21,22 +22,62 @@ export async function GET(req: NextRequest) {
 
     const session = getAuthSession(req);
     const userId = session?.userId;
-    const orgId = session?.orgId || "default-org";
+    const orgId = session?.orgId;
+    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role === "ADMIN";
 
-    const whereClause = orgId
-      ? {
+    let reportWhere: Prisma.ReportHistoryWhereInput;
+    let planWhere: Prisma.ResearchPlanWhereInput;
+    let jobWhere: Prisma.ExtractionJobWhereInput;
+
+    if (orgId && orgId !== "default-org") {
+      // Organization-level isolation: members of the same organization see org assets + their own
+      reportWhere = {
         OR: [
           { orgId },
-          ...(userId && userId !== "system-test-user" ? [{ createdById: userId }] : []),
-          ...(orgId === "default-org" ? [{ orgId: null }, { orgId: "default-org" }] : []),
+          ...(userId ? [{ createdById: userId }] : []),
         ],
-      }
-      : userId
-        ? { createdById: userId }
-        : {};
+      };
+      planWhere = {
+        session: {
+          OR: [
+            { orgId },
+            ...(userId ? [{ createdBy: userId }] : []),
+          ],
+        },
+      };
+      jobWhere = {
+        OR: [
+          { orgId },
+          ...(userId ? [{ createdById: userId }] : []),
+        ],
+      };
+    } else if (userId && !isSystemAdmin) {
+      // Individual user in default-org or personal mode: strictly isolate to their own created items
+      reportWhere = { createdById: userId };
+      planWhere = { session: { createdBy: userId } };
+      jobWhere = { createdById: userId };
+    } else if (isSystemAdmin) {
+      // Internal system admin / test view: see all default-org and unassigned items
+      reportWhere = {
+        OR: [{ orgId: "default-org" }, { orgId: null }],
+      };
+      planWhere = {
+        session: {
+          OR: [{ orgId: "default-org" }, { orgId: null }],
+        },
+      };
+      jobWhere = {
+        OR: [{ orgId: "default-org" }, { orgId: null }],
+      };
+    } else {
+      // Unauthenticated / fallback
+      reportWhere = { id: "__impossible__" };
+      planWhere = { id: "__impossible__" };
+      jobWhere = { id: "__impossible__" };
+    }
 
     const reports = await prisma.reportHistory.findMany({
-      where: whereClause,
+      where: reportWhere,
       orderBy: { createdAt: "desc" },
       take: 100,
       select: {
@@ -56,8 +97,9 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Also fetch active/recent ResearchPlan records (including running, failed, approved)
+    // Also fetch active/recent ResearchPlan records (including running, failed, approved) for this user/org
     const activePlans = await prisma.researchPlan.findMany({
+      where: planWhere,
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -83,9 +125,9 @@ export async function GET(req: NextRequest) {
       },
     }).catch(() => null);
 
-    // Also fetch active/recent ExtractionJob records (documents in processing)
+    // Also fetch active/recent ExtractionJob records for this user/org
     const activeJobs = await prisma.extractionJob.findMany({
-      where: orgId ? { OR: [{ orgId }, { orgId: null }, { orgId: "default-org" }] } : {},
+      where: jobWhere,
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
