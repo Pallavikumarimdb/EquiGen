@@ -50,6 +50,11 @@ export interface CompanyData {
   avgVolume?: string | number | null;
   beta?: string | number | null;
   faceValue?: string | number | null;
+  pe?: string | number | null;
+  evEbitda?: string | number | null;
+  roe?: string | number | null;
+  deRatio?: string | number | null;
+  currentPrice?: string | number | null;
 }
 
 export interface ShareholdingData {

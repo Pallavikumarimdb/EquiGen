@@ -20,6 +20,8 @@
  * All fields default to null when unavailable — never fabricated.
  */
 
+import { resolveCompanyTicker } from "./ticker-resolver";
+
 export interface ExtractedFinancials {
   // Income Statement
   revenueCr: number | null;        // Total revenue in ₹ Crores (TTM)
@@ -37,12 +39,17 @@ export interface ExtractedFinancials {
   cashCr: number | null;           // Cash & equivalents in ₹ Crores
   netDebtCr: number | null;        // Net debt = totalDebt - cash
   bookValuePerShare: number | null; // Book value per share
+  debtToEquity?: number | null;     // Debt to equity ratio / multiplier
+  roe?: number | null;              // Return on equity as percentage
 
   // Market Data
   currentPrice: number | null;
   marketCapCr: number | null;
   enterpriseValueCr: number | null;
   sharesOutstandingCr: number | null; // Shares in Crores
+  fiftyTwoWeekHigh?: number | null;
+  fiftyTwoWeekLow?: number | null;
+  highLow52W?: string | null;
 
   // Valuation Multiples
   trailingPE: number | null;
@@ -122,48 +129,75 @@ async function fetchYahooCrumb(): Promise<{ crumb: string; cookies: string } | n
   }
 
   try {
-    // Step 1: Visit Yahoo Finance homepage to get session cookies
-    const homepageRes = await fetch("https://finance.yahoo.com/", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      signal: AbortSignal.timeout(10000),
-      redirect: "follow",
-    });
-
-    // Extract Set-Cookie headers to build a cookie string
-    const rawCookies = homepageRes.headers.get("set-cookie") ?? "";
-    // Collect just name=value pairs (ignore attributes like path, expires, secure)
-    const cookiePairs = rawCookies.split(/,\s*(?=[A-Za-z_-]+=)/)
-      .map((c) => c.split(";")[0].trim())
-      .filter((c) => c.includes("="))
-      .join("; ");
+    // Step 1: Visit fc.yahoo.com (or finance.yahoo.com) to get session cookies
+    let cookiePairs = "";
+    try {
+      const fcRes = await fetch("https://fc.yahoo.com", {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+      const rawCookies = fcRes.headers.get("set-cookie") ?? "";
+      cookiePairs = rawCookies
+        .split(/,\s*(?=[A-Za-z_-]+=)/)
+        .map((c) => c.split(";")[0].trim())
+        .filter((c) => c.includes("="))
+        .join("; ");
+    } catch {
+      // ignore, try homepage next
+    }
 
     if (!cookiePairs) {
-      console.warn("[YahooFinancials] No cookies received from Yahoo homepage — crumb fetch may fail.");
+      try {
+        const hpRes = await fetch("https://finance.yahoo.com/", {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          signal: AbortSignal.timeout(6000),
+        });
+        const rawCookies = hpRes.headers.get("set-cookie") ?? "";
+        cookiePairs = rawCookies
+          .split(/,\s*(?=[A-Za-z_-]+=)/)
+          .map((c) => c.split(";")[0].trim())
+          .filter((c) => c.includes("="))
+          .join("; ");
+      } catch {
+        // ignore
+      }
     }
 
-    // Step 2: Fetch the crumb from Yahoo's crumb API using the session cookie
-    const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Cookie": cookiePairs,
-        "Referer": "https://finance.yahoo.com/",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!crumbRes.ok) {
-      console.warn(`[YahooFinancials] Crumb fetch returned HTTP ${crumbRes.status}`);
-      return null;
+    if (!cookiePairs) {
+      console.warn("[YahooFinancials] No cookies received from Yahoo — crumb fetch may fail.");
     }
 
-    const crumb = (await crumbRes.text()).trim();
-    if (!crumb || crumb.length < 5) {
-      console.warn("[YahooFinancials] Crumb response too short — likely not a valid crumb.");
+    // Step 2: Fetch crumb from query2 or query1 using session cookie
+    let crumb = "";
+    for (const host of ["https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com"]) {
+      try {
+        const crumbRes = await fetch(`${host}/v1/test/getcrumb`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Cookie": cookiePairs,
+            "Referer": "https://finance.yahoo.com/",
+          },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (crumbRes.ok) {
+          const text = (await crumbRes.text()).trim();
+          if (text && text.length >= 4 && !text.includes("<html") && !text.includes("error")) {
+            crumb = text;
+            break;
+          }
+        }
+      } catch {
+        // try next
+      }
+    }
+
+    if (!crumb) {
+      console.warn("[YahooFinancials] Could not obtain a valid crumb token.");
       return null;
     }
 
@@ -303,7 +337,21 @@ async function fetchBseMarketData(ticker: string): Promise<Partial<ExtractedFina
  *   Tier 4: BSE market data API                    → price + market cap (no session)
  */
 export async function fetchYahooFinancials(nseTicker: string): Promise<ExtractedFinancials> {
-  const upper = nseTicker.toUpperCase();
+  let upper = nseTicker.trim().toUpperCase();
+
+  // If ticker looks like an unresolved slice, company name or has spaces, auto-resolve it
+  if (upper.length > 8 || upper.includes(" ") || upper === "PONDYOXIDE") {
+    try {
+      const resolved = await resolveCompanyTicker(upper, upper);
+      if (resolved.isResolved) {
+        console.log(`[YahooFinancials] Auto-resolved ticker "${nseTicker}" -> "${resolved.ticker}"`);
+        upper = resolved.ticker;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const yahooTicker = upper.endsWith(".NS") || upper.endsWith(".BO") ? upper : `${upper}.NS`;
   const fetchedAt = new Date().toISOString();
 
@@ -312,7 +360,9 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
     ebitdaCr: null, ebitdaMargin: null, grossMargin: null, operatingMargin: null,
     netIncomeCr: null, epsCurrent: null, epsGrowth: null,
     totalDebtCr: null, cashCr: null, netDebtCr: null, bookValuePerShare: null,
+    debtToEquity: null, roe: null,
     currentPrice: null, marketCapCr: null, enterpriseValueCr: null, sharesOutstandingCr: null,
+    fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null, highLow52W: null,
     trailingPE: null, forwardPE: null, evEbitda: null, priceToBook: null, dividendYield: null,
     beta: null, ticker: upper, currency: "INR", fetchedAt, isLiveData: false,
   };
@@ -387,6 +437,27 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const evRaw        = safe(stats.enterpriseValue?.raw);
         const priceRaw     = safe(fin.currentPrice?.raw) ?? safe(summary.regularMarketPrice?.raw);
 
+        const high52 = safe(summary.fiftyTwoWeekHigh?.raw);
+        const low52  = safe(summary.fiftyTwoWeekLow?.raw);
+        const highLow52W = high52 != null && low52 != null ? `₹${Math.round(low52)} - ₹${Math.round(high52)}` : null;
+
+        // ROE: prefer fin.returnOnEquity, fallback to netIncome / (bookValue * shares)
+        let roeVal: number | null = null;
+        if (fin.returnOnEquity?.raw != null) {
+          roeVal = Math.round(Number(fin.returnOnEquity.raw) * 10000) / 100;
+        } else if (netIncomeRaw != null && stats.bookValue?.raw != null && sharesRaw != null && stats.bookValue.raw * sharesRaw > 0) {
+          roeVal = Math.round((netIncomeRaw / (stats.bookValue.raw * sharesRaw)) * 10000) / 100;
+        }
+
+        // Debt to Equity
+        let deVal: number | null = null;
+        if (fin.debtToEquity?.raw != null) {
+          const rawDe = Number(fin.debtToEquity.raw);
+          deVal = rawDe > 5 ? Math.round(rawDe / 100 * 100) / 100 : Math.round(rawDe * 100) / 100;
+        } else if (totalDebtRaw != null && stats.bookValue?.raw != null && sharesRaw != null && stats.bookValue.raw * sharesRaw > 0) {
+          deVal = Math.round((totalDebtRaw / (stats.bookValue.raw * sharesRaw)) * 100) / 100;
+        }
+
         const data: ExtractedFinancials = {
           revenueCr:           toCrores(revenueRaw, currency),
           revenueGrowthYoY:    revenueGrowthYoY !== null ? Math.round(revenueGrowthYoY * 10000) / 10000 : null,
@@ -401,10 +472,15 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           cashCr:              toCrores(cashRaw, currency),
           netDebtCr:           toCrores(netDebtCalc, currency),
           bookValuePerShare:   safe(stats.bookValue?.raw),
+          debtToEquity:        deVal,
+          roe:                 roeVal,
           currentPrice:        priceRaw,
           marketCapCr:         toCrores(mktCapRaw, currency),
           enterpriseValueCr:   toCrores(evRaw, currency),
           sharesOutstandingCr: sharesInCr !== null ? Math.round(sharesInCr * 100) / 100 : null,
+          fiftyTwoWeekHigh:    high52,
+          fiftyTwoWeekLow:     low52,
+          highLow52W,
           trailingPE:          safe(summary.trailingPE?.raw),
           forwardPE:           safe(summary.forwardPE?.raw),
           evEbitda:            safe(stats.enterpriseToEbitda?.raw),
@@ -422,7 +498,7 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           `[YahooFinancials] ✓ [quoteSummary] ${upper}: Revenue ₹${data.revenueCr ?? "N/A"} Cr` +
           ` | EBITDA ${data.ebitdaMargin !== null ? (data.ebitdaMargin * 100).toFixed(1) + "%" : "N/A"}` +
           ` | MktCap ₹${data.marketCapCr ?? "N/A"} Cr | P/E ${data.trailingPE ?? "N/A"}x` +
-          ` | NetDebt ₹${data.netDebtCr ?? "N/A"} Cr`
+          ` | NetDebt ₹${data.netDebtCr ?? "N/A"} Cr | 52W ${data.highLow52W ?? "N/A"}`
         );
         return data;
       }
@@ -456,6 +532,9 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const mktCapRaw = safe(q.marketCap);
         const sharesRaw = safe(q.sharesOutstanding);
         const sharesInCr = sharesRaw !== null ? sharesRaw / UNITS_TO_CR : null;
+        const high52 = safe(q.fiftyTwoWeekHigh);
+        const low52  = safe(q.fiftyTwoWeekLow);
+        const highLow52W = high52 != null && low52 != null ? `₹${Math.round(low52)} - ₹${Math.round(high52)}` : null;
 
         const v7Data: ExtractedFinancials = {
           ...empty,
@@ -466,6 +545,9 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           priceToBook:         safe(q.priceToBook),
           epsCurrent:          safe(q.epsTrailingTwelveMonths),
           sharesOutstandingCr: sharesInCr !== null ? Math.round(sharesInCr * 100) / 100 : null,
+          fiftyTwoWeekHigh:    high52,
+          fiftyTwoWeekLow:     low52,
+          highLow52W,
           beta:                safe(q.beta),
           dividendYield:       safe(q.trailingAnnualDividendYield),
           currency:            (q.currency as string) ?? "INR",
@@ -506,11 +588,17 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
       if (meta && meta.regularMarketPrice !== undefined) {
         const currency = (meta.currency as string) ?? "INR";
         const mktCap   = safe(meta.marketCap);
+        const high52   = safe(meta.fiftyTwoWeekHigh);
+        const low52    = safe(meta.fiftyTwoWeekLow);
+        const highLow52W = high52 != null && low52 != null ? `₹${Math.round(low52)} - ₹${Math.round(high52)}` : null;
 
         const v8Data: ExtractedFinancials = {
           ...empty,
           currentPrice: safe(meta.regularMarketPrice),
           marketCapCr:  mktCap && currency === "INR" ? Math.round(mktCap / UNITS_TO_CR) : null,
+          fiftyTwoWeekHigh: high52,
+          fiftyTwoWeekLow:  low52,
+          highLow52W,
           currency,
           isLiveData:   true,
           dataSource:   "v8_chart",
@@ -577,6 +665,12 @@ export function toModelingInputRecord(fin: ExtractedFinancials): Record<string, 
     marketCapCr:       fin.marketCapCr,
     peRatio:           fin.trailingPE,
     bookValue:         fin.bookValuePerShare,
+    roe:               fin.roe,
+    deRatio:           fin.debtToEquity,
+    debtToEquity:      fin.debtToEquity,
+    highLow52W:        fin.highLow52W,
+    fiftyTwoWeekHigh:  fin.fiftyTwoWeekHigh,
+    fiftyTwoWeekLow:   fin.fiftyTwoWeekLow,
     // Provenance flags (non-numeric — ModelingAgent ignores unknown keys)
     _source:           `yahoo_finance_${fin.dataSource ?? "unknown"}`,
     _fetchedAt:        fin.fetchedAt,

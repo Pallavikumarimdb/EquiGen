@@ -482,11 +482,17 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   };
 
   // Launch Autonomous Swarm
-  const handleLaunchAutonomous = async (compName: string, depth: "quick" | "standard" | "deep", goalText?: string) => {
+  const handleLaunchAutonomous = async (
+    compName: string,
+    tickerInput?: string,
+    depth: "quick" | "standard" | "deep" = "standard",
+    goalText?: string
+  ) => {
     setIsNewResearchOpen(false);
     setLoading(true);
 
-    const derivedTicker = compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
+    const cleanInputTicker = (tickerInput || "").trim().toUpperCase();
+    const derivedTicker = cleanInputTicker || compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
     const tempPlanId = `plan_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
     const newSessionId = `session_${Date.now()}`;
 
@@ -520,14 +526,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
 
     try {
-      const fullGoal = goalText || `Initiation of coverage on ${compName} — 5-year DCF, peer multiples, and SEBI compliance audit`;
+      const fullGoal = goalText || `Initiation of coverage on ${compName}${cleanInputTicker ? ` (${cleanInputTicker})` : ""} — 5-year DCF, peer multiples, and SEBI compliance audit`;
       const res = await fetch("/api/agent/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
         body: JSON.stringify({
           goalText: fullGoal,
           companyName: compName,
-          ticker: derivedTicker,
+          ticker: cleanInputTicker || undefined,
           depth,
           sessionId: newSessionId,
         }),

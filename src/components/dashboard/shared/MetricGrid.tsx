@@ -13,29 +13,34 @@ export function MetricGrid({ reportData }: MetricGridProps) {
   const fiveYear = reportData?.fiveYearSummary;
   const latestSummary = Array.isArray(fiveYear) && fiveYear.length > 0 ? fiveYear[fiveYear.length - 1] : null;
 
+  const peVal = latestSummary?.pe ?? comp?.pe;
+  const evEbitdaVal = latestSummary?.evEbitda ?? comp?.evEbitda;
+  const roeVal = latestSummary?.roe ?? comp?.roe;
+  const deVal = latestSummary?.deRatio ?? comp?.deRatio;
+
   const metrics = [
     {
       label: "P/E Ratio",
-      value: latestSummary?.pe != null ? `${latestSummary.pe}x` : "—",
-      subtext: latestSummary?.pe != null ? "Reported P/E" : "Data not reported",
+      value: peVal != null ? `${peVal}x` : "—",
+      subtext: peVal != null ? "Reported P/E" : "Data not reported",
       icon: Activity,
     },
     {
       label: "EV / EBITDA",
-      value: latestSummary?.evEbitda != null ? `${latestSummary.evEbitda}x` : "—",
-      subtext: latestSummary?.evEbitda != null ? "Forward multiple" : "Data not reported",
+      value: evEbitdaVal != null ? `${evEbitdaVal}x` : "—",
+      subtext: evEbitdaVal != null ? "EV / EBITDA" : "Data not reported",
       icon: BarChart2,
     },
     {
       label: "Return on Equity (ROE)",
-      value: latestSummary?.roe != null ? `${latestSummary.roe}%` : "—",
-      subtext: latestSummary?.roe != null ? "Return metric" : "Data not reported",
+      value: roeVal != null ? `${roeVal}%` : "—",
+      subtext: roeVal != null ? "Return metric" : "Data not reported",
       icon: Percent,
     },
     {
       label: "Debt / Equity",
-      value: latestSummary?.deRatio != null ? String(latestSummary.deRatio) : "—",
-      subtext: latestSummary?.deRatio != null ? "Financial leverage" : "Data not reported",
+      value: deVal != null ? (typeof deVal === "number" ? `${deVal.toFixed(2)}x` : String(deVal)) : "—",
+      subtext: deVal != null ? "Financial leverage" : "Data not reported",
       icon: Scale,
     },
     {

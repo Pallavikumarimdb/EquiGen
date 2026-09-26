@@ -20,6 +20,7 @@ import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import { pipelineEval, AgentRunSnapshot } from "@/lib/eval/pipeline-eval";
+import { resolveCompanyTicker } from "../tools/ticker-resolver";
 import type { Prisma } from "@prisma/client";
 
 export interface OrchestrationResult {
@@ -87,8 +88,24 @@ export class MasterOrchestrator {
     // 2. Resolve ticker and companyName from the plan record.
     //    Falls back to goalText extraction for plans created before the schema migration.
     const fallback = extractTickerFromGoalText(goalText);
-    const ticker: string = (plan as Record<string, unknown>).ticker as string ?? fallback.ticker;
-    const companyName: string = (plan as Record<string, unknown>).companyName as string ?? fallback.companyName;
+    let ticker: string = (plan as Record<string, unknown>).ticker as string ?? fallback.ticker;
+    let companyName: string = (plan as Record<string, unknown>).companyName as string ?? fallback.companyName;
+
+    // Auto-resolve ticker if unknown, missing or a naive slice like PONDYOXIDE
+    if (!ticker || ticker === "UNKNOWN" || ticker.length > 8 || ticker === "PONDYOXIDE" || ticker.includes(" ")) {
+      try {
+        const resolved = await resolveCompanyTicker(companyName, ticker);
+        if (resolved.isResolved) {
+          ticker = resolved.ticker;
+          if (!companyName || companyName === ticker) {
+            companyName = resolved.companyName;
+          }
+          console.log(`[MasterOrchestrator] Auto-resolved ticker to ${ticker} (${companyName})`);
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     if (!ticker || ticker === "UNKNOWN") {
       console.warn(
@@ -455,6 +472,8 @@ export class MasterOrchestrator {
       // but normalizer looks for companyData.pe, companyData.beta, etc.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const yahooFin = (mktOut as any)?.yahooFinancials ?? null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const effectiveFin = yahooFin ?? (documentOutput as any)?.extractedFinancials;
 
       const rawPayload = {
         sourceType: "autonomous",
@@ -467,21 +486,36 @@ export class MasterOrchestrator {
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
-        companyData: yahooFin ? {
-          marketCap:        yahooFin.marketCapCr    ?? null,
-          pe:               yahooFin.trailingPE     ?? null,
-          evEbitda:         yahooFin.evEbitda        ?? null,
-          beta:             yahooFin.beta            ?? null,
-          currentPrice:     yahooFin.currentPrice   ?? null,
-          outstandingShares: yahooFin.sharesOutstandingCr ?? null,
-          dividendYield:    yahooFin.dividendYield != null
-            ? `${(yahooFin.dividendYield * 100).toFixed(2)}%`
+        companyData: effectiveFin ? {
+          marketCap:        effectiveFin.marketCapCr    ?? effectiveFin.marketCap ?? null,
+          pe:               effectiveFin.trailingPE     ?? effectiveFin.peRatio ?? null,
+          evEbitda:         effectiveFin.evEbitda        ?? null,
+          roe:              effectiveFin.roe            ?? null,
+          deRatio:          effectiveFin.debtToEquity   ?? effectiveFin.deRatio ?? null,
+          highLow52W:       effectiveFin.highLow52W     ?? null,
+          beta:             effectiveFin.beta            ?? null,
+          currentPrice:     effectiveFin.currentPrice   ?? null,
+          outstandingShares: effectiveFin.sharesOutstandingCr ?? effectiveFin.outstandingShares ?? null,
+          dividendYield:    effectiveFin.dividendYield != null
+            ? (typeof effectiveFin.dividendYield === "number" ? `${(effectiveFin.dividendYield * 100).toFixed(2)}%` : String(effectiveFin.dividendYield))
             : null,
-          enterpriseValue:  yahooFin.enterpriseValueCr ?? null,
+          enterpriseValue:  effectiveFin.enterpriseValueCr ?? null,
         } : null,
+        fiveYearSummary: effectiveFin ? [
+          {
+            period: "TTM",
+            sales: effectiveFin.revenueCr ?? effectiveFin.revenue ?? null,
+            ebitda: effectiveFin.ebitdaCr ?? effectiveFin.ebitda ?? null,
+            ebitdaMargin: effectiveFin.ebitdaMargin != null ? Math.round(Number(effectiveFin.ebitdaMargin) * 1000) / 10 : null,
+            pe: effectiveFin.trailingPE ?? effectiveFin.peRatio ?? null,
+            evEbitda: effectiveFin.evEbitda ?? null,
+            roe: effectiveFin.roe ?? null,
+            deRatio: effectiveFin.debtToEquity ?? effectiveFin.deRatio ?? null,
+          }
+        ] : [],
         // RC-6: Recommendation block — normalizer reads recommendation.currentPrice
-        recommendation: yahooFin?.currentPrice ? {
-          currentPrice: yahooFin.currentPrice,
+        recommendation: effectiveFin?.currentPrice ? {
+          currentPrice: effectiveFin.currentPrice,
         } : undefined,
       };
 

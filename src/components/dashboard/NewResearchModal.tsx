@@ -12,7 +12,7 @@ import {
 interface NewResearchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLaunchAutonomous: (companyName: string, depth: "quick" | "standard" | "deep", promptGoal?: string) => void;
+  onLaunchAutonomous: (companyName: string, ticker?: string, depth?: "quick" | "standard" | "deep", promptGoal?: string) => void;
   onLaunchUpload: (file: File, companyName: string) => void;
 }
 
@@ -82,7 +82,7 @@ export function NewResearchModal({
     const fullGoal = customFocus.trim()
       ? `Initiation of coverage on ${targetCompany.trim()}${targetTicker ? ` (${targetTicker.trim()})` : ""} — ${customFocus.trim()}`
       : `Initiation of coverage on ${targetCompany.trim()}${targetTicker ? ` (${targetTicker.trim()})` : ""} — 5-year DCF, peer multiples, and SEBI compliance audit`;
-    onLaunchAutonomous(targetCompany.trim(), researchDepth, fullGoal);
+    onLaunchAutonomous(targetCompany.trim(), targetTicker.trim() || undefined, researchDepth, fullGoal);
     onClose();
   };
 

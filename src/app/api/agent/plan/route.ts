@@ -3,6 +3,7 @@ import { masterPlannerAgent } from "@/lib/ai/planner/master-planner";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { ResearchGoal, ResearchPlanRecord } from "@/types/plan4";
 import { prisma } from "@/lib/db";
+import { resolveCompanyTicker } from "@/lib/ai/tools/ticker-resolver";
 
 /**
  * POST /api/agent/plan
@@ -25,6 +26,22 @@ export async function POST(req: NextRequest) {
     if (!resolvedCompanyName && resolvedTicker) {
       resolvedCompanyName = resolvedTicker;
     }
+
+    // Dynamically resolve Indian equity ticker using exchange search
+    if (resolvedCompanyName || resolvedTicker) {
+      try {
+        const info = await resolveCompanyTicker(resolvedCompanyName, resolvedTicker);
+        if (info.isResolved) {
+          resolvedTicker = info.ticker;
+          if (!resolvedCompanyName || resolvedCompanyName === ticker) {
+            resolvedCompanyName = info.companyName;
+          }
+        }
+      } catch (err) {
+        console.warn("[/api/agent/plan] Ticker resolution error:", err);
+      }
+    }
+
     if (!resolvedTicker && resolvedCompanyName) {
       resolvedTicker = resolvedCompanyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
     }

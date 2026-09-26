@@ -128,6 +128,18 @@ export function normalizeEquityResearchData(raw: any): EquityResearchData {
       ? raw.fiveYearSummary
       : Array.isArray(raw.historicalSeries) && raw.historicalSeries.length > 0
       ? raw.historicalSeries
+      : (pe != null || marketCap != null || roe != null || evEbitda != null)
+      ? [
+          {
+            period: "TTM",
+            sales: typeof assumptions.revenue === "number" ? assumptions.revenue : null,
+            ebitda: typeof assumptions.ebitda === "number" ? assumptions.ebitda : null,
+            pe,
+            evEbitda,
+            roe,
+            deRatio,
+          }
+        ]
       : [];
 
   // Investment Risks
