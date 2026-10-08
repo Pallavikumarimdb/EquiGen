@@ -3,8 +3,9 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+
 import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
+import { isTenantFailure, requireTenantSession, canAccessTenantRecord, tenantForbidden } from "@/lib/utils/tenant";
 
 /**
  * GET /api/download?id=<reportId>
@@ -13,8 +14,9 @@ import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
  * Scoped by organization ID from the secure user session.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -26,9 +28,7 @@ export async function GET(req: NextRequest) {
         { status: 400 },
       );
     }
-
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    const orgId = session.orgId;
 
     const cleanId = id.replace(/^rep_/, "");
 
@@ -89,18 +89,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Tenant boundary check
-    const isSystemAdmin =
-      session?.userId === "system-test-user" ||
-      session?.userId === "agent-user" ||
-      session?.role === "ADMIN";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
-      return NextResponse.json(
-        { message: "Forbidden. Access denied." },
-        { status: 403 },
-      );
-    }
+    // Tenant boundary check. `!orgId` (legacy pre-tenancy rows) is no longer a
+    // grant; those are reachable only by a platform operator holding the internal
+    // service credential.
+    const hasAccess = canAccessTenantRecord(session, report);
+    if (!hasAccess) return tenantForbidden();
 
     const safeName = (report.companyName || "research")
       .toLowerCase()

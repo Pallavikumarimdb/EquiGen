@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { EquityResearchData } from "@/types";
 import { runThreeStatementModel, ThreeStatementDrivers } from "@/lib/financial-modeling/three-statement-engine";
 import { executeCentralizedAIChat } from "@/lib/ai/central-client";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 interface ModifyRequestBody {
   reportId?: string;
@@ -14,13 +14,13 @@ interface ModifyRequestBody {
 }
 
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const sessionUser = getAuthSession(req);
-    const userId = sessionUser?.userId || "analyst";
-    const orgId = sessionUser?.orgId || "default-org";
+    const userId = session.userId || "analyst";
+    const orgId = session.orgId || "default-org";
 
     const body: ModifyRequestBody = await req.json();
     const { reportId, prompt, currentReport, requestedModifications } = body;

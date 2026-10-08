@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { resumeBackgroundJob } from "@/lib/queue/worker";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const ResumePayloadSchema = z.object({
   jobId: z.string().min(1, "Job ID is required to resume"),
@@ -16,12 +16,13 @@ const ResumePayloadSchema = z.object({
  * Resumes a failed pipeline run starting from the checkpointed step index saved in the database.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   let activeJobId = "";
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
 
     const body = await req.json();
     const parsedPayload = ResumePayloadSchema.safeParse(body);

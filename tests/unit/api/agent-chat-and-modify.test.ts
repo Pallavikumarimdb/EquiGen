@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { POST } from "@/app/api/agent/modify/route";
 import { buildReportContextMarkdown } from "@/lib/ai/central-client";
 import { prisma } from "@/lib/db";
+import { signJWT } from "@/lib/utils/jwt";
 import { EquityResearchData } from "@/types";
 
 vi.mock("@/lib/db", () => ({
@@ -203,23 +204,40 @@ describe("AI Agent Full Context Serialization", () => {
 });
 
 describe("POST /api/agent/modify", () => {
-  const testHeaders = {
-    "Content-Type": "application/json",
-    "x-user-id": "analyst-1",
-    "x-org-id": "org-test",
+  /**
+   * The route is protected by `requireTenantSession`, which verifies a signed
+   * session cookie and refuses to trust bare `x-user-id` / `x-org-id` headers.
+   * Requests therefore carry a real JWT, not spoofed identity headers.
+   */
+  const testHeaders = async () => {
+    const token = await signJWT(
+      {
+        userId: "analyst-1",
+        email: "analyst@org-test.example",
+        name: "Test Analyst",
+        role: "analyst",
+        orgId: "org-test",
+        sebiRegNo: null,
+      },
+      new Date(Date.now() + 60_000),
+    );
+    return {
+      "Content-Type": "application/json",
+      Cookie: `session_token=${token}`,
+    };
   };
 
   it("modifies target price and recalculates upside", async () => {
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
-      headers: testHeaders,
+      headers: await testHeaders(),
       body: JSON.stringify({
         prompt: "Update target price to 180",
         currentReport: sampleReport,
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
+    const res = await POST(req);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -231,16 +249,16 @@ describe("POST /api/agent/modify", () => {
   });
 
   it("modifies rating to ACCUMULATE", async () => {
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
-      headers: testHeaders,
+      headers: await testHeaders(),
       body: JSON.stringify({
         prompt: "Change rating to ACCUMULATE",
         currentReport: sampleReport,
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
+    const res = await POST(req);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -249,16 +267,16 @@ describe("POST /api/agent/modify", () => {
   });
 
   it("modifies WACC discount rate and dynamically recalculates DCF target price via 3-statement model", async () => {
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
-      headers: testHeaders,
+      headers: await testHeaders(),
       body: JSON.stringify({
         prompt: "Set WACC to 10.5%",
         currentReport: sampleReport,
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
+    const res = await POST(req);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -271,16 +289,16 @@ describe("POST /api/agent/modify", () => {
   });
 
   it("modifies EBITDA margin and terminal growth rate", async () => {
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
-      headers: testHeaders,
+      headers: await testHeaders(),
       body: JSON.stringify({
         prompt: "Set EBITDA margin to 16% and terminal growth to 4.5%",
         currentReport: sampleReport,
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
+    const res = await POST(req);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -290,16 +308,16 @@ describe("POST /api/agent/modify", () => {
   });
 
   it("adds a new investment risk factor into risk profile and SWOT threats", async () => {
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
-      headers: testHeaders,
+      headers: await testHeaders(),
       body: JSON.stringify({
         prompt: "Add a risk about carbon border adjustment mechanism (CBAM) tariffs in Europe",
         currentReport: sampleReport,
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
+    const res = await POST(req);
     expect(res.status).toBe(200);
     const data = await res.json();
 
@@ -314,12 +332,31 @@ describe("POST /api/agent/modify", () => {
       orgId: "tenant_xyz",
     } as unknown as Awaited<ReturnType<typeof prisma.reportHistory.findUnique>>);
 
-    const req = new Request("http://localhost:3000/api/agent/modify", {
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
+      method: "POST",
+      headers: await testHeaders(),
+      body: JSON.stringify({
+        reportId: "rep_other_123",
+        prompt: "Update target price to 200",
+        currentReport: sampleReport,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.message).toContain("Forbidden");
+  });
+
+  it("refuses a request that carries only spoofable identity headers", async () => {
+    // Header-only identity used to be accepted by `requireApiSecret`. The tenant
+    // guard verifies the session JWT instead, so a bare x-org-id is not enough.
+    const req = new NextRequest("http://localhost:3000/api/agent/modify", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-id": "user-abc",
-        "x-org-id": "tenant_abc",
+        "x-user-id": "attacker",
+        "x-org-id": "tenant_xyz",
       },
       body: JSON.stringify({
         reportId: "rep_other_123",
@@ -328,9 +365,7 @@ describe("POST /api/agent/modify", () => {
       }),
     });
 
-    const res = await POST(req as unknown as NextRequest);
-    expect(res.status).toBe(403);
-    const data = await res.json();
-    expect(data.message).toContain("Forbidden");
+    const res = await POST(req);
+    expect(res.status).toBe(401);
   });
 });

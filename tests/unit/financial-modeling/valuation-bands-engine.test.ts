@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import {
   calculateMeanAndStdDev,
   classifyValuationRegime,
@@ -11,6 +11,14 @@ import { GET } from "@/app/api/valuation-bands/route";
 import { NextRequest } from "next/server";
 
 describe("Issue 3: Historical Valuation Multiples Bands (P/E & EV/EBITDA)", () => {
+  beforeEach(() => {
+    // The internal service credential is configured via env, never a hardcoded literal.
+    vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   it("1. Accurately calculates sample Mean, Standard Deviation, and ±1σ, ±2σ corridors", () => {
     const sampleMultiples = [10, 12, 14, 16, 18, 20, 22]; // Mean = 16
     const { mean, stdDev } = calculateMeanAndStdDev(sampleMultiples);
@@ -135,9 +143,18 @@ describe("Issue 3: Historical Valuation Multiples Bands (P/E & EV/EBITDA)", () =
     expect(res.status).toBe(401);
   });
 
-  it("5b. End-to-end API Route rejects a malformed ticker before doing any work", async () => {
+  it("5b. End-to-end API Route requires authentication before touching any data", async () => {
+    const res = await GET(
+      new NextRequest("https://localhost:3000/api/valuation-bands?ticker=%3Cscript%3E"),
+    );
+    // Auth runs first: an unauthenticated caller must not be able to probe the
+    // endpoint's validation behaviour.
+    expect(res.status).toBe(401);
+  });
+
+  it("5c. End-to-end API Route rejects a malformed ticker once authenticated", async () => {
     const req = new NextRequest("https://localhost:3000/api/valuation-bands?ticker=%3Cscript%3E");
-    req.headers.set("x-api-secret", "equigen-internal");
+    req.headers.set("x-api-secret", process.env.INTERNAL_API_SECRET ?? "");
 
     const res = await GET(req);
     expect(res.status).toBe(400);
@@ -151,6 +168,11 @@ describe("Issue 3: Historical Valuation Multiples Bands (P/E & EV/EBITDA)", () =
  * real analysis while being entirely fictitious.
  */
 describe("Valuation bands data provenance", () => {
+  beforeEach(() => {
+    // The internal service credential is configured, not hardcoded.
+    vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret");
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { agentOrchestrator } from "@/lib/ai/agent-orchestrator";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { executeCentralizedAIChat, executeCentralizedAIChatStream } from "@/lib/ai/central-client";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/chat
@@ -10,12 +10,12 @@ import { executeCentralizedAIChat, executeCentralizedAIChatStream } from "@/lib/
  * Uses the centralized AI client and model router as the single source of truth.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const sessionUser = getAuthSession(req);
-    const orgId = sessionUser?.orgId || "default-org";
+    const orgId = session.orgId || "default-org";
 
     const body = await req.json();
     const {

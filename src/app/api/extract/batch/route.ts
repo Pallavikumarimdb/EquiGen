@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { batchProcessorService } from "@/lib/queue/batch-processor";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/extract/batch
  * Submits a multi-document extraction batch.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const userId = session?.userId;
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
+    const userId = session.userId;
 
     const body = await req.json();
     const { items } = body;
@@ -44,8 +45,8 @@ export async function POST(req: NextRequest) {
  * Returns live batch processing status.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const { searchParams } = new URL(req.url);
     const jobIdsParam = searchParams.get("jobIds");

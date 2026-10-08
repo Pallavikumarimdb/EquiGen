@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { documentAgent } from "@/lib/ai/subagents/document-agent";
-import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { FetchDocumentsMilestone } from "@/types/plan4";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-document
@@ -12,8 +12,8 @@ import { getDecryptedApiKey } from "@/lib/utils/api-keys";
  * Body: { planId, ticker, companyName, isin? }
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
 
   const startTime = Date.now();
 

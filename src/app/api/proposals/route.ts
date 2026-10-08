@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { applyFieldUpdates } from "@/lib/report/proposal-apply";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/proposals?reportId=...
@@ -14,8 +14,9 @@ import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
  * Approves or Rejects a proposal.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -28,7 +29,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const session = getAuthSession(req);
     const orgId = session?.orgId || "default-org";
 
     // Enforce tenant check: verify the report belongs to this org
@@ -66,11 +66,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const session = getAuthSession(req);
     const orgId = session?.orgId || "default-org";
 
     const body = await req.json();
@@ -142,11 +142,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const session = getAuthSession(req);
     const orgId = session?.orgId || "default-org";
     const userId = session?.userId || null;
     const userName = session?.name || "analyst";

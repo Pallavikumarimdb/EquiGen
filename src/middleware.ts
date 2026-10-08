@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyJWT } from "@/lib/utils/jwt";
+import { hasValidApiSecret } from "@/lib/utils/tenant";
+
+/** Static asset extensions, checked as a path SUFFIX rather than a substring. */
+const STATIC_ASSET_RE = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$/i;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  console.log(`[Middleware] pathname: ${pathname}`);
 
   // 1. Exclude public assets, static content, and public APIs (like sign-in / sign-up / sign-out / demo-guest)
   //    Payment webhooks are also public — the signature header is the auth.
+  //
+  //    Static detection used to be `pathname.includes(".")`, which excluded ANY
+  //    dotted path from authentication (e.g. `/v1.5/report`). It is now a suffix
+  //    test against known asset extensions.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth/signin") ||
@@ -15,7 +22,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth/signout") ||
     pathname.startsWith("/api/auth/demo") ||
     pathname === "/api/billing/webhook" ||
-    pathname.includes(".") // matches static files like favicon.ico, images, etc.
+    STATIC_ASSET_RE.test(pathname)
   ) {
     return NextResponse.next();
   }
@@ -62,17 +69,19 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  // 5. Internal developer / headless agent secret bypass (ONLY when NO user cookie session exists)
-  const apiSecret = request.headers.get("x-api-secret");
-  const configuredSecret = process.env.API_SECRET;
-  const isDevOrTest = process.env.NODE_ENV !== "production";
-  const isValidSecret =
-    (configuredSecret && apiSecret === configuredSecret) ||
-    (isDevOrTest && apiSecret === "equigen-internal");
-
-  if (apiSecret && isValidSecret) {
+  // 5. Internal service credential (headless agent / CI callers).
+  //    The secret is validated by `hasValidApiSecret`, which reads it from the
+  //    environment. It previously accepted a hardcoded "equigen-internal" literal
+  //    in any non-production environment, so an unset NODE_ENV in a deployed
+  //    environment would have been a full authentication bypass.
+  //
+  //    Only reached when NO user cookie session exists — a real user session always wins.
+  if (hasValidApiSecret(request)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-user-id", "agent-user");
+    // The operator identity is bound to one organisation for its own writes. Its
+    // cross-tenant READ access comes from `isPlatformOperator` in the tenant guard,
+    // not from `default-org` acting as a wildcard — see src/lib/utils/tenant.ts.
     requestHeaders.set("x-org-id", "default-org");
     requestHeaders.set("x-user-role", "ADMIN");
     requestHeaders.set("x-user-name", "EquiGen Agent");

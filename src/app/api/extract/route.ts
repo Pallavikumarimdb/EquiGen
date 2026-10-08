@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { triggerBackgroundJob } from "@/lib/queue/worker";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { currentSchemaVersion } from "@/lib/ai/versions";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
 
@@ -28,13 +28,14 @@ const ExtractPayloadSchema = z.object({
  * On rate-limit, returns status 429 with retryAfterSeconds so the client can auto-resume.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   let activeJobId = "";
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
     const userId = session?.userId || null;
 
     const body = await req.json();

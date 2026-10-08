@@ -14,14 +14,28 @@
  *   GET /api/eval/run?ticker=TCS
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { pipelineEval, AgentRunSnapshot } from "@/lib/eval/pipeline-eval";
+import {
+  isTenantFailure,
+  requireTenantSession,
+  tenantWhereClause,
+  tenantForbidden,
+} from "@/lib/utils/tenant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  // Tenant guard. This route previously performed NO auth call and NO org filter:
+  // `findFirst({ where: { companyName: { contains: ticker } } })` meant any
+  // authenticated tenant could read any tenant's report payload, forensic analysis
+  // and authenticity audit simply by guessing a company name.
+  const guard = await requireTenantSession(request);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
+
   const { searchParams } = new URL(request.url);
   const ticker = searchParams.get("ticker")?.toUpperCase();
 
@@ -33,10 +47,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Fetch the most recent ReportHistory entry for this ticker
+    // Fetch the most recent ReportHistory entry for this ticker, scoped to the caller's org.
     const report = await prisma.reportHistory.findFirst({
       where: {
         companyName: { contains: ticker, mode: "insensitive" },
+        ...tenantWhereClause(session),
       },
       orderBy: { createdAt: "desc" },
       select: {
@@ -48,24 +63,48 @@ export async function GET(request: Request) {
     });
 
     if (!report) {
+      // Distinguish "exists but belongs to another tenant" (403) from "does not
+      // exist anywhere" (404) without returning any of the other tenant's data.
+      if (!session.isPlatformOperator) {
+        const existsElsewhere = await prisma.reportHistory.findFirst({
+          where: { companyName: { contains: ticker, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (existsElsewhere) return tenantForbidden();
+      }
+
       return NextResponse.json(
         {
-          error: `No agent run found for ticker "${ticker}". Run an autonomous research report first.`,
+          error: `No agent run found for ticker "${ticker}" in your workspace. Run an autonomous research report first.`,
           hint: `POST /api/agent/run with { ticker: "${ticker}" }`,
         },
         { status: 404 }
       );
     }
 
-    // Extract the nested agent output fields from reportData
+    // Liveness and freshness must be READ from the report, never inferred.
+    // Previously `isLiveData` was set from `companyData.marketCap != null` and
+    // `fetchedAt` fell back to `new Date()`, so both the Live Data Gate and the
+    // Data Freshness check passed for every stored report — including one built
+    // entirely from sector fallback constants.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawData = report.reportData as any;
+    const storedAudit = (rawData?.financialAudit ?? null) as Record<string, unknown> | null;
+    const storedProvenance = (storedAudit?.provenance ?? null) as Record<string, unknown> | null;
+    const storedIsLive =
+      typeof storedProvenance?.isLiveData === "boolean" ? storedProvenance.isLiveData : null;
+    const storedFetchedAt =
+      typeof storedProvenance?.evaluatedAt === "string"
+        ? storedProvenance.evaluatedAt
+        : typeof rawData?.dataFetchedAt === "string"
+          ? rawData.dataFetchedAt
+          : null;
 
     const evalSnapshot: AgentRunSnapshot = {
       // Yahoo Finance data is stored in the report's companyData block
       yahoo: rawData?.companyData
         ? {
-            isLiveData: rawData?.companyData?.marketCap != null || rawData?.companyData?.currentPrice != null,
+            isLiveData: storedIsLive === true,
             revenueCr: rawData?.modelingData?.assumptions?.baseRevenue ?? null,
             marketCapCr: rawData?.companyData?.marketCap ?? null,
             currentPrice: rawData?.companyData?.currentPrice ?? rawData?.recommendation?.currentPrice ?? null,
@@ -73,7 +112,9 @@ export async function GET(request: Request) {
             ebitdaMargin: null, // not in normalized output
             beta: rawData?.companyData?.beta ?? null,
             ticker: ticker,
-            fetchedAt: rawData?.completedAt ?? new Date().toISOString(),
+            // No invented timestamp: an unknown fetch time stays null so the
+            // freshness check reports "unknown" instead of "just now".
+            fetchedAt: storedFetchedAt,
             dataSource: "stored_report",
             // Null fields (not stored)
             revenueGrowthYoY: null, ebitdaCr: null, grossMargin: null,

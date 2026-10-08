@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession } from "@/lib/utils/auth";
 import { getUsageSnapshot } from "@/lib/billing/entitlements";
 import { formatInr, formatLimit, PLANS, PLAN_ORDER } from "@/lib/billing/plans";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 import {
   cancelSubscriptionAtPeriodEnd,
   DodoPaymentsError,
@@ -16,12 +16,10 @@ import {
  *                                  the end of the paid period; { resume: true } undoes it.
  */
 export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json({ message: "Unauthorized. Please sign in." }, { status: 401 });
-    }
-
     const snapshot = await getUsageSnapshot(session.orgId);
 
     return NextResponse.json({
@@ -61,12 +59,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json({ message: "Unauthorized. Please sign in." }, { status: 401 });
-    }
-
     const body = (await req.json().catch(() => ({}))) as {
       action?: string;
       resume?: boolean;

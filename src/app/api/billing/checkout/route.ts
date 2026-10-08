@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 import {
   PLANS,
   getPlan,
@@ -37,12 +37,10 @@ function appUrl(): string {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json({ message: "Unauthorized. Please sign in." }, { status: 401 });
-    }
-
     const body = (await req.json().catch(() => ({}))) as {
       planId?: string;
       cycle?: string;

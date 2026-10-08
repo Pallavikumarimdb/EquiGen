@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { evaluationService } from "@/lib/eval/eval-service";
 import { EquityResearchData } from "@/types";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const sampleGroundTruth: EquityResearchData = {
   company: {
@@ -42,8 +42,8 @@ const sampleGroundTruth: EquityResearchData = {
  * Runs offline evaluation suite and returns benchmark accuracy scores.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const body = await req.json().catch(() => ({}));
     const predicted = (body.predicted || sampleGroundTruth) as EquityResearchData;
@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
  * Returns current evaluation suite configuration.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     return NextResponse.json({
       success: true,

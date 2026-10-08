@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { modelingAgent } from "@/lib/ai/subagents/modeling-agent";
-import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { BuildFinancialModelMilestone } from "@/types/plan4";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-modeling
@@ -11,8 +11,8 @@ import { BuildFinancialModelMilestone } from "@/types/plan4";
  * Body: { planId, ticker, companyName, extractedFinancials? }
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
 
   const startTime = Date.now();
 

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { excelGenerationService } from "@/lib/excel/excel-generator";
 import { EquityResearchData } from "@/types";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession, tenantForbidden, type TenantSession } from "@/lib/utils/tenant";
 import { BRAND } from "@/lib/brand";
 import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
 
@@ -28,7 +28,7 @@ interface GateReport {
  */
 async function enforceAuthenticityGate(
   report: GateReport,
-  session: ReturnType<typeof getAuthSession>,
+  session: TenantSession,
   searchParams: URLSearchParams,
   artifact: "excel" | "pdf",
 ): Promise<NextResponse | null> {
@@ -81,8 +81,9 @@ async function enforceAuthenticityGate(
  * - Approved/Published reports embed protected "Disclosures & SEBI Attestation" sheet.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get("reportId");
@@ -93,10 +94,7 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    const orgId = session.orgId;
 
     const cleanId = reportId.replace(/^rep_/, "");
 
@@ -118,12 +116,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Tenant Isolation check
-    if (dbReport.orgId && dbReport.orgId !== orgId && !isSystemAdmin) {
-      return NextResponse.json(
-        { message: "Forbidden. Access denied." },
-        { status: 403 }
-      );
-    }
+    if (!canAccessTenantRecord(session, dbReport)) return tenantForbidden();
 
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";
@@ -172,8 +165,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const body = await req.json();
     const { reportId, overrideQuality } = body ?? {};
@@ -187,10 +181,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    const orgId = session.orgId;
 
     const cleanId = reportId.replace(/^rep_/, "");
 
@@ -211,12 +202,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (dbReport.orgId && dbReport.orgId !== orgId && !isSystemAdmin) {
-      return NextResponse.json(
-        { message: "Forbidden. Access denied." },
-        { status: 403 }
-      );
-    }
+    if (!canAccessTenantRecord(session, dbReport)) return tenantForbidden();
 
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";

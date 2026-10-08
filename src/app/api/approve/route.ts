@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
 import { EquityResearchData } from "@/types";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { transitionReportStatus } from "@/lib/report/state-machine";
 import { computeSHA256 } from "@/lib/utils/hash";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/approve
@@ -12,21 +12,14 @@ import { computeSHA256 } from "@/lib/utils/hash";
  * transitions state to approved & published, renders attested PDF, and writes audit trail.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
         { message: "Database not configured" },
         { status: 400 },
-      );
-    }
-
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json(
-        { message: "Unauthorized. Please log in." },
-        { status: 401 },
       );
     }
 

@@ -1,19 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession } from "@/lib/utils/auth";
 import { getOrgSubscription } from "@/lib/billing/entitlements";
 import { getPlan } from "@/lib/billing/plans";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-
-    if (!session) {
-      return NextResponse.json(
-        { message: "Not authenticated" },
-        { status: 401 }
-      );
-    }
 
     // Fetch user details with organization context
     const user = await prisma.user.findUnique({
@@ -55,7 +50,6 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     console.error("Auth me API error:", error);
     try {
-      const session = getAuthSession(req);
       if (session?.userId) {
         return NextResponse.json({
           user: {
@@ -64,7 +58,7 @@ export async function GET(req: NextRequest) {
             email: "",
             role: session.role || "RESEARCH_ANALYST",
             sebiRegNo: session.sebiRegNo || "",
-            orgId: session.orgId || "default-org",
+            orgId: session.orgId,
             orgName: "EquiGen Research",
             orgLogoUrl: null,
             orgPrimaryColor: "#1A1917",
@@ -83,8 +77,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
 
     if (!session || !session.userId) {
       return NextResponse.json(

@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { EquityResearchDataSchema } from "@/lib/validation";
 import { pdfGenerationService } from "@/lib/pdf";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/report
@@ -12,8 +12,8 @@ import { requireApiSecret } from "@/lib/utils/auth";
  * The file is also persisted to public/temp/reports when writable (local/Docker).
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const body = await req.json();
     const parsedData = EquityResearchDataSchema.safeParse(body);

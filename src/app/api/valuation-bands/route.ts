@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import {
   buildValuationBands,
   InsufficientPriceHistoryError,
   ValuationMetric,
   LookbackPeriod,
 } from "@/lib/financial-modeling/valuation-bands-engine";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/valuation-bands
@@ -16,9 +16,8 @@ import { requireApiSecret } from "@/lib/utils/auth";
  * from real statistical analysis.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
-
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const { searchParams } = new URL(req.url);
     const rawTicker = searchParams.get("ticker");

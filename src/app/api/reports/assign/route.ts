@@ -1,23 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/reports/assign
  * Assigns a generated research report to a SEBI Registered Reviewer within the organization.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json(
-        { message: "Unauthorized. Please log in." },
-        { status: 401 }
-      );
-    }
-
     const body = await req.json();
     const { reportId, reviewerId, reviewerName } = body;
 

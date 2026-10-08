@@ -1,18 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+
 
 /**
  * GET /api/audit?reportId=...
  * Returns the audit log trail for a given report.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    const orgId = session.orgId;
 
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get("reportId");
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       select: { orgId: true },
     }).catch(() => null);
 
-    if (report && report.orgId && report.orgId !== orgId && !isSystemAdmin) {
+    if (report && report.orgId && report.orgId !== orgId && !session.isPlatformOperator) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },

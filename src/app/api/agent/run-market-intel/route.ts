@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { marketIntelAgent } from "@/lib/ai/subagents/market-intel-agent";
-import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { PeerBenchmarkMilestone } from "@/types/plan4";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-market-intel
@@ -12,8 +12,8 @@ import { getDecryptedApiKey } from "@/lib/utils/api-keys";
  * Body: { planId, ticker, companyName }
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
 
   const startTime = Date.now();
 

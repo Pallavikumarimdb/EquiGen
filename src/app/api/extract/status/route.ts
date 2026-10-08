@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/extract/status?jobId=...
@@ -9,8 +9,8 @@ import { requireApiSecret } from "@/lib/utils/auth";
  * (avoids the fragile companyName+fileName compound lookup that breaks on multiple uploads).
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get("jobId");

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { parserService } from "@/lib/parsers";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { processPdfDocument } from "@/lib/parsers/document-processor";
 import { checkReportQuota } from "@/lib/billing/entitlements";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 // Raised for large annual reports (500-page filings can exceed 50 MB)
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -12,11 +12,12 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
  * Accepts a file in FormData, parses it (PDF, CSV, TXT), and returns the raw parsed text.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
     const formData = await req.formData();
     const file = formData.get("file") as File;
 

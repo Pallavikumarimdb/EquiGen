@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { trajectoryBus } from "@/lib/ai/trajectory-emitter";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/cancel
@@ -9,14 +9,13 @@ import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
  * Body: { id?: string, planId?: string, jobId?: string }
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const userId = session?.userId;
-    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
 
     const body = await req.json().catch(() => ({}));
     const rawId: string | undefined = body.id || body.planId || body.jobId;
@@ -36,8 +35,9 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = prisma as any;
 
-    // Tenant scoping condition for non-admin users
-    const tenantFilter = isSystemAdmin || orgId === "default-org" ? {} : { orgId };
+    // Tenant scoping. `default-org` is NOT a super-tenant: only a platform operator
+    // (internal service credential) may act on another organisation's running job.
+    const tenantFilter = session.isPlatformOperator ? {} : { orgId };
 
     // 1. Cancel ExtractionJob if found
     if (db.extractionJob) {
