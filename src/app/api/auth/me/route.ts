@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthSession } from "@/lib/utils/auth";
+import { getOrgSubscription } from "@/lib/billing/entitlements";
+import { getPlan } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,6 +28,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Plan entitlements are per-org, so one lookup covers every seat.
+    const subscription = await getOrgSubscription(user.orgId).catch(() => null);
+    const plan = getPlan(subscription?.planId);
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -38,6 +44,12 @@ export async function GET(req: NextRequest) {
         orgLogoUrl: user.org.logoUrl,
         orgPrimaryColor: user.org.primaryColor,
         orgAccentColor: user.org.accentColor,
+      },
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        reportsPerMonth: plan.reportsPerMonth,
+        status: subscription?.status ?? "none",
       },
     });
   } catch (error: unknown) {

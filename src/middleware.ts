@@ -7,18 +7,23 @@ export async function middleware(request: NextRequest) {
   console.log(`[Middleware] pathname: ${pathname}`);
 
   // 1. Exclude public assets, static content, and public APIs (like sign-in / sign-up / sign-out / demo-guest)
+  //    Payment webhooks are also public — the signature header is the auth.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth/signin") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/signout") ||
     pathname.startsWith("/api/auth/demo") ||
+    pathname === "/api/billing/webhook" ||
     pathname.includes(".") // matches static files like favicon.ico, images, etc.
   ) {
     return NextResponse.next();
   }
 
   const isAuthPage = pathname.startsWith("/signin") || pathname.startsWith("/signup");
+  const isLandingPage = pathname === "/";
+  const isLegalPage =
+    pathname.startsWith("/terms") || pathname.startsWith("/privacy");
 
   // 2. Retrieve token from cookies
   const token = request.cookies.get("session_token")?.value;
@@ -29,10 +34,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // 3. Handle login/signup redirection if already authenticated
-  if (isAuthPage) {
-    if (session) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
+  if (isAuthPage && session) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // 3b. The landing page, auth screens, and legal pages are reachable without a
+  // session. "/" itself decides what to render (marketing page vs. dashboard).
+  if (!session && (isLandingPage || isAuthPage || isLegalPage)) {
     return NextResponse.next();
   }
 
@@ -78,8 +86,8 @@ export async function middleware(request: NextRequest) {
       { status: 401 }
     );
   }
-  // Redirect web requests to login page
-  return NextResponse.redirect(new URL("/signin", request.url));
+  // Redirect web requests to the public landing page, which routes into sign in / sign up
+  return NextResponse.redirect(new URL("/", request.url));
 }
 
 export const config = {
@@ -87,11 +95,12 @@ export const config = {
     /*
      * Match all request paths except for:
      * - api/auth/signin, api/auth/signup, and api/auth/demo (public auth endpoints)
+     * - api/billing/webhook (public payment webhook, authenticated by signature)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - static files with extensions (.css, .js, .png, .jpg, .svg, etc.)
      */
-    "/((?!api/auth/signin|api/auth/signup|api/auth/signout|api/auth/demo|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$).*)",
+    "/((?!api/auth/signin|api/auth/signup|api/auth/signout|api/auth/demo|api/billing/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$).*)",
   ],
 };

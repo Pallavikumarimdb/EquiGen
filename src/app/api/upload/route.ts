@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parserService } from "@/lib/parsers";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { processPdfDocument } from "@/lib/parsers/document-processor";
+import { checkReportQuota } from "@/lib/billing/entitlements";
 
 // Raised for large annual reports (500-page filings can exceed 50 MB)
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -24,6 +25,31 @@ export async function POST(req: NextRequest) {
         { message: "No file uploaded." },
         { status: 400 },
       );
+    }
+
+    // Plan-tier gate: blocks new research runs once the org exhausts its
+    // monthly note allowance. Best-effort — a billing outage must not block uploads.
+    try {
+      const quota = await checkReportQuota(orgId);
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            message: quota.reason,
+            code: "quota_exceeded",
+            billing: {
+              planId: quota.plan.id,
+              planName: quota.plan.name,
+              reportsUsed: quota.reportsUsed,
+              reportsLimit: quota.reportsLimit,
+              resetsAt: quota.resetsAt.toISOString(),
+              upgradeUrl: "/billing",
+            },
+          },
+          { status: 402 },
+        );
+      }
+    } catch (quotaError) {
+      console.warn("[Billing] Quota check failed, allowing upload:", quotaError);
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {

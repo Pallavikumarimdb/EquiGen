@@ -94,7 +94,14 @@ export default function SignUpPage() {
         throw new Error(data.message || "Signup failed");
       }
 
-      router.push("/");
+      // If the visitor arrived from a pricing card, send them straight to checkout.
+      const requestedPlan = new URLSearchParams(window.location.search).get("plan");
+      const VALID_PLANS = ["pro", "desk"];
+      router.push(
+        requestedPlan && VALID_PLANS.includes(requestedPlan)
+          ? `/billing?upgrade=${requestedPlan}`
+          : "/",
+      );
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
