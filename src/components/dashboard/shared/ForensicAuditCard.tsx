@@ -38,13 +38,69 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
     beneishMScore,
     governanceFlags,
     summaryAssessment,
+    coverage,
   } = forensicData;
 
+  const isNotAssessed = riskLevel === "NOT ASSESSED";
   const isLowRisk = riskLevel === "LOW";
   const isModRisk = riskLevel === "MODERATE";
 
   return (
     <div className="bg-white border border-[#E3DFD5] rounded-2xl p-5 shadow-xs space-y-5">
+      {/* ── Coverage disclosure ──────────────────────────────────────────────
+          A forensic panel with gaps in it must say so. Without this, three grey
+          "NOT ASSESSED" cards read as "nothing to report" rather than "we could
+          not check". */}
+      {coverage && (coverage.notAssessed.length > 0 || coverage.isEmpty) && (
+        <div
+          className={`rounded-xl border p-3.5 ${
+            coverage.isEmpty
+              ? "bg-rose-50 border-rose-200"
+              : "bg-amber-50 border-amber-200"
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle
+              className={`w-4 h-4 shrink-0 mt-0.5 ${
+                coverage.isEmpty ? "text-rose-600" : "text-amber-600"
+              }`}
+            />
+            <div className="min-w-0">
+              <div
+                className={`text-xs font-bold ${
+                  coverage.isEmpty ? "text-rose-900" : "text-amber-900"
+                }`}
+              >
+                {coverage.isEmpty
+                  ? "No forensic metric could be verified"
+                  : `Partial coverage — ${coverage.assessed.length} of ${
+                      coverage.assessed.length + coverage.notAssessed.length
+                    } metrics assessed`}
+              </div>
+              <p
+                className={`text-[11px] mt-1 leading-relaxed ${
+                  coverage.isEmpty ? "text-rose-800" : "text-amber-800"
+                }`}
+              >
+                {coverage.isEmpty
+                  ? "None of the forensic checks had the disclosed financials required to compute them. This is an absence of data, NOT a clean bill of health."
+                  : "Metrics that could not be computed are neither passes nor failures — they are simply unknown, and the score above reflects only the checks that ran."}
+              </p>
+              {coverage.notAssessed.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {coverage.notAssessed.map((item) => (
+                    <li key={item.metric} className="text-[11px] text-[#7A7569] leading-snug">
+                      <span className="font-semibold text-[#4A463D]">{item.metric}:</span>{" "}
+                      {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Header: Title & Overall Score ─────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#EFECE6]">
         <div className="flex items-start gap-3">
@@ -54,10 +110,18 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
                 ? "bg-emerald-100 text-emerald-800"
                 : isModRisk
                 ? "bg-amber-100 text-amber-800"
+                : isNotAssessed
+                ? "bg-[#EDE9E0] text-[#8C877D]"
                 : "bg-rose-100 text-rose-800"
             }`}
           >
-            {isLowRisk ? <ShieldCheck className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+            {isLowRisk ? (
+              <ShieldCheck className="w-5 h-5" />
+            ) : isNotAssessed ? (
+              <Info className="w-5 h-5" />
+            ) : (
+              <ShieldAlert className="w-5 h-5" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -88,10 +152,12 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
                 ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
                 : isModRisk
                 ? "bg-amber-100 text-amber-900 border border-amber-300"
+                : isNotAssessed
+                ? "bg-[#EDE9E0] text-[#7A7569] border border-[#E3DFD5]"
                 : "bg-rose-100 text-rose-900 border border-rose-300"
             }`}
           >
-            {riskLevel} RISK
+            {isNotAssessed ? "NOT ASSESSED" : `${riskLevel} RISK`}
           </div>
         </div>
       </div>
@@ -111,20 +177,30 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
                     ? "bg-emerald-100 text-emerald-800"
                     : cfoToPatRatio.status === "caution"
                     ? "bg-amber-100 text-amber-800"
+                    : cfoToPatRatio.status === "not_assessed"
+                    ? "bg-[#EDE9E0] text-[#7A7569]"
                     : "bg-rose-100 text-rose-800"
                 }`}
               >
-                {cfoToPatRatio.status.toUpperCase()}
+                {cfoToPatRatio.status === "not_assessed"
+                  ? "NOT ASSESSED"
+                  : cfoToPatRatio.status.toUpperCase()}
               </span>
             </div>
 
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-xl font-black font-mono text-[#1A1917]">
-                {cfoToPatRatio.ratio != null ? `${cfoToPatRatio.ratio}x` : "N/A"}
+                {cfoToPatRatio.ratio != null
+                  ? `${cfoToPatRatio.ratio}x`
+                  : cfoToPatRatio.status === "not_assessed"
+                  ? "—"
+                  : "N/A"}
               </span>
-              <span className="text-xs text-[#7A7569] font-medium">
-                (Institutional benchmark: ≥ 1.0x)
-              </span>
+              {cfoToPatRatio.ratio != null && (
+                <span className="text-xs text-[#7A7569] font-medium">
+                  (Institutional benchmark: ≥ 1.0x)
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-[#4A463D] mt-2 leading-relaxed">
@@ -140,12 +216,12 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
           )}
         </div>
 
-        {/* Pillar 2: Altman Z-Score (Solvency) */}
+        {/* Pillar 2: Solvency structure (Altman Z factor form) */}
         <div className="p-4 bg-[#FAF8F5] border border-[#E5E1D7] rounded-xl flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A7569]">
-                2. Balance Sheet Solvency (Altman Z)
+                2. Balance Sheet Solvency (Z-form)
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
@@ -153,59 +229,84 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
                     ? "bg-emerald-100 text-emerald-800"
                     : altmanZScore.status === "caution"
                     ? "bg-amber-100 text-amber-800"
+                    : altmanZScore.status === "not_assessed"
+                    ? "bg-[#EDE9E0] text-[#7A7569]"
                     : "bg-rose-100 text-rose-800"
                 }`}
               >
-                {altmanZScore.zone} Zone
+                {altmanZScore.status === "not_assessed" ? "NOT ASSESSED" : `${altmanZScore.zone} Zone`}
               </span>
             </div>
 
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-xl font-black font-mono text-[#1A1917]">
-                {altmanZScore.score != null ? altmanZScore.score : "N/A"}
+                {altmanZScore.score != null ? altmanZScore.score : "—"}
               </span>
-              <span className="text-xs text-[#7A7569] font-medium">
-                (&gt; 2.99 Safe | &lt; 1.81 Distress)
-              </span>
+              {altmanZScore.score != null && (
+                <span className="text-xs text-[#7A7569] font-medium">
+                  (&gt; 2.99 Safe | &lt; 1.81 Distress)
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-[#4A463D] mt-2 leading-relaxed">
               {altmanZScore.interpretation}
             </p>
+            {altmanZScore.missingFactors && altmanZScore.missingFactors.length > 0 && (
+              <p className="text-[11px] text-[#8C877D] mt-1.5 italic">
+                Not disclosed by the exchange feeds: {altmanZScore.missingFactors.join(", ")}.
+              </p>
+            )}
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-[#E8E4DA] flex items-center gap-1.5">
-            <div className="flex-1 h-1.5 rounded-full bg-rose-300" title="Distress (< 1.81)" />
-            <div className="flex-1 h-1.5 rounded-full bg-amber-300" title="Grey (1.81 - 2.99)" />
-            <div className="flex-1 h-1.5 rounded-full bg-emerald-400" title="Safe (> 2.99)" />
-          </div>
+          {altmanZScore.score != null ? (
+            <div className="mt-3 pt-2.5 border-t border-[#E8E4DA] flex items-center gap-1.5">
+              <div className="flex-1 h-1.5 rounded-full bg-rose-300" title="Distress (< 1.81)" />
+              <div className="flex-1 h-1.5 rounded-full bg-amber-300" title="Grey (1.81 - 2.99)" />
+              <div className="flex-1 h-1.5 rounded-full bg-emerald-400" title="Safe (> 2.99)" />
+            </div>
+          ) : (
+            // The zone gradient is meaningless without a score, so it is withheld
+            // rather than shown as an empty scale.
+            <div className="mt-3 pt-2.5 border-t border-[#E8E4DA] text-[11px] text-[#8C877D] italic">
+              Zone scale withheld — no input-backed score was computed.
+            </div>
+          )}
         </div>
 
-        {/* Pillar 3: Beneish M-Score (Earnings Manipulation) */}
+        {/* Pillar 3: Accrual quality */}
         <div className="p-4 bg-[#FAF8F5] border border-[#E5E1D7] rounded-xl flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A7569]">
-                3. Earnings Integrity (Beneish M)
+                3. Accrual Quality (Single-Factor)
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                   beneishMScore.status === "safe"
                     ? "bg-emerald-100 text-emerald-800"
+                    : beneishMScore.status === "not_assessed"
+                    ? "bg-[#EDE9E0] text-[#7A7569]"
                     : "bg-rose-100 text-rose-800"
                 }`}
               >
-                {beneishMScore.status === "safe" ? "NON-MANIPULATOR" : "ANOMALY DETECTED"}
+                {beneishMScore.status === "not_assessed"
+                  ? "NOT ASSESSED"
+                  : beneishMScore.status === "safe"
+                  ? "LOW ACCRUAL INTENSITY"
+                  : "ELEVATED ACCRUALS"}
               </span>
             </div>
 
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-xl font-black font-mono text-[#1A1917]">
-                {beneishMScore.score != null ? beneishMScore.score : "N/A"}
+                {beneishMScore.score != null ? beneishMScore.score : "—"}
               </span>
-              <span className="text-xs text-[#7A7569] font-medium">
-                (Safe if &lt; -1.78)
-              </span>
+              {beneishMScore.score != null && (
+                <span className="text-xs text-[#7A7569] font-medium">
+                  (Safe if &lt; -1.78)
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-[#4A463D] mt-2 leading-relaxed">
@@ -227,22 +328,32 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
               </span>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                  (governanceFlags.promoterPledgePct ?? 0) === 0
+                  governanceFlags.promoterPledgePct == null
+                    ? "bg-[#EDE9E0] text-[#7A7569]"
+                    : governanceFlags.promoterPledgePct === 0
                     ? "bg-emerald-100 text-emerald-800"
-                    : (governanceFlags.promoterPledgePct ?? 0) <= 15
+                    : governanceFlags.promoterPledgePct <= 15
                     ? "bg-amber-100 text-amber-800"
                     : "bg-rose-100 text-rose-800"
                 }`}
               >
-                {(governanceFlags.promoterPledgePct ?? 0) === 0 ? "UNENCUMBERED" : "PLEDGE FLAGGED"}
+                {governanceFlags.promoterPledgePct == null
+                  ? "NOT DISCLOSED"
+                  : governanceFlags.promoterPledgePct === 0
+                  ? "UNENCUMBERED"
+                  : "PLEDGE FLAGGED"}
               </span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mt-1">
               <div>
                 <div className="text-[10px] text-[#7A7569] font-bold">Pledge %</div>
-                <div className="text-sm font-black font-mono text-[#1A1917]">
-                  {governanceFlags.promoterPledgePct != null ? `${governanceFlags.promoterPledgePct}%` : "0.0%"}
+                <div
+                  className={`text-sm font-black font-mono ${
+                    governanceFlags.promoterPledgePct == null ? "text-[#B8B3A6] italic" : "text-[#1A1917]"
+                  }`}
+                >
+                  {governanceFlags.promoterPledgePct != null ? `${governanceFlags.promoterPledgePct}%` : "—"}
                 </div>
               </div>
               <div>
@@ -267,8 +378,26 @@ export function ForensicAuditCard({ forensicData, companyName }: ForensicAuditCa
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-[#E8E4DA] flex items-center justify-between text-[11px] text-[#7A7569]">
-            <span>Auditor Opinion: <strong className="text-[#1A1917]">{governanceFlags.auditorQuality}</strong></span>
-            <span>Institutional Presence: <strong className="text-[#1A1917]">{(governanceFlags.institutionalHoldingPct ?? 0) > 15 ? "Strong" : "Moderate"}</strong></span>
+            <span>
+          Auditor Opinion:{" "}
+          <strong
+            className={
+              governanceFlags.auditorQuality === "Not Assessed" ? "text-[#8C877D] italic" : "text-[#1A1917]"
+            }
+          >
+            {governanceFlags.auditorQuality}
+          </strong>
+        </span>
+        <span>
+          Institutional Presence:{" "}
+          <strong className="text-[#1A1917]">
+            {governanceFlags.institutionalHoldingPct == null
+              ? "Not disclosed"
+              : governanceFlags.institutionalHoldingPct > 15
+              ? "Strong"
+              : "Moderate"}
+          </strong>
+        </span>
           </div>
         </div>
       </div>

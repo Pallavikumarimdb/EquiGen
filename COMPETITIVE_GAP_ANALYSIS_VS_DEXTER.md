@@ -1303,7 +1303,6 @@ registered Research Entity"* in a compliance certification. Verified end-to-end:
 `EquiGen Investments Limited`, zero `www.equigen.com`, zero `INH000001234`.
 
 ### CORRECTION — the "₹ mojibake" finding (P0-10) was a false positive
-
 A full byte-level scan of `src/**/*.{ts,tsx}` for `U+FFFD` returns **0 occurrences**. The `�`
 observed in `html-report-generator.ts`, `api/eval/route.ts` and `ScenarioModeler.tsx` is a **Windows
 console rendering artifact** — the underlying characters are correct (`U+00B7` middle dot,
@@ -1314,6 +1313,73 @@ The *non*-mojibake part of that finding stands and is worth doing: add a
 `src/lib/parsers/math-sumprecise-polyfill.ts:9-11` documents that ₹/±/× glyphs genuinely do
 degrade in extracted financial PDFs — the guard belongs at the parser/output boundary, not in
 static source.
+
+### DONE — P0-5 Forensic honesty (commit f78869a follow-up, `fix(forensic)`)
+
+The forensic panel was the most misleading surface in the product. Every defect
+below was **silent**: the panel rendered normal-looking, authoritative values.
+
+**Defect — absence of evidence produced the best possible score.**
+`forensic-accounting-tool.ts:252` computed `healthScore = 100 - scoreDeductions`.
+With no inputs, nothing could be deducted, so a company the system had never
+heard of scored **100/100 LOW risk**. Now a `coverage` object tracks what was and
+was not assessed; an empty coverage forces `riskLevel: "NOT ASSESSED"`, adds a
+60-point deduction, and pushes a red flag saying explicitly that this is an absence
+of data, not a clean bill of health.
+
+**Defect — the accrual check returned a PASSING score when it had no data.**
+`beneishMScore` set `score = -2.35, status = "safe"` in the missing-input branch.
+A company with no cash flow data was reported as a non-manipulator. Now `null` +
+`not_assessed`, with `methodology: "single_factor_accrual_indicator"` and
+`isBeneishMScore: false` so no consumer can mistake it for the 8-variable model.
+
+**Defect — two of the five Altman factors were invented.**
+`x1` defaulted to `0.15`, `x2` to `0.4`, `x4` to `4.5`/`1.2`, and total assets to
+`bookValue*0.4 + debt*1.2` with a `500` Cr fallback. The result was presented
+against published Altman zone thresholds. The factor form now requires **all five
+factors disclosed**; otherwise it reports `not_assessed` and lists the missing
+items by name.
+
+**Defect — the solvency check could never run, and nobody knew.**
+`forensic-agent.ts:71-74` built the company's entire working-capital position from
+`totalDebt * 0.8` and `* 0.8 * currentRatio`. `receivablesCr` was never populated,
+so `forensic-accounting-tool.ts:199` could never fire and always reported "in line".
+The agent now passes through only disclosed lines (new
+`ExtractedFinancials.balanceSheetLines`, parsed from Yahoo's
+`balanceSheetHistory`); anything absent stays `null`.
+
+**Defect — every company was reported as audited-clean.**
+`auditorQuality` defaulted to `"Clean"` because `auditorQualificationText` was
+never populated. Now `"Not Assessed"` when no report text is available, and the
+UI renders it in muted italic rather than as a verdict.
+
+**Defect — `promoterPledgePct ?? 0` equated "not retrieved" with "unencumbered".**
+Now `null`, and the UI shows `NOT DISCUMBERED`→`NOT DISCLOSED` / `—`.
+
+**Defect — the zone gradient was shown with no score behind it.** Withheld when
+`altmanZScore.score` is null.
+
+**Defect — the "SEBI Standard" pill on the card overstated the methodology.** The
+pill is retained (the thresholds are institutional conventions) but each pillar is
+now labelled for what it actually is: "Balance Sheet Solvency (Z-form)" and
+"Accrual Quality (Single-Factor)".
+
+**`Architecture.md:238` claimed the "Beneish M-Score 8-variable model".** Corrected
+to state plainly what is computed and what the full model would need.
+
+**Tests: +38 (227 → 265).** `forensic-accounting-tool.test.ts` is new — the engine
+previously had **zero** coverage. It pins every behaviour above, including the
+specific old values (`-2.35`, `Clean`, `100/100`) so they cannot silently return.
+
+Two real bugs were found and fixed *by these tests*:
+1. `istTradingDate` threw on an unparseable timestamp (invalid date → `toISOString`
+   throws), which would have crashed the whole audit. Both it and the audit call
+   site are now guarded.
+2. The auditor-opinion classifier tested `/qualified/` **before** `/unqualified/`,
+   so "Unqualified opinion: true and fair view" was classified as **Qualified** —
+   a clean opinion reported as a qualification. Reordered with a word boundary.
+
+---
 
 ### LATENT BUG SPOTTED — `public/temp/reports` may not exist
 

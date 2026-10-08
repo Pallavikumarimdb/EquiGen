@@ -181,40 +181,72 @@ export interface ForensicRedFlag {
   detail: string;
 }
 
+/**
+ * Forensic audit output.
+ *
+ * `not_assessed` is a first-class status. A metric that could not be computed
+ * must never be rendered as a pass, because "we could not check this" and "this
+ * checked out fine" are different facts and a reviewer cannot tell them apart.
+ */
+export type ForensicMetricStatus = "safe" | "caution" | "alert" | "not_assessed";
+
+export interface ForensicCoverage {
+  /** Metrics that produced a real, input-backed number. */
+  assessed: string[];
+  /** Metrics that could not be computed, each with the reason. */
+  notAssessed: Array<{ metric: string; reason: string }>;
+  /** assessed / (assessed + notAssessed), 0-1. */
+  coverageRatio: number;
+  /** True when nothing at all could be verified. */
+  isEmpty: boolean;
+}
+
 export interface ForensicQualityData {
   overallHealthScore: number; // 0-100 score
-  riskLevel: "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+  riskLevel: "LOW" | "MODERATE" | "HIGH" | "CRITICAL" | "NOT ASSESSED";
   cfoToPatRatio: {
     ratio: number | null;
-    status: "safe" | "caution" | "alert";
+    status: ForensicMetricStatus;
     interpretation: string;
     cfoCr?: number | null;
     patCr?: number | null;
   };
   altmanZScore: {
     score: number | null;
-    zone: "Safe" | "Grey" | "Distress";
-    status: "safe" | "caution" | "alert";
+    zone: "Safe" | "Grey" | "Distress" | "Not Assessed";
+    status: ForensicMetricStatus;
     interpretation: string;
+    /** Disclosed balance-sheet items the factor form still needs. */
+    missingFactors?: string[];
   };
   beneishMScore: {
     score: number | null;
-    status: "safe" | "alert" | "neutral";
+    status: ForensicMetricStatus | "neutral";
     interpretation: string;
+    /**
+     * Always `single_factor_accrual_indicator`. This is NOT the 8-variable Beneish
+     * M-Score; the name is retained for storage compatibility only.
+     */
+    methodology?: string;
+    /** Always false. Present so a consumer cannot mistake this for a Beneish M-Score. */
+    isBeneishMScore?: boolean;
   };
   workingCapitalStress: {
     receivablesGrowthVsSales?: string | null;
     workingCapitalCycleDays?: number | null;
-    status: "safe" | "caution" | "alert";
+    status: ForensicMetricStatus;
     interpretation: string;
   };
   governanceFlags: {
     promoterPledgePct: number | null;
     promoterHoldingPct: number | null;
     institutionalHoldingPct: number | null;
-    auditorQuality: "Clean" | "Qualified" | "Adverse" | "Standard";
+    /** "Not Assessed" when no auditor's report text was available. */
+    auditorQuality: "Clean" | "Qualified" | "Adverse" | "Standard" | "Not Assessed";
     flags: ForensicRedFlag[];
   };
+  /** What could and could not be verified, and why. */
+  coverage?: ForensicCoverage;
   summaryAssessment: string;
   auditedAt?: string;
 }
