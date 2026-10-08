@@ -14,9 +14,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+
     // 1. Fetch user by email
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: cleanEmail },
       include: { org: true },
     });
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pythonExecutor } from "@/lib/sandbox/python-executor";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * POST /api/sandbox/execute
@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
 
   try {
+    const session = getAuthSession(req);
+    if (!session) {
+      return NextResponse.json({ message: "Unauthorized. Please log in." }, { status: 401 });
+    }
+
     const body = await req.json();
     const { codeText, runId, inputs } = body as {
       codeText: string;

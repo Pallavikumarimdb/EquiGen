@@ -20,6 +20,7 @@
  */
 
 import { ExtractedFinancials } from "@/lib/ai/tools/yahoo-financials-tool";
+import { financialEvalEngine, FinancialEvaluationReport } from "./financial-eval-engine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ export interface PipelineEvalReport {
   dataQualityScore: number; // 0–1: fraction of live sources
   hasFallbackData: boolean; // true = sector fallback was used (critical failure)
   recommendation: string;   // human-readable summary for analyst
+  financialAudit?: FinancialEvaluationReport; // Deep quantitative audit
 }
 
 // Agent output shape we evaluate against
@@ -327,6 +329,38 @@ export class PipelineEvalService {
     const upper = ticker.toUpperCase();
     const timestamp = new Date().toISOString();
 
+    // 1. Run deep financial integrity & authenticity audit
+    const financialAudit = financialEvalEngine.evaluate({
+      ticker: upper,
+      companyName: upper,
+      marketData: snapshot.yahoo ? {
+        currentPrice: snapshot.yahoo.currentPrice,
+        marketCapCr: snapshot.yahoo.marketCapCr,
+        trailingPE: snapshot.yahoo.trailingPE,
+        evEbitda: snapshot.yahoo.evEbitda,
+        priceToBook: snapshot.yahoo.priceToBook,
+        sharesOutstandingCr: snapshot.yahoo.sharesOutstandingCr,
+        beta: snapshot.yahoo.beta,
+        dividendYield: snapshot.yahoo.dividendYield,
+        isLiveData: snapshot.yahoo.isLiveData,
+        dataSource: snapshot.yahoo.dataSource,
+        fetchedAt: snapshot.yahoo.fetchedAt,
+      } : null,
+      modelingData: {
+        baseTargetPrice: snapshot.modelOutput?.baseTargetPrice,
+        assumptions: snapshot.modelingDataQuality ? {
+          baseRevenue: snapshot.modelingDataQuality.baseRevenue,
+          financialSource: snapshot.modelingDataQuality.financialSource,
+          disclaimer: snapshot.modelingDataQuality.disclaimer,
+          ebitdaMargin: snapshot.modelOutput?.assumptions?.ebitdaMargin,
+          revenueGrowthRate: snapshot.modelOutput?.assumptions?.revenueGrowthRate,
+          isDerivedFromExtractedData: snapshot.modelOutput?.assumptions?.isDerivedFromExtractedData,
+        } : undefined,
+      },
+      sections: snapshot.sections,
+      dataSources: snapshot.dataSources,
+    });
+
     const checks: EvalCheckResult[] = [
       checkLiveData(snapshot),
       checkFallbackDetection(snapshot),
@@ -394,6 +428,7 @@ export class PipelineEvalService {
       dataQualityScore,
       hasFallbackData,
       recommendation,
+      financialAudit,
     };
   }
 }

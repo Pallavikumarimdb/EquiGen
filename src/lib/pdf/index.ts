@@ -39,18 +39,19 @@ export class PDFGenerationService {
 
     // Optional: cache the HTML alongside the PDF for debugging
     try {
-      const ticker =
+      const rawTicker =
         data?.ticker ??
         data?.company?.ticker ??
         data?.companyName?.substring(0, 4)?.toUpperCase() ??
         data?.company?.name?.substring(0, 4)?.toUpperCase() ??
         "REPORT";
+      const safeTicker = String(rawTicker).replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase();
       const htmlPath = path.join(
         process.cwd(),
         "public",
         "temp",
         "reports",
-        `${ticker.toUpperCase()}.html`,
+        `${safeTicker}.html`,
       );
       await fs.promises.writeFile(htmlPath, html, "utf-8");
     } catch {

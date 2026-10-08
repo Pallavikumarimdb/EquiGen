@@ -14,9 +14,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOrgName = orgName.trim();
+    const cleanName = name.trim();
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return NextResponse.json(
+        { message: "Please enter a valid email address." },
+        { status: 400 }
+      );
+    }
+
+    // Validate password strength
+    if (typeof password !== "string" || password.length < 8) {
+      return NextResponse.json(
+        { message: "Password must be at least 8 characters long." },
+        { status: 400 }
+      );
+    }
+
+    // Validate role
+    const allowedRoles = ["analyst", "reviewer", "admin"];
+    const requestedRole = (role as string).toLowerCase();
+    if (!allowedRoles.includes(requestedRole)) {
+      return NextResponse.json(
+        { message: "Invalid role specified." },
+        { status: 400 }
+      );
+    }
+
     // 1. Verify if user already exists
     const existingUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email: cleanEmail },
     });
 
     if (existingUser) {
@@ -27,22 +58,37 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Validate SEBI registration number if reviewer role is selected
-    if (role === "reviewer" && (!sebiRegNo || !/^INH[0-9]{9}$/.test(sebiRegNo))) {
+    if (requestedRole === "reviewer" && (!sebiRegNo || !/^INH[0-9]{9}$/.test(sebiRegNo.trim()))) {
       return NextResponse.json(
         { message: "Invalid SEBI Research Analyst registration number. Must follow the format: INHXXXXXXXXX (e.g. INH123456789)." },
         { status: 400 }
       );
     }
 
-    // 3. Find or create the organization
+    // 3. Find or create the organization (prevent tenant hijacking)
     let org = await prisma.organization.findFirst({
-      where: { name: orgName },
+      where: { name: cleanOrgName },
+      include: { _count: { select: { users: true } } },
     });
 
-    if (!org) {
+    let assignedRole = requestedRole;
+
+    if (org) {
+      // If the organization exists and has existing users, block arbitrary strangers from hijacking it
+      if (org._count.users > 0 && org.id !== "default-org") {
+        return NextResponse.json(
+          { message: `Organization "${cleanOrgName}" already exists. Please request an invite from your organization administrator or enter a unique organization name.` },
+          { status: 409 }
+        );
+      }
+    } else {
+      // New organization creation: creator becomes admin of the new organization
       org = await prisma.organization.create({
-        data: { name: orgName },
+        data: { name: cleanOrgName },
+        include: { _count: { select: { users: true } } },
       });
+      // First user creating an org gets admin privileges
+      assignedRole = "admin";
     }
 
     // 4. Hash the password
@@ -51,11 +97,11 @@ export async function POST(req: NextRequest) {
     // 5. Create the new user record linked to organization
     const user = await prisma.user.create({
       data: {
-        name,
-        email,
+        name: cleanName,
+        email: cleanEmail,
         passwordHash,
-        role,
-        sebiRegNo: role === "reviewer" ? sebiRegNo : null,
+        role: assignedRole,
+        sebiRegNo: requestedRole === "reviewer" || sebiRegNo ? sebiRegNo?.trim() || null : null,
         orgId: org.id,
       },
     });

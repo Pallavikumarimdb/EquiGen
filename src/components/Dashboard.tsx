@@ -552,7 +552,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       const fullGoal = goalText || `Initiation of coverage on ${compName}${cleanInputTicker ? ` (${cleanInputTicker})` : ""} — 5-year DCF, peer multiples, and SEBI compliance audit`;
       const res = await fetch("/api/agent/plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           goalText: fullGoal,
           companyName: compName,
@@ -588,14 +588,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           // Auto approve research plan
           await fetch(`/api/agent/plan/${plan.id}/approve`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ actorId: "analyst" }),
           }).catch(() => { });
 
           // Trigger Master Orchestrator background execution
           fetch("/api/agent/execute", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ planId: plan.id }),
           }).catch((err) => console.warn("[Dashboard] Failed to trigger execution:", err));
 
@@ -671,7 +671,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
           const uploadRes = await fetch("/api/upload", {
             method: "POST",
-            headers: { "x-api-secret": "equigen-internal" },
             body: formData,
           });
 
@@ -706,7 +705,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": "equigen-internal",
         },
         body: JSON.stringify({
           jobId: tempJobId,
@@ -743,9 +741,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           attempts++;
 
           try {
-            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(finalJobId)}`, {
-              headers: { "x-api-secret": "equigen-internal" },
-            });
+            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(finalJobId)}`);
             if (statusRes.ok) {
               const statusData = await statusRes.json();
               if (statusData.status === "completed") {

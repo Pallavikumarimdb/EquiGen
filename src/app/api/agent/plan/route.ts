@@ -4,6 +4,7 @@ import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { ResearchGoal, ResearchPlanRecord } from "@/types/plan4";
 import { prisma } from "@/lib/db";
 import { resolveCompanyTicker } from "@/lib/ai/tools/ticker-resolver";
+import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 
 /**
  * POST /api/agent/plan
@@ -81,11 +82,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const apiKeyRecord = await prisma.apiKey.findFirst({
-      where: { orgId: session.orgId ?? "default-org", provider: "groq" },
-    });
-
-    const apiKey = apiKeyRecord?.encryptedKey ?? process.env.GROQ_API_KEY ?? "";
+    const dbKey = await getDecryptedApiKey(session.orgId ?? "default-org", "groq").catch(() => null);
+    const apiKey = dbKey || process.env.GROQ_API_KEY || "";
 
     const goal: ResearchGoal = {
       goalText: resolvedGoalText,

@@ -167,9 +167,7 @@ export function AgentChatView({
     const pollInterval = setInterval(async () => {
       if (!isSubscribed) return;
       try {
-        const res = await fetch(`/api/extract/status?jobId=${encodeURIComponent(effectiveJobId)}`, {
-          headers: { "x-api-secret": "equigen-internal" },
-        });
+        const res = await fetch(`/api/extract/status?jobId=${encodeURIComponent(effectiveJobId)}`);
         if (res.ok) {
           const data = await res.json();
           if (typeof data.stepIndex === "number" && data.stepIndex > 0) {

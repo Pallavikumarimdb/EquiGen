@@ -29,10 +29,11 @@ export async function POST(req: NextRequest) {
     }
 
     const reportData = parsedData.data;
-    const ticker =
+    const rawTicker =
       reportData.company.ticker ||
-      reportData.company.name.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    const reportId = ticker.toUpperCase();
+      reportData.company.name ||
+      "REPORT";
+    const reportId = rawTicker.replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase();
 
     const status = body.status || "draft";
     // Generate the PDF buffer (mapping + vector charts + PDFKit rendering)

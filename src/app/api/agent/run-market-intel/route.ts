@@ -3,6 +3,7 @@ import { marketIntelAgent } from "@/lib/ai/subagents/market-intel-agent";
 import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { PeerBenchmarkMilestone } from "@/types/plan4";
+import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 
 /**
  * POST /api/agent/run-market-intel
@@ -51,10 +52,8 @@ export async function POST(req: NextRequest) {
     }
 
     const orgId = plan.session?.orgId ?? "default-org";
-    const apiKeyRecord = await prisma.apiKey.findFirst({
-      where: { orgId, provider: "groq" },
-    }).catch(() => null);
-    const apiKey = apiKeyRecord?.encryptedKey ?? process.env.GROQ_API_KEY ?? "";
+    const dbKey = await getDecryptedApiKey(orgId, "groq").catch(() => null);
+    const apiKey = dbKey || process.env.GROQ_API_KEY || "";
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const subagentRunData: any = {

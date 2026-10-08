@@ -32,9 +32,10 @@ export interface SandboxExecutionResult {
 }
 
 const DANGEROUS_PATTERNS = [
-  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
-  /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
-  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|system\s*\()/i,
+  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\()/i,
+  /\b(__subclasses__|__bases__|__mro__|__globals__|__code__|__builtins__)\b/i,
 ];
 
 export class PythonExecutor {
@@ -271,10 +272,6 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   const equityValue = enterpriseValue - netDebt;
   const targetPrice = Math.max(1, Math.round((equityValue / sharesOutstandingCr) * 100) / 100);
 
-  // Bull & Bear scenarios
-  const bullCasePrice = Math.round(targetPrice * 1.25 * 100) / 100;
-  const bearCasePrice = Math.round(targetPrice * 0.78 * 100) / 100;
-
   // Sensitivity Matrix: WACC (rows) vs Terminal Growth (cols)
   const waccGrid = [wacc - 0.02, wacc - 0.01, wacc, wacc + 0.01, wacc + 0.02];
   const tgrGrid = [terminalGrowth - 0.01, terminalGrowth - 0.005, terminalGrowth, terminalGrowth + 0.005, terminalGrowth + 0.01];
@@ -304,18 +301,47 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     sensitivityMatrix.push(row);
   }
 
-  // Monte Carlo Simulation (1,000 iterations stub)
+  // Institutional Quantitative Monte Carlo Simulation (1,000 iterations)
+  // Calibrated using standard Box-Muller Gaussian normal shocks for revenue growth and operating margin
   const mcSims: number[] = [];
+  
+  function gaussianRandom(mean = 0, stdev = 1): number {
+    const u1 = Math.max(1e-7, Math.random());
+    const u2 = Math.random();
+    const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+    return mean + z0 * stdev;
+  }
+
+  const growthStdev = Math.max(0.015, revenueGrowthRate * 0.20);
+  const marginStdev = Math.max(0.01, ebitdaMargin * 0.15);
+
   for (let i = 0; i < 1000; i++) {
-    const simGrowth = revenueGrowthRate + (Math.random() - 0.5) * 0.06;
-    const simMargin = ebitdaMargin + (Math.random() - 0.5) * 0.04;
-    const simRev = baseRevenue * Math.pow(1 + simGrowth, projectionYears);
-    const simFcff = simRev * simMargin * 0.75;
-    const simTv = (simFcff * (1 + terminalGrowth)) / (wacc - terminalGrowth);
-    const simEq = simTv / Math.pow(1 + wacc, projectionYears) - netDebt;
-    mcSims.push(Math.max(1, Math.round((simEq / sharesOutstandingCr) * 100) / 100));
+    const simGrowth = Math.max(-0.20, Math.min(0.40, gaussianRandom(revenueGrowthRate, growthStdev)));
+    const simMargin = Math.max(0.03, Math.min(0.60, gaussianRandom(ebitdaMargin, marginStdev)));
+
+    let simSumPv = 0;
+    let simRev = baseRevenue;
+    for (let yr = 1; yr <= projectionYears; yr++) {
+      simRev = simRev * (1 + simGrowth);
+      const simNopat = simRev * simMargin * (1 - taxRate);
+      const simCapex = simRev * capexAsPercentRevenue;
+      const simFcff = simNopat - simCapex;
+      simSumPv += simFcff / Math.pow(1 + wacc, yr);
+    }
+    const simLastFcff = simRev * simMargin * (1 - taxRate) - simRev * capexAsPercentRevenue;
+    const simTv = (simLastFcff * (1 + terminalGrowth)) / Math.max(0.01, wacc - terminalGrowth);
+    const simPvTv = simTv / Math.pow(1 + wacc, projectionYears);
+    const simEq = simSumPv + simPvTv - netDebt;
+    const simTp = Math.max(0.1, Math.round((simEq / sharesOutstandingCr) * 100) / 100);
+    mcSims.push(simTp);
   }
   mcSims.sort((a, b) => a - b);
+  const p10Price = mcSims[Math.floor(mcSims.length * 0.10)];
+  const p90Price = mcSims[Math.floor(mcSims.length * 0.90)];
+
+  // Ground Bull & Bear cases dynamically in Monte Carlo empirical distributions
+  const bearCasePrice = Math.max(0.1, Math.round(p10Price * 100) / 100);
+  const bullCasePrice = Math.max(0.1, Math.round(p90Price * 100) / 100);
 
   return {
     modelType: "dcf",

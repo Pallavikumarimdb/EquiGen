@@ -81,14 +81,31 @@ export async function POST(req: NextRequest) {
     // Action: Create and add a new user to the organization
     if (action === "addUser") {
       const { name, email, password, role, sebiRegNo } = body;
+      const rawEmail = (email || "").trim().toLowerCase();
+      const trimmedName = (name || "").trim();
 
-      if (!name || !email || !password || !role) {
+      if (!trimmedName || !rawEmail || !password || !role) {
         return NextResponse.json({ message: "Missing required fields for new user." }, { status: 400 });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(rawEmail)) {
+        return NextResponse.json({ message: "Invalid email format." }, { status: 400 });
+      }
+
+      if (password.length < 8) {
+        return NextResponse.json({ message: "Password must be at least 8 characters long." }, { status: 400 });
+      }
+
+      const allowedRoles = ["analyst", "reviewer", "admin"];
+      const normalizedRole = role.toLowerCase();
+      if (!allowedRoles.includes(normalizedRole)) {
+        return NextResponse.json({ message: "Invalid role specified. Must be analyst, reviewer, or admin." }, { status: 400 });
       }
 
       // Check if email already registered globally
       const existingUser = await prisma.user.findUnique({
-        where: { email },
+        where: { email: rawEmail },
       });
 
       if (existingUser) {
@@ -96,7 +113,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Validate SEBI registration if reviewer
-      if (role === "reviewer" && (!sebiRegNo || !/^INH[0-9]{9}$/.test(sebiRegNo))) {
+      if (normalizedRole === "reviewer" && (!sebiRegNo || !/^INH[0-9]{9}$/.test(sebiRegNo.trim()))) {
         return NextResponse.json({
           message: "Invalid SEBI Research Analyst registration number format (Must match: INHXXXXXXXXX).",
         }, { status: 400 });
@@ -106,11 +123,11 @@ export async function POST(req: NextRequest) {
       const passwordHash = await hashPassword(password);
       const newUser = await prisma.user.create({
         data: {
-          name,
-          email,
+          name: trimmedName,
+          email: rawEmail,
           passwordHash,
-          role,
-          sebiRegNo: role === "reviewer" ? sebiRegNo : null,
+          role: normalizedRole,
+          sebiRegNo: normalizedRole === "reviewer" ? (sebiRegNo ? sebiRegNo.trim() : null) : null,
           orgId: session.orgId,
         },
       });

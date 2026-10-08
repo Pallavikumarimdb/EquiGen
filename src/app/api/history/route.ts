@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     const session = getAuthSession(req);
     const userId = session?.userId;
     const orgId = session?.orgId;
-    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role === "ADMIN";
+    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role?.toLowerCase() === "admin";
 
     let reportWhere: Prisma.ReportHistoryWhereInput;
     let planWhere: Prisma.ResearchPlanWhereInput;
@@ -345,7 +345,9 @@ export async function DELETE(req: Request) {
     }
 
     const session = getAuthSession(req as unknown as NextRequest);
-    const _orgId = session?.orgId || "default-org";
+    const orgId = session?.orgId || "default-org";
+    const userId = session?.userId;
+    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role?.toLowerCase() === "admin";
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -360,21 +362,53 @@ export async function DELETE(req: Request) {
     const cleanId = id.replace(/^rep_/, "");
     const repId = `rep_${cleanId}`;
 
+    const tenantCondition = isSystemAdmin
+      ? {}
+      : {
+          OR: [
+            { orgId },
+            ...(userId ? [{ createdById: userId }] : []),
+            ...(orgId === "default-org" ? [{ orgId: null }] : []),
+          ],
+        };
+
     const deletedReports = await prisma.reportHistory.deleteMany({
       where: {
-        OR: [
-          { id: id },
-          { id: repId },
-          { id: cleanId },
+        AND: [
+          {
+            OR: [
+              { id: id },
+              { id: repId },
+              { id: cleanId },
+            ],
+          },
+          tenantCondition,
         ],
       },
     }).catch(() => ({ count: 0 }));
 
+    const planTenantCondition = isSystemAdmin
+      ? {}
+      : {
+          session: {
+            OR: [
+              { orgId },
+              ...(userId ? [{ createdBy: userId }] : []),
+              ...(orgId === "default-org" ? [{ orgId: null }] : []),
+            ],
+          },
+        };
+
     const deletedPlans = await prisma.researchPlan.deleteMany({
       where: {
-        OR: [
-          { id: id },
-          { id: cleanId },
+        AND: [
+          {
+            OR: [
+              { id: id },
+              { id: cleanId },
+            ],
+          },
+          planTenantCondition,
         ],
       },
     }).catch(() => ({ count: 0 }));
@@ -389,11 +423,26 @@ export async function DELETE(req: Request) {
       },
     }).catch(() => ({ count: 0 }));
 
+    const jobTenantCondition = isSystemAdmin
+      ? {}
+      : {
+          OR: [
+            { orgId },
+            ...(userId ? [{ createdById: userId }] : []),
+            ...(orgId === "default-org" ? [{ orgId: null }] : []),
+          ],
+        };
+
     const deletedJobs = await prisma.extractionJob.deleteMany({
       where: {
-        OR: [
-          { id: id },
-          { id: cleanId },
+        AND: [
+          {
+            OR: [
+              { id: id },
+              { id: cleanId },
+            ],
+          },
+          jobTenantCondition,
         ],
       },
     }).catch(() => ({ count: 0 }));

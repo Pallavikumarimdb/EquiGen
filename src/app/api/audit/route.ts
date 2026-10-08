@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * GET /api/audit?reportId=...
@@ -10,6 +10,10 @@ export async function GET(req: NextRequest) {
   const authError = requireApiSecret(req);
   if (authError) return authError;
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
+    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get("reportId");
 
@@ -20,8 +24,27 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const cleanId = reportId.replace(/^rep_/, "");
+
+    // Enforce tenant authorization check
+    const report = await prisma.reportHistory.findFirst({
+      where: {
+        OR: [{ id: reportId }, { id: cleanId }, { id: `rep_${cleanId}` }],
+      },
+      select: { orgId: true },
+    }).catch(() => null);
+
+    if (report && report.orgId && report.orgId !== orgId && !isSystemAdmin) {
+      return NextResponse.json(
+        { message: "Forbidden. Access denied." },
+        { status: 403 },
+      );
+    }
+
     const auditLogs = await prisma.auditLog.findMany({
-      where: { reportId },
+      where: {
+        OR: [{ reportId }, { reportId: cleanId }, { reportId: `rep_${cleanId}` }],
+      },
       orderBy: { createdAt: "desc" },
     });
 

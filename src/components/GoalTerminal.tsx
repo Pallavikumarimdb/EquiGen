@@ -150,7 +150,7 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
     try {
       const res = await fetch("/api/agent/plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goalText, ticker: ticker.toUpperCase(), companyName, depth, sessionId }),
       });
       const data = await res.json();
@@ -169,7 +169,7 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
     try {
       const res = await fetch(`/api/agent/plan/${plan.id}/approve`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actorId: "analyst" }),
       });
       const data = await res.json();
@@ -178,7 +178,7 @@ export function GoalTerminal({ sessionId, activePlanId, activePlan, onPlanApprov
       // Kick off background execution via MasterOrchestrator
       fetch("/api/agent/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId: plan.id }),
       }).catch((err) => console.warn("[GoalTerminal] Failed to trigger plan execution:", err));
 

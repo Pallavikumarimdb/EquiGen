@@ -10,6 +10,8 @@ import {
   FileText,
   ChevronDown,
   AlertTriangle,
+  AlertCircle,
+  ShieldCheck,
   CheckCircle2,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
@@ -77,6 +79,13 @@ export function FinancialHero({
     dataSources.dcfModel?.isDerivedFromRealData,
   ].filter(Boolean).length : null;
 
+  // Institutional financial audit evaluation data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const financialAudit = (reportData as any)?.financialAudit;
+  const auditVerdict = financialAudit?.verdict;
+  const auditScore = financialAudit?.overallScore;
+  const auditFailures = Array.isArray(financialAudit?.criticalFailures) ? financialAudit.criticalFailures : [];
+
   return (
     <div className="space-y-3 mb-4">
       {/* RC-8: Data Quality Banner — shown when fallback data detected */}
@@ -94,6 +103,20 @@ export function FinancialHero({
         </div>
       )}
 
+      {/* Critical Financial Audit Failure Banner */}
+      {auditVerdict === "FAILED_UNRELIABLE" && !isSectorFallback && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-900">
+          <AlertTriangle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <p className="font-semibold text-rose-950">Financial Data Authenticity Verification Alert</p>
+            <p className="text-rose-800 mt-0.5">
+              Automated financial verification engine flagged data discrepancies:{" "}
+              {auditFailures.length > 0 ? auditFailures.join("; ") : "Unverified or fallback constants detected."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Main hero card */}
       <div className="bg-[#FFFFFF] border border-[#E3DFD5] rounded-2xl p-5 shadow-xs">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -103,6 +126,40 @@ export function FinancialHero({
             <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-[#F0EDE6] text-[#3D3A32] border border-[#E2DFD6]">
               {displayTicker}
             </span>
+            {/* Financial Authenticity & Audit Certification Badge */}
+            {financialAudit && (
+              <span
+                title={
+                  auditVerdict === "CERTIFIED_AUTHENTIC"
+                    ? `Institutional Audit Score: ${auditScore}/100. Audited against exchange filings & mathematical circularity.`
+                    : auditVerdict === "VALIDATED_WITH_WARNINGS"
+                    ? `Validated with Warnings: ${auditScore}/100. Review assumptions before publication.`
+                    : `Audit Failed: Unreliable or unverified data sources detected.`
+                }
+                className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                  auditVerdict === "CERTIFIED_AUTHENTIC"
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                    : auditVerdict === "VALIDATED_WITH_WARNINGS"
+                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                    : "bg-rose-50 text-rose-800 border-rose-300"
+                }`}
+              >
+                {auditVerdict === "CERTIFIED_AUTHENTIC" ? (
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                ) : auditVerdict === "VALIDATED_WITH_WARNINGS" ? (
+                  <AlertCircle className="w-3 h-3 text-amber-600" />
+                ) : (
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                )}
+                <span>
+                  {auditVerdict === "CERTIFIED_AUTHENTIC"
+                    ? `AUTHENTICATED (${auditScore}/100)`
+                    : auditVerdict === "VALIDATED_WITH_WARNINGS"
+                    ? `VALIDATED (${auditScore}/100)`
+                    : "AUDIT FAILED"}
+                </span>
+              </span>
+            )}
             {/* RC-8: Live source count badge */}
             {liveSourceCount !== null && (
               <span

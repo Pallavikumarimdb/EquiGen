@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { masterOrchestrator } from "@/lib/ai/orchestrator/master-orchestrator";
-import { requireApiSecret } from "@/lib/utils/auth";
+import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 
 /**
  * POST /api/agent/execute
@@ -11,6 +12,8 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
 
   try {
+    const session = getAuthSession(req);
+    const orgId = session?.orgId || "default-org";
     const body = await req.json();
     const { planId } = body;
 
@@ -18,7 +21,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "planId is required." }, { status: 400 });
     }
 
-    const apiKey = req.headers.get("x-groq-api-key") ?? process.env.GROQ_API_KEY;
+    let apiKey = req.headers.get("x-groq-api-key") ?? process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      const dbKey = await getDecryptedApiKey(orgId, "groq").catch(() => null);
+      if (dbKey) apiKey = dbKey;
+    }
 
     // Trigger execution asynchronously so client receives immediate 200 response
     masterOrchestrator.executePlan(planId, apiKey ?? undefined).catch((err) => {
