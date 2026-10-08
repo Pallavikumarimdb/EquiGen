@@ -69,3 +69,90 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = getAuthSession(req);
+
+    if (!session || !session.userId) {
+      return NextResponse.json(
+        { message: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    const body = await req.json();
+    const { name, sebiRegNo } = body;
+
+    const dataToUpdate: { name?: string; sebiRegNo?: string | null } = {};
+
+    if (typeof name === "string" && name.trim()) {
+      dataToUpdate.name = name.trim();
+    }
+
+    if (sebiRegNo !== undefined) {
+      const cleanSebi = typeof sebiRegNo === "string" ? sebiRegNo.trim().toUpperCase() : "";
+      if (cleanSebi) {
+        if (!/^INH[0-9]{9}$/.test(cleanSebi)) {
+          return NextResponse.json(
+            { message: "Invalid SEBI Research Analyst registration number format (Must match: INHXXXXXXXXX)." },
+            { status: 400 }
+          );
+        }
+        dataToUpdate.sebiRegNo = cleanSebi;
+      } else {
+        dataToUpdate.sebiRegNo = null;
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: session.userId },
+      data: dataToUpdate,
+      include: { org: true },
+    });
+
+    // Re-issue JWT with refreshed profile information
+    const { signJWT } = await import("@/lib/utils/jwt");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const token = await signJWT(
+      {
+        userId: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+        role: updatedUser.role,
+        orgId: updatedUser.orgId,
+        sebiRegNo: updatedUser.sebiRegNo,
+      },
+      expiresAt
+    );
+
+    const response = NextResponse.json({
+      message: "Profile updated successfully",
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        sebiRegNo: updatedUser.sebiRegNo,
+        orgId: updatedUser.orgId,
+        orgName: updatedUser.org.name,
+      },
+    });
+
+    response.cookies.set({
+      name: "session_token",
+      value: token,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      expires: expiresAt,
+      path: "/",
+    });
+
+    return response;
+  } catch (error: unknown) {
+    console.error("PATCH /api/auth/me error:", error);
+    const message = error instanceof Error ? error.message : "Internal server error.";
+    return NextResponse.json({ message }, { status: 500 });
+  }
+}

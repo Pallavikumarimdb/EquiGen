@@ -160,7 +160,7 @@ export function LivingDraftPanel({
       // Record in DB / steering event
       await fetch("/api/agent/steer", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId,
           eventType: "approve_milestone",

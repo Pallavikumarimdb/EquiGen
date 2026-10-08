@@ -32,9 +32,10 @@ export interface SandboxExecutionResult {
 }
 
 const DANGEROUS_PATTERNS = [
-  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
-  /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|pwd|grp)\b/i,
-  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|system\s*\()/i,
+  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\()/i,
+  /\b(__subclasses__|__bases__|__mro__|__globals__|__code__|__builtins__)\b/i,
 ];
 
 export class PythonExecutor {

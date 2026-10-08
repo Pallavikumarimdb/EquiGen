@@ -114,9 +114,7 @@ export default function UserSettingsPage() {
 
     for (const p of providers) {
       try {
-        const res = await fetch(`/api/settings/keys?provider=${p}`, {
-          headers: { "x-api-secret": "equigen-internal" },
-        });
+        const res = await fetch(`/api/settings/keys?provider=${p}`);
         if (res.ok) {
           const data = await res.json();
           configuredMap[p] = !!data.configured;
@@ -149,6 +147,40 @@ export default function UserSettingsPage() {
     }
   };
 
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    setSaveSuccess(null);
+    setSaveError(null);
+
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: userName,
+          sebiRegNo: userSebi,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to save profile changes.");
+      }
+
+      if (data.user) {
+        setUser((prev) => prev ? { ...prev, name: data.user.name, sebiRegNo: data.user.sebiRegNo } : data.user);
+      }
+      setSaveSuccess("Profile and SEBI registration credentials saved successfully.");
+      setTimeout(() => setSaveSuccess(null), 4000);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Error saving profile");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const handleSaveKey = async (provider: string) => {
     setSavingKey(provider);
     setSaveSuccess(null);
@@ -168,7 +200,7 @@ export default function UserSettingsPage() {
     try {
       const res = await fetch("/api/settings/keys", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, apiKey: val }),
       });
 
@@ -517,6 +549,22 @@ export default function UserSettingsPage() {
                     value={user?.orgName || "Pallavi's org"}
                     className="w-full px-3 py-2 bg-white/[0.02] border border-white/5 rounded-xl text-xs text-slate-400 opacity-75"
                   />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    disabled={savingProfile}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-indigo-950/40 cursor-pointer"
+                  >
+                    {savingProfile ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>{savingProfile ? "Saving Profile..." : "Save Profile & SEBI Credentials"}</span>
+                  </button>
                 </div>
               </div>
             </div>

@@ -258,7 +258,7 @@ export function SteeringPanel({
     try {
       const res = await fetch("/api/agent/steer", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": "equigen-internal" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId, eventType, actorId: "analyst", payload }),
       });
 

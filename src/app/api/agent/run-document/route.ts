@@ -3,6 +3,7 @@ import { documentAgent } from "@/lib/ai/subagents/document-agent";
 import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { FetchDocumentsMilestone } from "@/types/plan4";
+import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 
 /**
  * POST /api/agent/run-document
@@ -62,10 +63,8 @@ export async function POST(req: NextRequest) {
 
     // Get API key for the org
     const orgId = plan.session?.orgId ?? "default-org";
-    const apiKeyRecord = await prisma.apiKey.findFirst({
-      where: { orgId, provider: "groq" },
-    });
-    const apiKey = apiKeyRecord?.encryptedKey ?? process.env.GROQ_API_KEY ?? "";
+    const dbKey = await getDecryptedApiKey(orgId, "groq").catch(() => null);
+    const apiKey = dbKey || process.env.GROQ_API_KEY || "";
 
     // Create SubagentRun record
     const subagentRun = await prisma.subagentRun.create({
