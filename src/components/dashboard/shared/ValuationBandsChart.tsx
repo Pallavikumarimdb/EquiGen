@@ -5,6 +5,7 @@ import {
   TrendingUp,
   Activity,
   Sparkles,
+  ShieldAlert,
 } from "lucide-react";
 import {
   ValuationMetric,
@@ -40,6 +41,7 @@ export function ValuationBandsChart({
   const [lookback, setLookback] = useState<LookbackPeriod>("5Y");
   const [viewMode, setViewMode] = useState<"price" | "multiple">("price");
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [bandsData, setBandsData] = useState<ValuationBandsResult | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -49,6 +51,7 @@ export function ValuationBandsChart({
   useEffect(() => {
     let isCancelled = false;
     setLoading(true);
+    setError(null);
 
     async function loadData() {
       try {
@@ -76,11 +79,24 @@ export function ValuationBandsChart({
           }
           return;
         }
+
+        const errBody = await res.json().catch(() => null);
+        if (!isCancelled) {
+          setError(
+            errBody?.message ??
+              "Valuation bands are unavailable for this company.",
+          );
+          setLoading(false);
+        }
+        return;
       } catch {
         // fallback to client-side engine if API fetch fails
       }
 
-      // Client-side fallback — only pass real multiples if available from report data
+      // Client-side fallback — only pass real multiples if available from report data.
+      // This path never synthesises price history: `allowSyntheticHistory` stays off, so
+      // an insufficient series raises InsufficientPriceHistoryError and we render an
+      // explicit unavailable state rather than a chart built on invented data.
       const peFromData = reportData?.companyData?.pe
         ? parseFloat(String(reportData.companyData.pe).replace(/[^0-9.]/g, ""))
         : undefined;
@@ -88,17 +104,27 @@ export function ValuationBandsChart({
         ? parseFloat(String(reportData.companyData.evEbitda).replace(/[^0-9.]/g, ""))
         : undefined;
 
-      const fallbackResult = await buildValuationBands({
-        ticker,
-        companyName,
-        metric,
-        lookback,
-        currentPrice: reportData?.recommendation?.currentPrice ?? undefined,
-        currentMultiple: metric === "PE" ? peFromData : evFromData,
-      });
+      try {
+        const fallbackResult = await buildValuationBands({
+          ticker,
+          companyName,
+          metric,
+          lookback,
+          currentPrice: reportData?.recommendation?.currentPrice ?? undefined,
+          currentMultiple: metric === "PE" ? peFromData : evFromData,
+        });
 
-      if (!isCancelled) {
-        setBandsData(fallbackResult);
+        if (!isCancelled) {
+          setBandsData(fallbackResult);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (isCancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Valuation bands are unavailable for this company.",
+        );
         setLoading(false);
       }
     }
@@ -438,6 +464,14 @@ export function ValuationBandsChart({
           <div className="h-64 flex items-center justify-center gap-2 text-xs text-[#7A7569]">
             <Activity className="w-4 h-4 animate-spin text-amber-600" />
             <span>Calculating 5-year statistical standard deviation bands...</span>
+          </div>
+        ) : error ? (
+          <div className="h-64 flex flex-col items-center justify-center gap-2 px-6 text-center">
+            <ShieldAlert className="w-5 h-5 text-amber-600" />
+            <div className="text-xs font-bold text-[#1A1917]">
+              Valuation bands unavailable for {ticker}
+            </div>
+            <p className="text-[11px] text-[#7A7569] leading-relaxed max-w-md">{error}</p>
           </div>
         ) : !bandsData || !plotMetrics ? (
           <div className="h-64 flex items-center justify-center text-xs text-[#7A7569]">

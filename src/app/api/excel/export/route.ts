@@ -4,12 +4,73 @@ import { excelGenerationService } from "@/lib/excel/excel-generator";
 import { EquityResearchData } from "@/types";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { BRAND } from "@/lib/brand";
+import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
 
 /** Filesystem-safe fragment derived from a firm name, or null when unusable. */
 function sanitizeFilePart(name: string | null | undefined): string | null {
   if (!name) return null;
   const cleaned = name.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
   return cleaned.length > 0 ? cleaned.slice(0, 48) : null;
+}
+
+interface GateReport {
+  id: string;
+  status: string;
+  reportData: unknown;
+}
+
+/**
+ * Financial authenticity gate for Excel export.
+ *
+ * Returns a 409 response when the report may not be exported, `null` otherwise.
+ * A reviewer override (`?overrideQuality=true`) is permitted but is always written
+ * to the audit trail so the decision is reconstructable later.
+ */
+async function enforceAuthenticityGate(
+  report: GateReport,
+  session: ReturnType<typeof getAuthSession>,
+  searchParams: URLSearchParams,
+  artifact: "excel" | "pdf",
+): Promise<NextResponse | null> {
+  const gate = evaluateDistributionGate(report.reportData, {
+    overrideWithJustification: searchParams.get("overrideQuality") === "true",
+    overriddenBy: session?.name ?? session?.userId,
+  });
+
+  if (!gate.allowed) {
+    return NextResponse.json(
+      {
+        message: gate.reason,
+        code: "AUTHENTICITY_GATE_BLOCKED",
+        auditState: gate.state,
+        artifact,
+        canOverride: true,
+        overrideHint:
+          "A SEBI-registered reviewer may re-request with ?overrideQuality=true after inspecting the listed critical failures. The override is written to the audit trail.",
+      },
+      { status: 409 }
+    );
+  }
+
+  if (gate.overridden) {
+    await prisma.auditLog.create({
+      data: {
+        reportId: report.id,
+        userId: session?.userId ?? null,
+        actorType: "human",
+        action: "quality_override",
+        fromState: report.status,
+        toState: report.status,
+        metadata: {
+          reason: gate.reason,
+          auditState: gate.state,
+          artifact,
+        },
+      },
+    });
+  }
+
+  return null;
 }
 
 /**
@@ -67,6 +128,9 @@ export async function GET(req: NextRequest) {
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";
 
+    const gateError = await enforceAuthenticityGate(dbReport, session, searchParams, "excel");
+    if (gateError) return gateError;
+
     // Publishing-firm identity comes from the tenant, never from a platform default.
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
 
@@ -112,7 +176,10 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
   try {
     const body = await req.json();
-    const { reportId } = body;
+    const { reportId, overrideQuality } = body ?? {};
+    const postParams = new URLSearchParams(
+      overrideQuality === true ? { overrideQuality: "true" } : {}
+    );
 
     if (!reportId) {
       return NextResponse.json(
@@ -153,6 +220,9 @@ export async function POST(req: NextRequest) {
 
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";
+
+    const gateError = await enforceAuthenticityGate(dbReport, session, postParams, "excel");
+    if (gateError) return gateError;
 
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
 

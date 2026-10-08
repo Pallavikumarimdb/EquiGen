@@ -22,6 +22,7 @@ import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import { pipelineEval, AgentRunSnapshot } from "@/lib/eval/pipeline-eval";
 import { financialEvalEngine, type FinancialEvaluationReport } from "@/lib/eval/financial-eval-engine";
+import { forcedStatusForAudit, readAuditSummary } from "@/lib/eval/distribution-gate";
 import { resolveCompanyTicker } from "../tools/ticker-resolver";
 import type { Prisma } from "@prisma/client";
 
@@ -582,31 +583,59 @@ export class MasterOrchestrator {
       const normalizedData = normalizeEquityResearchData(rawPayload);
       const reportPayload = JSON.parse(JSON.stringify(normalizedData)) as Prisma.InputJsonValue;
 
-      await prisma.reportHistory.upsert({
-        where: { id: reportId },
-        create: {
-          id: reportId,
-          orgId: activeOrgId,
-          createdById: activeCreatedById,
-          reviewerName: finalAnalystName,
-          sebiRegNo: finalSebiRegNo,
-          companyName: companyName || ticker,
-          fileName: "Autonomous Research",
-          status: "published",
-          modelUsedForFinancials: "Groq Llama 3.3 / OpenRouter Free",
-          reportData: reportPayload,
-        },
-        update: {
-          orgId: activeOrgId,
-          reviewerName: finalAnalystName,
-          sebiRegNo: finalSebiRegNo,
-          status: "published",
-          reportData: reportPayload,
-        },
-      }).catch((err) => {
-        console.warn("[MasterOrchestrator] Failed to save ReportHistory record:", err);
-      });
-      console.log(`[MasterOrchestrator] Saved ReportHistory record '${reportId}' for ${companyName} (${ticker}) under Org '${activeOrgId}'.`);
+      // ── Publication safety gate ────────────────────────────────────────────
+      // An autonomous run may never write itself straight to `published`: the report
+      // has had no SEBI-registered reviewer sign-off, and the authenticity audit may
+      // not have passed. Derive the status from the audit verdict and record the
+      // resulting data-quality band so the state machine's degraded-quality gate
+      // also engages on approval.
+      const auditVerdict = readAuditSummary(reportPayload).verdict;
+      const forcedStatus = forcedStatusForAudit(reportPayload);
+      const derivedStatus = forcedStatus ?? "pending_review";
+      const derivedDataQuality: string =
+        auditVerdict === "CERTIFIED_AUTHENTIC"
+          ? "ok"
+          : auditVerdict === "VALIDATED_WITH_WARNINGS"
+          ? "advisory"
+          : "degraded";
+
+      if (auditVerdict !== "CERTIFIED_AUTHENTIC") {
+        console.warn(
+          `[MasterOrchestrator] Report '${reportId}' held at '${derivedStatus}' — authenticity verdict ${auditVerdict}. It will not be publishable until reviewed and the audit passes.`,
+        );
+      }
+
+      try {
+        await prisma.reportHistory.upsert({
+          where: { id: reportId },
+          create: {
+            id: reportId,
+            orgId: activeOrgId,
+            createdById: activeCreatedById,
+            reviewerName: finalAnalystName,
+            sebiRegNo: finalSebiRegNo,
+            companyName: companyName || ticker,
+            fileName: "Autonomous Research",
+            status: derivedStatus,
+            dataQuality: derivedDataQuality,
+            modelUsedForFinancials: "Groq Llama 3.3 / OpenRouter Free",
+            reportData: reportPayload,
+          },
+          update: {
+            orgId: activeOrgId,
+            reviewerName: finalAnalystName,
+            sebiRegNo: finalSebiRegNo,
+            status: derivedStatus,
+            dataQuality: derivedDataQuality,
+            reportData: reportPayload,
+          },
+        });
+      } catch (err) {
+        // A run must never report success without a persisted report.
+        console.error("[MasterOrchestrator] Failed to save ReportHistory record:", err);
+        throw err;
+      }
+      console.log(`[MasterOrchestrator] Saved ReportHistory record '${reportId}' for ${companyName} (${ticker}) under Org '${activeOrgId}' (status=${derivedStatus}, audit=${auditVerdict}).`);
     }
 
     const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);

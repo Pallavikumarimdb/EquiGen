@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   calculateMeanAndStdDev,
   classifyValuationRegime,
   calculatePercentileRank,
   generateSyntheticHistory,
   buildValuationBands,
+  InsufficientPriceHistoryError,
 } from "@/lib/financial-modeling/valuation-bands-engine";
 import { GET } from "@/app/api/valuation-bands/route";
 import { NextRequest } from "next/server";
@@ -125,20 +126,126 @@ describe("Issue 3: Historical Valuation Multiples Bands (P/E & EV/EBITDA)", () =
     expect(result.stats.percentileRank).toBeLessThanOrEqual(100);
   });
 
-  it("5. End-to-end API Route (/api/valuation-bands) handles dynamic requests", async () => {
+  it("5. End-to-end API Route (/api/valuation-bands) requires authentication", async () => {
     const req = new NextRequest(
       "https://localhost:3000/api/valuation-bands?ticker=TATASTEEL&metric=PE&lookback=5Y&currentPrice=188"
     );
 
     const res = await GET(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
+  });
 
-    const data = await res.json();
-    expect(data.ticker).toBe("TATASTEEL");
-    expect(data.metric).toBe("PE");
-    expect(data.lookback).toBe("5Y");
-    expect(data.stats).toBeDefined();
-    expect(data.stats.plus2Sigma).toBeGreaterThan(data.stats.mean);
-    expect(data.series.length).toBeGreaterThan(0);
+  it("5b. End-to-end API Route rejects a malformed ticker before doing any work", async () => {
+    const req = new NextRequest("https://localhost:3000/api/valuation-bands?ticker=%3Cscript%3E");
+    req.headers.set("x-api-secret", "equigen-internal");
+
+    const res = await GET(req);
+    expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * A +/-1s/+/-2s band is a statistical claim about a company's own trading history.
+ * When real data is unavailable the engine must refuse rather than substitute an
+ * invented curve, because a synthetic chart is visually indistinguishable from
+ * real analysis while being entirely fictitious.
+ */
+describe("Valuation bands data provenance", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses to build bands without real price history", async () => {
+    await expect(
+      buildValuationBands({
+        ticker: "NOSUCHCO",
+        companyName: "No Such Company",
+        metric: "PE",
+        lookback: "5Y",
+        currentPrice: 100,
+        historicalCandles: generateSyntheticHistory(60, 100, false).slice(0, 5), // only 5 candles
+      }),
+    ).rejects.toThrow(InsufficientPriceHistoryError);
+  });
+
+  it("names the ticker and explains why no substitute was generated", async () => {
+    const err = await buildValuationBands({
+      ticker: "NOSUCHCO",
+      companyName: "No Such Company",
+      metric: "PE",
+      currentPrice: 100,
+      historicalCandles: [],
+    }).catch((e: unknown) => e as InsufficientPriceHistoryError);
+
+    expect(err).toBeInstanceOf(InsufficientPriceHistoryError);
+    const typed = err as InsufficientPriceHistoryError;
+    expect(typed.code).toBe("INSUFFICIENT_PRICE_HISTORY");
+    expect(typed.ticker).toBe("NOSUCHCO");
+    expect(typed.message).toContain("NOSUCHCO");
+    expect(typed.message).toMatch(/no synthetic substitute/i);
+  });
+
+  it("allows synthetic history only when explicitly opted in", async () => {
+    const result = await buildValuationBands({
+      ticker: "TESTCO",
+      companyName: "Test Co",
+      metric: "PE",
+      lookback: "5Y",
+      currentPrice: 188,
+      historicalCandles: [],
+      allowSyntheticHistory: true,
+      baseEps: 13.5,
+    });
+
+    expect(result.dataProvenance).toBe("synthetic");
+    expect(result.dataQualityNote).toMatch(/SYNTHETIC/);
+    expect(result.dataQualityNote).toMatch(/NOT a statistical claim/);
+  });
+
+  it("ignores the synthetic opt-in entirely in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    await expect(
+      buildValuationBands({
+        ticker: "TESTCO",
+        companyName: "Test Co",
+        metric: "PE",
+        currentPrice: 188,
+        historicalCandles: [],
+        allowSyntheticHistory: true,
+        baseEps: 13.5,
+      }),
+    ).rejects.toThrow(InsufficientPriceHistoryError);
+  });
+
+  it("marks a short-but-real series as partial rather than silently trusting it", async () => {
+    const result = await buildValuationBands({
+      ticker: "SHORTCO",
+      companyName: "Short History Co",
+      metric: "PE",
+      lookback: "5Y",
+      currentPrice: 200,
+      historicalCandles: generateSyntheticHistory(20, 200, false),
+      baseEps: 12,
+    });
+
+    expect(result.dataProvenance).toBe("partial");
+    expect(result.dataQualityNote).toMatch(/20 months of real price history/);
+    expect(result.dataQualityNote).toMatch(/60 requested/);
+  });
+
+  it("marks a full real series as live with no caveat", async () => {
+    const result = await buildValuationBands({
+      ticker: "FULLCO",
+      companyName: "Full History Co",
+      metric: "PE",
+      lookback: "5Y",
+      currentPrice: 300,
+      historicalCandles: generateSyntheticHistory(60, 300, true),
+      baseEps: 20,
+    });
+
+    expect(result.dataProvenance).toBe("live");
+    expect(result.dataQualityNote).toBeNull();
   });
 });

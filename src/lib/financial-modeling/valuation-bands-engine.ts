@@ -68,6 +68,20 @@ export interface ValuationBandsResult {
     avgReturnAfterPeak12M: number | null;
     avgReturnAfterTrough12M: number | null;
   };
+  /**
+   * Provenance of the underlying price series.
+   *
+   * `live`      — every candle came from a real exchange/market data feed.
+   * `partial`   — the series was fetched but is shorter than the statistically
+   *               meaningful minimum; bands are computed from what exists and are
+   *               flagged as low confidence.
+   * `synthetic` — NO real data was available. Bands were generated from a
+   *               deterministic curve. These must never be presented as analysis;
+   *               callers are expected to refuse to render them.
+   */
+  dataProvenance: "live" | "partial" | "synthetic";
+  /** Populated when `dataProvenance !== "live"`. Safe to surface to the user. */
+  dataQualityNote: string | null;
 }
 
 export interface RawHistoricalCandle {
@@ -85,6 +99,37 @@ export interface EngineInputOptions {
   historicalCandles?: RawHistoricalCandle[];
   baseEps?: number;
   baseEbitdaPerShare?: number;
+  /**
+   * Permit `generateSyntheticHistory()` when real price data is unavailable.
+   *
+   * Off by default, and ignored entirely when `NODE_ENV === "production"`. A
+   * valuation band is a statistical claim about real trading history; inventing
+   * one produces a chart that looks like analysis but is fiction.
+   */
+  allowSyntheticHistory?: boolean;
+}
+
+/**
+ * Raised when valuation bands cannot be computed from real price data.
+ *
+ * Callers must surface `message` to the user and refuse to render bands.
+ */
+export class InsufficientPriceHistoryError extends Error {
+  readonly code = "INSUFFICIENT_PRICE_HISTORY";
+  constructor(
+    readonly ticker: string,
+    readonly availableCandles: number,
+    readonly requiredCandles: number,
+    readonly liveFetchAttempted: boolean,
+  ) {
+    super(
+      `Valuation bands for ${ticker} require at least ${requiredCandles} months of real price history, ` +
+        `${availableCandles} available${liveFetchAttempted ? " (live market data fetch did not yield enough history)" : ""}. ` +
+        "No synthetic substitute is generated, because an invented price series would produce a " +
+        "statistically meaningless band. Try a longer lookback or a different ticker.",
+    );
+    this.name = "InsufficientPriceHistoryError";
+  }
 }
 
 /**
@@ -228,6 +273,7 @@ export async function buildValuationBands(
 
   const targetMonths = lookback === "3Y" ? 36 : 60;
   let candles = options.historicalCandles || [];
+  let liveFetchFailed = false;
 
   // If candles were not provided, attempt to fetch from Yahoo Finance 5Y chart
   if (candles.length === 0) {
@@ -247,6 +293,7 @@ export async function buildValuationBands(
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
+        signal: AbortSignal.timeout(10_000),
       });
 
       if (res.ok) {
@@ -262,9 +309,15 @@ export async function buildValuationBands(
             candles.push({ timestamp: ts, close: parseFloat(close.toFixed(2)) });
           }
         }
+      } else {
+        liveFetchFailed = true;
       }
-    } catch {
-      // ignore network errors, fallback gracefully below
+    } catch (err) {
+      liveFetchFailed = true;
+      console.warn(
+        `[ValuationBands] Live price history unavailable for ${ticker}:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -279,9 +332,39 @@ export async function buildValuationBands(
   // Detect cyclicality from ticker name (e.g., steel, mining, commodities)
   const isCyclical = /STEEL|HINDALCO|VEDL|JINDAL|COAL|TATASTEEL|NMDC|SAIL/i.test(ticker);
 
-  // If candles are still insufficient, generate deterministic historical candles
-  if (candles.length < 12) {
+  // ── Provenance ───────────────────────────────────────────────────────────
+  // A +/-1s/+/-2s valuation band is a statistical claim about the company's own
+  // trading history. Computing one from an invented curve produces a chart that is
+  // visually indistinguishable from real analysis while being entirely fictitious.
+  //
+  // Synthetic history is therefore opt-in ONLY, is loudly labelled, and is refused
+  // outright in production. It exists for unit tests and local visual development.
+  const MINIMUM_CANDLES = 12;
+  const allowSynthetic = options.allowSyntheticHistory === true;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  let dataProvenance: ValuationBandsResult["dataProvenance"];
+  let dataQualityNote: string | null = null;
+
+  if (candles.length < MINIMUM_CANDLES) {
+    if (!allowSynthetic || isProduction) {
+      // Fail loudly instead of inventing a distribution.
+      const attempted = candles.length > 0 || liveFetchFailed;
+      throw new InsufficientPriceHistoryError(ticker, candles.length, MINIMUM_CANDLES, attempted);
+    }
     candles = generateSyntheticHistory(targetMonths, currentPrice, isCyclical);
+    dataProvenance = "synthetic";
+    dataQualityNote =
+      "SYNTHETIC price history: no real market data was available, so these bands are a " +
+      "deterministic placeholder curve and are NOT a statistical claim about this company.";
+  } else {
+    const wanted = lookback === "3Y" ? 36 : 60;
+    dataProvenance = candles.length < wanted ? "partial" : "live";
+    if (dataProvenance === "partial") {
+      dataQualityNote =
+        `Only ${candles.length} months of real price history were available (${wanted} requested). ` +
+        "Bands are computed from a shorter sample and are lower confidence.";
+    }
   }
 
   // Slice to target months
@@ -439,5 +522,7 @@ export async function buildValuationBands(
       avgReturnAfterPeak12M,
       avgReturnAfterTrough12M,
     },
+    dataProvenance,
+    dataQualityNote,
   };
 }

@@ -4,7 +4,7 @@ import path from "path";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
-import { buildInstitutionalEquityData } from "@/lib/ai/institutional-equity-data";
+import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
 
 /**
  * GET /api/download?id=<reportId>
@@ -19,8 +19,6 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    const paramTicker = searchParams.get("ticker");
-    const paramCompanyName = searchParams.get("companyName");
 
     if (!id) {
       return NextResponse.json(
@@ -71,53 +69,24 @@ export async function GET(req: NextRequest) {
       report = null;
     }
 
-    // 2. If NO existing report is found in ReportHistory, check if there is an ad-hoc plan
+    // 2. No persisted report exists for this id.
+    //
+    // This endpoint previously fell through to `buildInstitutionalEquityData()`, which
+    // generates a full "institutional" report — complete with shareholding patterns,
+    // promoter pledge, financial history and a DCF narrative — seeded from a hash of the
+    // company name. Any request could therefore download a fabricated research note that
+    // looked authoritative, and the call happened *before* the tenant boundary check.
+    //
+    // A report that was never generated must not be downloadable. Return 404.
     if (!report) {
-      // Check if this is an autonomous ResearchPlan
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = prisma as any;
-      let plan = null;
-      try {
-        if (db.researchPlan) {
-          plan = await db.researchPlan.findFirst({
-            where: {
-              OR: [{ id }, { id: cleanId }],
-            },
-          });
-        }
-      } catch {
-        // offline fallback
-      }
-
-      const companyName = plan?.companyName || paramCompanyName || (plan?.goalText
-        ? plan.goalText.replace(/^(Initiation\s+(?:of\s+)?coverage\s+on|Deep\s+dive\s+on|Research\s+on|Valuation\s+analysis\s+of)\s*/i, "").trim().split("—")[0].trim()
-        : "Target Corporation");
-      const ticker = (plan?.ticker || paramTicker || (companyName.length <= 8 ? companyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : companyName.substring(0, 6).toUpperCase())).toUpperCase();
-
-      // Build full institutional equity research dataset with field coverage dynamically via AI
-      const synthReportData = await buildInstitutionalEquityData(companyName, ticker, plan?.goalText);
-
-      try {
-        const reportBuffer = await pdfGenerationService.generateReportPDF(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          synthReportData as any,
-          "draft"
-        );
-
-        return new NextResponse(new Uint8Array(reportBuffer), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="equigen-${ticker.toLowerCase()}-research.pdf"`,
-          },
-        });
-      } catch (e) {
-        console.error("[/api/download] PDF compilation error:", e);
-        return NextResponse.json(
-          { message: `Failed to compile research PDF for ${companyName}.` },
-          { status: 500 }
-        );
-      }
+      return NextResponse.json(
+        {
+          message:
+            "No research report exists for this identifier. Reports must be generated and persisted before they can be downloaded.",
+          code: "REPORT_NOT_FOUND",
+        },
+        { status: 404 },
+      );
     }
 
     // Tenant boundary check
@@ -139,6 +108,46 @@ export async function GET(req: NextRequest) {
 
     // Publishing-firm identity for the report's SEBI disclaimer. Always tenant-supplied.
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
+    // Financial authenticity gate. A report whose figures fail (or cannot be shown to
+    // pass) verification must not leave the system as a distributable PDF.
+    const overrideGranted = searchParams.get("overrideQuality") === "true";
+    const gate = evaluateDistributionGate(report.reportData, {
+      overrideWithJustification: overrideGranted,
+      overriddenBy: session?.name ?? session?.userId,
+    });
+
+    if (!gate.allowed) {
+      return NextResponse.json(
+        {
+          message: gate.reason,
+          code: "AUTHENTICITY_GATE_BLOCKED",
+          auditState: gate.state,
+          canOverride: true,
+          overrideHint:
+            "A SEBI-registered reviewer may re-request with ?overrideQuality=true after inspecting the listed critical failures. The override is written to the audit trail.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (gate.overridden) {
+      await prisma.auditLog.create({
+        data: {
+          reportId: report.id,
+          userId: session?.userId ?? null,
+          actorType: "human",
+          action: "quality_override",
+          fromState: report.status,
+          toState: report.status,
+          metadata: {
+            reason: gate.reason,
+            auditState: gate.state,
+            artifact: "pdf",
+          },
+        },
+      });
+    }
 
     // Cache priority after an edit (proposal-apply.ts sets pdfBase64 = null):
     //   pdfBase64 = null → skip ALL caches, compile fresh from reportData
