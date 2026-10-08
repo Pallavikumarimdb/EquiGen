@@ -21,6 +21,7 @@
  */
 
 import { resolveCompanyTicker } from "./ticker-resolver";
+import { fetchBseCompanyFinancials } from "./bse-financial-data-tool";
 
 export interface ExtractedFinancials {
   // Income Statement
@@ -624,13 +625,61 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
     console.warn(`[YahooFinancials] Tier-3 v8 chart error for ${upper}:`, err instanceof Error ? err.message : String(err));
   }
 
-  // ── Tier 4: BSE market data API (no session required) ─────────────────────
+  // ── Tier 4: BSE market data & audited filings API (no session required) ─
   try {
+    const bseFull = await fetchBseCompanyFinancials(upper);
+    if (bseFull && (bseFull.isLiveData || bseFull.currentPrice || bseFull.marketCapCr)) {
+      const latestPnl = bseFull.historicalSeries?.[0] || null;
+      const priorPnl = bseFull.historicalSeries?.[1] || null;
+      const sharesInCr = bseFull.currentPrice && bseFull.marketCapCr
+        ? Math.round((bseFull.marketCapCr / bseFull.currentPrice) * 100) / 100
+        : null;
+      const highLow52W = bseFull.low52W != null && bseFull.high52W != null
+        ? `₹${Math.round(bseFull.low52W)} - ₹${Math.round(bseFull.high52W)}`
+        : null;
+      const revCr = latestPnl?.revenueCr ?? null;
+      const priorRevCr = priorPnl?.revenueCr ?? null;
+      const revGrowth = revCr && priorRevCr && priorRevCr > 0
+        ? Math.round(((revCr - priorRevCr) / priorRevCr) * 1000) / 1000
+        : null;
+      const ebitdaCr = latestPnl?.ebitdaCr ?? null;
+      const ebitdaMargin = revCr && ebitdaCr && revCr > 0
+        ? Math.round((ebitdaCr / revCr) * 1000) / 1000
+        : null;
+
+      const result: ExtractedFinancials = {
+        ...empty,
+        currentPrice: bseFull.currentPrice,
+        marketCapCr: bseFull.marketCapCr,
+        trailingPE: bseFull.peRatio,
+        priceToBook: bseFull.pbRatio,
+        sharesOutstandingCr: sharesInCr,
+        fiftyTwoWeekHigh: bseFull.high52W,
+        fiftyTwoWeekLow: bseFull.low52W,
+        highLow52W,
+        dividendYield: bseFull.dividendYieldPercent ? bseFull.dividendYieldPercent / 100 : null,
+        revenueCr: revCr,
+        revenueGrowthYoY: revGrowth,
+        ebitdaCr,
+        ebitdaMargin,
+        netIncomeCr: latestPnl?.patCr ?? null,
+        epsCurrent: latestPnl?.epsCr ?? null,
+        isLiveData: true,
+        dataSource: "bse_api",
+      };
+      return result;
+    }
+
+    // Fallback to basic header check if full company financials was empty
     const bseData = await fetchBseMarketData(upper);
     if (bseData && (bseData.currentPrice || bseData.marketCapCr)) {
+      const sharesInCr = bseData.currentPrice && bseData.marketCapCr
+        ? Math.round((bseData.marketCapCr / bseData.currentPrice) * 100) / 100
+        : null;
       const result: ExtractedFinancials = {
         ...empty,
         ...bseData,
+        sharesOutstandingCr: sharesInCr,
         isLiveData: true,
         dataSource: "bse_api",
       };
@@ -653,6 +702,12 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
  * ModelingAgent.buildParamsFromFinancials() and detectMissingFields().
  */
 export function toModelingInputRecord(fin: ExtractedFinancials): Record<string, unknown> {
+  const derivedShares = fin.sharesOutstandingCr ?? (
+    fin.marketCapCr && fin.currentPrice && fin.currentPrice > 0
+      ? Math.round((fin.marketCapCr / fin.currentPrice) * 100) / 100
+      : null
+  );
+
   return {
     revenue:           fin.revenueCr,
     sales:             fin.revenueCr,
@@ -661,7 +716,8 @@ export function toModelingInputRecord(fin: ExtractedFinancials): Record<string, 
     revenueGrowth:     fin.revenueGrowthYoY,
     totalDebt:         fin.totalDebtCr,
     cash:              fin.cashCr,
-    outstandingShares: fin.sharesOutstandingCr,
+    outstandingShares: derivedShares,
+    sharesCr:          derivedShares,
     beta:              fin.beta,
     netIncome:         fin.netIncomeCr,
     eps:               fin.epsCurrent,

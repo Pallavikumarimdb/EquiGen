@@ -21,6 +21,7 @@ import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import { pipelineEval, AgentRunSnapshot } from "@/lib/eval/pipeline-eval";
+import { financialEvalEngine, type FinancialEvaluationReport } from "@/lib/eval/financial-eval-engine";
 import { resolveCompanyTicker } from "../tools/ticker-resolver";
 import type { Prisma } from "@prisma/client";
 
@@ -451,6 +452,7 @@ export class MasterOrchestrator {
       benchmarkMarkdown: (mktOut?.benchmarkMarkdown as string) ?? "",
     };
     const reportDataSources = synthOut?.dataSources ?? null;
+    let financialAudit: FinancialEvaluationReport | null = null;
 
     // Save/Upsert completed report into ReportHistory for sidebar history tracking
     if (finalStatus === "completed") {
@@ -495,6 +497,42 @@ export class MasterOrchestrator {
         console.warn("[MasterOrchestrator] Forensic quality audit warning:", fErr);
       }
 
+      // Institutional Financial Evaluation & Authenticity Engine
+      try {
+        const mData = modelingData as Record<string, unknown> | null;
+        financialAudit = financialEvalEngine.evaluate({
+          ticker,
+          companyName,
+          reportData: null,
+          marketData: effectiveFin ? {
+            currentPrice: effectiveFin.currentPrice ?? null,
+            marketCapCr: effectiveFin.marketCapCr ?? null,
+            trailingPE: effectiveFin.trailingPE ?? null,
+            evEbitda: effectiveFin.evEbitda ?? null,
+            priceToBook: effectiveFin.priceToBook ?? null,
+            sharesOutstandingCr: effectiveFin.sharesOutstandingCr ?? null,
+            beta: effectiveFin.beta ?? null,
+            dividendYield: effectiveFin.dividendYield ?? null,
+            isLiveData: effectiveFin.isLiveData ?? (effectiveFin.source !== "generic_constants"),
+            dataSource: effectiveFin.source ?? "unknown",
+            fetchedAt: effectiveFin.fetchedAt ?? new Date().toISOString(),
+          } : null,
+          modelingData: mData ? {
+            baseTargetPrice: typeof mData.baseTargetPrice === "number" ? mData.baseTargetPrice : null,
+            bullCasePrice: typeof mData.bullCasePrice === "number" ? mData.bullCasePrice : null,
+            bearCasePrice: typeof mData.bearCasePrice === "number" ? mData.bearCasePrice : null,
+            enterpriseValueCr: typeof mData.enterpriseValueCr === "number" ? mData.enterpriseValueCr : null,
+            equityValueCr: typeof mData.equityValueCr === "number" ? mData.equityValueCr : null,
+            assumptions: mData.assumptions as Record<string, unknown> | undefined,
+            projections: Array.isArray(mData.projections) ? (mData.projections as Array<{ year: string; [key: string]: unknown }>) : undefined,
+          } : null,
+          dataSources: (reportDataSources as Record<string, unknown> | null) ?? null,
+        });
+        console.log(`[MasterOrchestrator] Financial Evaluation verdict: ${financialAudit.verdict} (Score: ${financialAudit.overallScore}/100)`);
+      } catch (evalErr) {
+        console.warn("[MasterOrchestrator] Financial evaluation error:", evalErr);
+      }
+
       const rawPayload = {
         sourceType: "autonomous",
         ticker,
@@ -504,6 +542,7 @@ export class MasterOrchestrator {
         modelingData,
         marketIntelData,
         forensicAnalysis,
+        financialAudit,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
@@ -606,6 +645,12 @@ export class MasterOrchestrator {
     if (modelQuality && !modelQuality.isDerivedFromRealData) {
       console.warn(`  ⚠️  TARGET PRICE WARNING: DCF used generic constants — do NOT use target price for investment decisions.`);
     }
+    if (financialAudit) {
+      console.log(`  🛡️  Financial Audit : ${financialAudit.verdict === "CERTIFIED_AUTHENTIC" ? "🟢 CERTIFIED AUTHENTIC" : financialAudit.verdict === "VALIDATED_WITH_WARNINGS" ? "🟡 VALIDATED WITH WARNINGS" : "🔴 UNRELIABLE / FAILED"} (Score: ${financialAudit.overallScore}/100)`);
+      if (financialAudit.criticalFailures.length > 0) {
+        console.warn(`  ⚠️  CRITICAL AUDIT ISSUES: ${financialAudit.criticalFailures.join("; ")}`);
+      }
+    }
     const liveSourceCount = [
       dataSources?.bseNseFilings?.isLive,
       dataSources?.concallTranscript?.isLive,
@@ -633,6 +678,7 @@ export class MasterOrchestrator {
         dataSources: dataSources ?? null,
         researchQuality: `${liveSourceCount}/6 sources live`,
         modelFallback: modelQuality ? !modelQuality.isDerivedFromRealData : true,
+        financialAudit: financialAudit ? { verdict: financialAudit.verdict, score: financialAudit.overallScore } : null,
         sections: finalSections,
       });
     }

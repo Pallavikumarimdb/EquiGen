@@ -172,6 +172,7 @@ export interface EquityResearchData {
   modelUsedForFinancials?: string | null;
   forensicAnalysis?: ForensicQualityData | null;
   modelingData?: Record<string, unknown> | null;
+  financialAudit?: Record<string, unknown> | null;
 }
 
 export interface ForensicRedFlag {

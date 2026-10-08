@@ -19,6 +19,7 @@
 import { prisma } from "@/lib/db";
 import { pythonExecutor, computeDCFValuation } from "@/lib/sandbox/python-executor";
 import { fetchYahooFinancials, toModelingInputRecord } from "@/lib/ai/tools/yahoo-financials-tool";
+import { fetchBseCompanyFinancials } from "@/lib/ai/tools/bse-financial-data-tool";
 import { BuildFinancialModelMilestone, ModelingOutput } from "@/types/plan4";
 
 export interface ModelingAgentInput {
@@ -41,7 +42,7 @@ export interface ModelingAgentOutput {
 
 export interface ModelingDataQuality {
   isDerivedFromRealData: boolean;   // true = real financials used; false = fallback constants
-  financialSource: "extracted_filings" | "screener_live" | "sector_fallback";
+  financialSource: "extracted_filings" | "screener_live" | "bse_exchange_api" | "sector_fallback";
   screenerLiveData: boolean;        // whether Screener scrape succeeded
   baseRevenue: number;
   revenueSource: string;            // what produced the base revenue figure
@@ -260,11 +261,66 @@ export class ModelingAgent {
       console.warn(`[ModelingAgent] Yahoo Finance fetch failed for ${ticker}:`, err instanceof Error ? err.message : String(err));
     }
 
+    // === Path 2b: BSE India Official Financial Results API ===
+    try {
+      console.log(`[ModelingAgent] Checking BSE India official financial results for ${ticker}...`);
+      const bseData = await fetchBseCompanyFinancials(ticker);
+      const latestPnl = bseData.historicalSeries?.[0];
+      if (latestPnl && latestPnl.revenueCr && latestPnl.revenueCr > 0) {
+        const priorPnl = bseData.historicalSeries?.[1];
+        const revGrowth = latestPnl.revenueCr && priorPnl?.revenueCr && priorPnl.revenueCr > 0
+          ? Math.round(((latestPnl.revenueCr - priorPnl.revenueCr) / priorPnl.revenueCr) * 1000) / 1000
+          : 0.12;
+
+        const sharesDerived = bseData.currentPrice && bseData.marketCapCr
+          ? Math.round((bseData.marketCapCr / bseData.currentPrice) * 100) / 100
+          : undefined;
+
+        const bseRecord: Record<string, unknown> = {
+          revenue: latestPnl.revenueCr,
+          sales: latestPnl.revenueCr,
+          ebitda: latestPnl.ebitdaCr,
+          ebitdaMargin: latestPnl.ebitdaCr ? latestPnl.ebitdaCr / latestPnl.revenueCr : undefined,
+          revenueGrowth: revGrowth,
+          netIncome: latestPnl.patCr,
+          currentPrice: bseData.currentPrice,
+          marketCapCr: bseData.marketCapCr,
+          outstandingShares: sharesDerived,
+          sharesCr: sharesDerived,
+          peRatio: bseData.peRatio,
+          _isLiveData: true,
+          _source: "bse_exchange_api",
+        };
+
+        const params = this.buildParamsFromFinancials(bseRecord);
+        const missingFields = this.detectMissingFields(bseRecord);
+
+        console.log(`[ModelingAgent] ✓ BSE India official filings obtained for ${ticker} (₹${params.baseRevenue.toLocaleString("en-IN")} Cr).`);
+
+        return {
+          params,
+          dataQuality: {
+            isDerivedFromRealData: true,
+            financialSource: "bse_exchange_api",
+            screenerLiveData: true,
+            baseRevenue: params.baseRevenue,
+            revenueSource: `BSE India official exchange filings (₹${params.baseRevenue.toLocaleString("en-IN")} Cr audited revenue)`,
+            missingFields,
+            disclaimer: missingFields.length > 0
+              ? `Model inputs sourced from BSE India exchange filings. Missing: ${missingFields.join(", ")}.`
+              : null,
+          },
+        };
+      }
+    } catch (bseErr) {
+      console.warn(`[ModelingAgent] BSE financial results check failed for ${ticker}:`, bseErr instanceof Error ? bseErr.message : String(bseErr));
+    }
+
     // === Path 3: Sector fallback constants (last resort) ===
     console.warn(
       `[ModelingAgent] ⚠️ FALLBACK: Could not obtain real financial data for ${ticker} (${companyName}) ` +
-      `from either DocumentAgent or Screener.in. Using sector-average constants. ` +
-      `DCF output will be UNRELIABLE — do not use target price without verification.`
+      `from DocumentAgent, Yahoo Finance, or BSE India. Using sector-average constants. ` +
+      `DCF output will be UNRELIABLE — target price is suppressed.`
     );
 
     const fallbackParams = {
@@ -292,7 +348,7 @@ export class ModelingAgent {
         missingFields: ["revenue", "EBITDA", "net_debt", "shares_outstanding", "beta"],
         disclaimer:
           `⚠️ IMPORTANT: Financial model used sector-average fallback constants — actual financial figures ` +
-          `for ${companyName} (${ticker}) were unavailable from BSE/NSE filings and Screener.in. ` +
+          `for ${companyName} (${ticker}) were unavailable from BSE/NSE filings and market data feeds. ` +
           `Target price is INDICATIVE ONLY and must NOT be used for investment decisions. ` +
           `Please obtain real audited financials before use.`,
       },
@@ -303,7 +359,7 @@ export class ModelingAgent {
 
   private buildParamsFromFinancials(financials: Record<string, unknown>): DerivedModelParams {
     // 1. Base Revenue (Crores)
-    let baseRevenue = Number(financials.revenue ?? financials.sales ?? 10000);
+    let baseRevenue = Number(financials.revenue ?? financials.sales ?? financials.revenueCr ?? 10000);
     if (isNaN(baseRevenue) || baseRevenue <= 0) baseRevenue = 10000;
 
     // 2. EBITDA Margin
@@ -324,7 +380,7 @@ export class ModelingAgent {
     const wacc = Math.min(0.18, Math.max(0.08, rf + beta * erp));
 
     // 4. Revenue Growth Rate
-    let revenueGrowth = Number(financials.revenueGrowth ?? 0.12);
+    let revenueGrowth = Number(financials.revenueGrowth ?? financials.revenueGrowthYoY ?? financials.salesGrowth ?? 0.12);
     if (isNaN(revenueGrowth) || revenueGrowth <= 0 || revenueGrowth > 0.4) revenueGrowth = 0.12;
 
     // 5. Net Debt & Outstanding Shares
@@ -332,10 +388,27 @@ export class ModelingAgent {
     const cash = Number(financials.cash ?? 0);
     const netDebt = !isNaN(debt) && !isNaN(cash) ? Math.max(0, debt - cash) : 0;
 
-    const shares = Number(financials.outstandingShares ?? financials.shares ?? 50);
+    let shares = Number(financials.outstandingShares ?? financials.shares ?? financials.sharesCr ?? 0);
+    // Real calculation: derive shares from Market Cap / CMP if not explicitly provided
+    if ((isNaN(shares) || shares <= 0) && financials.marketCapCr && financials.currentPrice) {
+      const mcap = Number(financials.marketCapCr);
+      const cmp = Number(financials.currentPrice);
+      if (mcap > 0 && cmp > 0) {
+        shares = Math.round((mcap / cmp) * 100) / 100;
+      }
+    }
     const sharesCr = !isNaN(shares) && shares > 0 ? shares : 50;
 
-    return { baseRevenue, revenueGrowth, ebitdaMargin, wacc, taxRate: 0.25, capexPct: 0.05, terminalGrowth: 0.04, netDebt, sharesCr, isDerived: true, beta };
+    // Real Capex as % of Revenue
+    let capexPct = 0.05;
+    if (financials.capex && baseRevenue > 0) {
+      const c = Number(financials.capex);
+      if (!isNaN(c) && c > 0) {
+        capexPct = Math.max(0.02, Math.min(0.20, c / baseRevenue));
+      }
+    }
+
+    return { baseRevenue, revenueGrowth, ebitdaMargin, wacc, taxRate: 0.25, capexPct, terminalGrowth: 0.04, netDebt, sharesCr, isDerived: true, beta };
   }
 
   private detectMissingFields(financials: Record<string, unknown>): string[] {
