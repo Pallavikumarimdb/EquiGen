@@ -10,7 +10,7 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "EquiGen - AI Equity Research Report Generator",
   description:
-    "Generate Geojit-style equity research reports instantly with EquiGen Freemium AI",
+    "Generate institutional-grade, SEBI-compliant equity research reports with EquiGen's autonomous agentic analyst",
 };
 
 export default function RootLayout({

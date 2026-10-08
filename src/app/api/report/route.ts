@@ -7,7 +7,7 @@ import { requireApiSecret } from "@/lib/utils/auth";
 
 /**
  * POST /api/report
- * Compiles a research report into a Geojit-style PDF and returns it inline
+ * Compiles a research report into an EquiGen-branded PDF and returns it inline
  * (base64) so it works on serverless runtimes with a read-only filesystem.
  * The file is also persisted to public/temp/reports when writable (local/Docker).
  */

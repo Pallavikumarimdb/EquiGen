@@ -150,7 +150,7 @@ export interface EquityResearchData {
   businessOverview?: string | null;
   futureGrowth?: string | null;
 
-  // Geojit-specific fields
+  // Exchange identifiers & listing metadata
   nseCode?: string | null;
   bseCode?: string | null;
   bloombergCode?: string | null;

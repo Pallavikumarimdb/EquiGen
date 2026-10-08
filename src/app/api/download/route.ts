@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
@@ -137,6 +137,9 @@ export async function GET(req: NextRequest) {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-");
 
+    // Publishing-firm identity for the report's SEBI disclaimer. Always tenant-supplied.
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
     // Cache priority after an edit (proposal-apply.ts sets pdfBase64 = null):
     //   pdfBase64 = null → skip ALL caches, compile fresh from reportData
     //   pdfBase64 = <value> → serve DB blob (authoritative, fastest)
@@ -232,6 +235,7 @@ export async function GET(req: NextRequest) {
           reviewerName: cleanReviewer,
           sebiRegNo: report.sebiRegNo || "",
           approvedAt: report.approvedAt || new Date(),
+          orgName: org?.name ?? undefined,
         },
       );
 

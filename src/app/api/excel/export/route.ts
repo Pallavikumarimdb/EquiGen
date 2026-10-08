@@ -3,6 +3,14 @@ import { prisma } from "@/lib/db";
 import { excelGenerationService } from "@/lib/excel/excel-generator";
 import { EquityResearchData } from "@/types";
 import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { BRAND } from "@/lib/brand";
+
+/** Filesystem-safe fragment derived from a firm name, or null when unusable. */
+function sanitizeFilePart(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const cleaned = name.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+  return cleaned.length > 0 ? cleaned.slice(0, 48) : null;
+}
 
 /**
  * GET /api/excel/export?reportId=...
@@ -59,11 +67,15 @@ export async function GET(req: NextRequest) {
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";
 
+    // Publishing-firm identity comes from the tenant, never from a platform default.
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
     const attestation = {
       reviewerName: dbReport.reviewerName,
       sebiRegNo: dbReport.sebiRegNo,
       approvedAt: dbReport.approvedAt,
       contentHash: dbReport.contentHash,
+      orgName: org?.name ?? null,
     };
 
     const excelBuffer = await excelGenerationService.generateReportExcel(
@@ -76,7 +88,7 @@ export async function GET(req: NextRequest) {
       .replace(/[^a-zA-Z0-9_-]/g, "_")
       .toUpperCase();
 
-    const fileName = `EquiGen_${ticker}_${status.toUpperCase()}.xlsx`;
+    const fileName = `${sanitizeFilePart(org?.name) ?? BRAND.productName}_${ticker}_${status.toUpperCase()}.xlsx`;
 
     return new NextResponse(new Uint8Array(excelBuffer), {
       status: 200,
@@ -142,11 +154,14 @@ export async function POST(req: NextRequest) {
     const reportData = dbReport.reportData as unknown as EquityResearchData;
     const status = dbReport.status || "draft";
 
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
     const attestation = {
       reviewerName: dbReport.reviewerName,
       sebiRegNo: dbReport.sebiRegNo,
       approvedAt: dbReport.approvedAt,
       contentHash: dbReport.contentHash,
+      orgName: org?.name ?? null,
     };
 
     const excelBuffer = await excelGenerationService.generateReportExcel(

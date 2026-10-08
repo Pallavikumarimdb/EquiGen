@@ -40,7 +40,7 @@ export const PLANS: Record<PlanId, Plan> = {
     seats: 1,
     features: [
       "3 research notes per month",
-      "Geojit-style PDF & Excel export",
+      "Branded PDF & Excel export",
       "Financial extraction & math audit",
       "Single analyst seat",
     ],

@@ -1,4 +1,4 @@
-import { HtmlReportGenerator } from "@/lib/ai/html-report-generator";
+import { HtmlReportGenerator, type HtmlReportOptions } from "@/lib/ai/html-report-generator";
 import fs from "fs";
 import path from "path";
 
@@ -12,30 +12,35 @@ import path from "path";
  * and produced blank pages, text overlaps, and broken chart layouts.
  */
 
+/** Reviewer + publishing-firm metadata stamped onto the report. */
+export type ReportPDFMetadata = Pick<
+  HtmlReportOptions,
+  "reviewerName" | "sebiRegNo" | "approvedAt" | "orgName" | "complianceEmail" | "website"
+>;
+
 export class PDFGenerationService {
   public async generateReportPDF(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data: any,
     status = "draft",
-    metadata?: { reviewerName: string; sebiRegNo: string; approvedAt: Date },
+    metadata?: ReportPDFMetadata,
   ): Promise<Buffer> {
     const isAutonomous = data?.sourceType === "autonomous" || Array.isArray(data?.sections);
 
     // 1. Generate the full HTML report
     console.log(`[PDF] Generating ${isAutonomous ? "Autonomous" : "Standard"} HTML report...`);
+    const htmlOptions: HtmlReportOptions = {
+      status: status as "draft" | "published",
+      reviewerName: metadata?.reviewerName,
+      sebiRegNo: metadata?.sebiRegNo,
+      approvedAt: metadata?.approvedAt,
+      orgName: metadata?.orgName,
+      complianceEmail: metadata?.complianceEmail,
+      website: metadata?.website,
+    };
     const html = isAutonomous
-      ? HtmlReportGenerator.generateAutonomousHTML(data, {
-          status: status as "draft" | "published",
-          reviewerName: metadata?.reviewerName,
-          sebiRegNo: metadata?.sebiRegNo,
-          approvedAt: metadata?.approvedAt,
-        })
-      : await HtmlReportGenerator.generateHTML(data, {
-          status: status as "draft" | "published",
-          reviewerName: metadata?.reviewerName,
-          sebiRegNo: metadata?.sebiRegNo,
-          approvedAt: metadata?.approvedAt,
-        });
+      ? HtmlReportGenerator.generateAutonomousHTML(data, htmlOptions)
+      : await HtmlReportGenerator.generateHTML(data, htmlOptions);
 
     // Optional: cache the HTML alongside the PDF for debugging
     try {

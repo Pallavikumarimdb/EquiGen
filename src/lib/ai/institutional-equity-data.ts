@@ -6,7 +6,7 @@ import fs from "fs";
  * Institutional Equity Research AI Agent
  *
  * Dynamically synthesizes an authentic, 100% complete institutional equity research dataset
- * for ANY company requested by the user, matching the publication-grade Geojit 4-page template:
+ * for ANY company requested by the user, matching the EquiGen 4-page report template:
  * - Page 1: Key Changes, Valuation Multiples, Company Data, Shareholding, Price Performance,
  *           Company Overview, Key Highlights, Outlook & Valuation, Consolidated Quarterly Financials.
  * - Page 2: 5-Year March Summary, Estimates Revisions (Old vs New), Highlights & Insights,

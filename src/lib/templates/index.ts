@@ -1,10 +1,16 @@
 /**
- * Visual design system tokens for Geojit-style Equity Research Report PDF.
+ * Visual design tokens for the EquiGen institutional equity research report.
+ *
+ * These are EquiGen's own house tokens. PDF rendering now runs through
+ *   src/lib/ai/html-report-generator.ts  — LLM generates full HTML
+ *   src/lib/pdf/index.ts                 — Puppeteer renders HTML -> PDF
+ * so this object is the nominal single source of truth for colour/type/layout
+ * tokens that inline styles should be kept in sync with.
  */
-export const GEOJIT_THEME = {
+export const EQUIGEN_THEME = {
   colors: {
     primary: "#0B3C5D",
-    secondary: "#328CC1",
+    secondary: "#07877B",
     accent: "#D9B310",
     darkText: "#1D2731",
     lightBg: "#F9F9F9",
@@ -26,10 +32,6 @@ export const GEOJIT_THEME = {
     pageWidth: 595,
     pageHeight: 842,
   },
-};
+} as const;
 
-export type GeojitTheme = typeof GEOJIT_THEME;
-
-// NOTE: PDF generation has moved to:
-//   src/lib/ai/html-report-generator.ts  — LLM generates full HTML
-//   src/lib/pdf/index.ts                 — Puppeteer renders HTML → PDF
+export type EquiGenTheme = typeof EQUIGEN_THEME;

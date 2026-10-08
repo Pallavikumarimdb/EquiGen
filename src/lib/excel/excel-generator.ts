@@ -1,12 +1,15 @@
 import ExcelJS from "exceljs";
 import { EquityResearchData } from "@/types";
 import { runThreeStatementModel, ThreeStatementDrivers } from "../financial-modeling/three-statement-engine";
+import { BRAND, resolveFirmIdentity } from "../brand";
 
 export interface ExcelAttestationMetadata {
   reviewerName?: string | null;
   sebiRegNo?: string | null;
   approvedAt?: Date | string | null;
   contentHash?: string | null;
+  /** Publishing-firm name for the attestation sheet. Tenant-supplied. */
+  orgName?: string | null;
 }
 
 export class ExcelGenerationService {
@@ -28,9 +31,11 @@ export class ExcelGenerationService {
     attestation?: ExcelAttestationMetadata
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "EquiGen Automated Research Platform";
-    workbook.lastModifiedBy = "EquiGen 3-Statement Financial Engine";
+    workbook.creator = `${BRAND.productName} Automated Research Platform`;
+    workbook.lastModifiedBy = `${BRAND.productName} 3-Statement Financial Engine`;
     workbook.created = new Date();
+
+    const firm = resolveFirmIdentity({ orgName: attestation?.orgName ?? undefined });
 
     const isPublished = status === "approved" || status === "published";
     const company = reportData.company;
@@ -893,7 +898,11 @@ export class ExcelGenerationService {
 
       discSheet.mergeCells(`A${sRow}:F${sRow + 4}`);
       const disclaimerCell = discSheet.getCell(`A${sRow}`);
-      disclaimerCell.value = `This equity research report and 3-statement financial model workbook has been prepared by SEBI Registered Research Analyst ${attestation?.reviewerName || "Authorized Analyst"} (${attestation?.sebiRegNo || "SEBI Reg No. INH000001234"}). Investments in securities market are subject to market risks. Read all related documents carefully before investing. EquiGen and the analyst certify that the views expressed in this document accurately reflect personal views about the subject company.`;
+      const reviewer = attestation?.reviewerName?.trim() || "Authorized Analyst (name not supplied)";
+      // Never fabricate a SEBI registration number: an invented INH id on a
+      // compliance attestation sheet is a false regulatory credential.
+      const sebiReg = attestation?.sebiRegNo?.trim() || "SEBI Reg. No. NOT SUPPLIED";
+      disclaimerCell.value = `This equity research report and 3-statement financial model workbook has been prepared by SEBI Registered Research Analyst ${reviewer} (${sebiReg}). Investments in securities market are subject to market risks. Read all related documents carefully before investing. ${firm.orgName} and the analyst certify that the views expressed in this document accurately reflect personal views about the subject company.`;
       disclaimerCell.alignment = { wrapText: true, vertical: "top" };
 
       discSheet.columns.forEach((col: Partial<ExcelJS.Column>) => {

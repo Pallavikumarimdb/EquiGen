@@ -202,7 +202,7 @@ export class LangChainAIService {
       businessOverview: aiResult.businessOverview,
       futureGrowth: aiResult.futureGrowth,
 
-      // Map Geojit fields
+      // Map EquiGen report fields
       nseCode: aiResult.nseCode,
       bseCode: aiResult.bseCode,
       bloombergCode: aiResult.bloombergCode,
