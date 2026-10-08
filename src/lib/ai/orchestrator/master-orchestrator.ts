@@ -514,9 +514,15 @@ export class MasterOrchestrator {
             sharesOutstandingCr: effectiveFin.sharesOutstandingCr ?? null,
             beta: effectiveFin.beta ?? null,
             dividendYield: effectiveFin.dividendYield ?? null,
-            isLiveData: effectiveFin.isLiveData ?? (effectiveFin.source !== "generic_constants"),
+            // Liveness must be READ, never inferred. This previously fell back to
+            // `source !== "generic_constants"`, which certified a data pull as live
+            // whenever its source string happened not to be that one literal.
+            isLiveData: effectiveFin.isLiveData === true,
             dataSource: effectiveFin.source ?? "unknown",
-            fetchedAt: effectiveFin.fetchedAt ?? new Date().toISOString(),
+            // Never invent a fetch time. A missing timestamp must reach the audit as
+            // missing so AUTH_02 fails, rather than being backfilled with `new Date()`
+            // which made the freshness check permanently pass.
+            fetchedAt: effectiveFin.fetchedAt ?? null,
           } : null,
           modelingData: mData ? {
             baseTargetPrice: typeof mData.baseTargetPrice === "number" ? mData.baseTargetPrice : null,
@@ -534,6 +540,17 @@ export class MasterOrchestrator {
         console.warn("[MasterOrchestrator] Financial evaluation error:", evalErr);
       }
 
+      // As-of date for the underlying data, taken from what the source actually
+      // reported. `completedAt` is when the run finished; `dataAsOf` is when the
+      // figures were true. They are different facts and the report header must not
+      // conflate them — a PDF that says "as of <render time>" asserts that a
+      // three-month-old price series is current.
+      const reportedFetchedAt = (effectiveFin as { fetchedAt?: string } | null)?.fetchedAt ?? null;
+      const dataAsOf =
+        financialAudit?.provenance?.dataFetchedAt ??
+        financialAudit?.provenance?.dataAsOfIstDate ??
+        reportedFetchedAt;
+
       const rawPayload = {
         sourceType: "autonomous",
         ticker,
@@ -546,6 +563,8 @@ export class MasterOrchestrator {
         financialAudit,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
+        dataFetchedAt: reportedFetchedAt,
+        dataAsOf,
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
         companyData: effectiveFin ? {
           marketCap:        effectiveFin.marketCapCr    ?? effectiveFin.marketCap ?? null,

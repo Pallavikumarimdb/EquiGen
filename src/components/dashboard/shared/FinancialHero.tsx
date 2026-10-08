@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { assessMarketFreshness } from "@/lib/market/india-trading-calendar";
 import {
   TrendingUp,
   TrendingDown,
   Calendar,
+  Clock,
   Download,
   FileSpreadsheet,
   FileText,
@@ -86,6 +88,16 @@ export function FinancialHero({
   const auditScore = financialAudit?.overallScore;
   const auditFailures = Array.isArray(financialAudit?.criticalFailures) ? financialAudit.criticalFailures : [];
 
+// Recompute freshness in the UI from the recorded fetch timestamp, so the badge
+// reflects how old the data is *now* rather than how old it was at audit time.
+const auditFreshness = useMemo(
+  () =>
+    assessMarketFreshness(
+      financialAudit?.provenance?.dataFetchedAt ?? financialAudit?.provenance?.evaluatedAt ?? null,
+    ),
+  [financialAudit],
+);
+
   return (
     <div className="space-y-3 mb-4">
       {/* RC-8: Data Quality Banner — shown when fallback data detected */}
@@ -157,6 +169,22 @@ export function FinancialHero({
                     : auditVerdict === "VALIDATED_WITH_WARNINGS"
                     ? `VALIDATED (${auditScore}/100)`
                     : "AUDIT FAILED"}
+                </span>
+              </span>
+            )}
+            {/* Data freshness badge — the figures' own age, not the render time.
+                A report built on stale market data must say so next to the
+                authenticity badge, since "authenticated" says nothing about age. */}
+            {auditFreshness && !auditFreshness.isCurrentSession && (
+              <span
+                title={auditFreshness.summary}
+                className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300"
+              >
+                <Clock className="w-3 h-3 text-amber-600" />
+                <span>
+                  {auditFreshness.timestampKnown
+                    ? `DATA ${auditFreshness.sessionsElapsed}D OLD`
+                    : "DATA AGE UNKNOWN"}
                 </span>
               </span>
             )}
