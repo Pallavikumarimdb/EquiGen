@@ -8,6 +8,12 @@ import {
   resolveFirmIdentity,
   type ResolvedFirmIdentity,
 } from "@/lib/brand";
+import {
+  resolveProvenance,
+  provenanceBadgeClass,
+  type DataSourceEntry,
+  type ProvenanceSummary,
+} from "@/lib/report/provenance";
 
 /**
  * AI-assisted HTML equity research report generator.
@@ -859,7 +865,45 @@ function buildHtml(
     website: options.website,
   });
 
+  // ── Data freshness line ──────────────────────────────────────────────────
+  // The previous value was `new Date()` at render time, which asserts that the
+  // figures are current at the moment the PDF was produced. On a report built from
+  // a three-month-old price series that is a misstatement. Report the data's own
+  // as-of timestamp, or say plainly that it was not recorded.
+  const reportRec = data as unknown as Record<string, unknown>;
+  const rawAsOf =
+    (typeof reportRec.asOf === "string" && reportRec.asOf) ||
+    (typeof reportRec.dataAsOf === "string" && reportRec.dataAsOf) ||
+    (typeof reportRec.completedAt === "string" && reportRec.completedAt) ||
+    null;
+
+  let dataFreshnessLine: string;
+  if (rawAsOf) {
+    const asOfDate = new Date(rawAsOf);
+    const formatted = isNaN(asOfDate.getTime())
+      ? rawAsOf
+      : asOfDate.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const ageHours = (Date.now() - asOfDate.getTime()) / 3.6e6;
+    const staleness =
+      !isNaN(ageHours) && ageHours > 48
+        ? ` — WARNING: underlying data is ${Math.round(ageHours / 24)} day(s) old`
+        : "";
+    dataFreshnessLine = `Data as of ${formatted} IST${staleness}`;
+  } else {
+    dataFreshnessLine = "Data as-of timestamp: NOT RECORDED for this report";
+  }
+
   const dfRaw = data.detailedFinancials;
+
+  // Provenance for the manually-uploaded filing path. `dataSources` is only present
+  // on orchestrator-produced reports, so an uploaded-document report resolves most
+  // items to `not_assessed` — which is the truthful answer: we know the figures came
+  // from a document, but not which exchange feed or audit verdict backs them.
+  const standardProvenance: ProvenanceSummary = resolveProvenance({
+    dataSources: (reportRec.dataSources as Record<string, DataSourceEntry> | undefined) ?? null,
+    financialAudit: (reportRec.financialAudit as Record<string, unknown> | undefined) ?? null,
+    asOf: rawAsOf,
+  });
   const df: DetailedFinancialsData = Array.isArray(dfRaw)
     ? (dfRaw[0] ?? {})
     : (dfRaw ?? {});
@@ -1286,6 +1330,16 @@ function buildHtml(
   .draft-sub { font-weight: 400; font-size: 6.5pt; color: #991b1b; }
   .published-block { background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 6px; font-size: 7pt; color: #14532d; margin-bottom: 2mm; }
 
+  /* Data provenance — badge colour reflects the ACTUAL source state, never an intent */
+  .provenance-block { border: 1px solid #cbd5e1; border-radius: 4px; padding: 3mm; margin-top: 3mm; font-size: 7.5pt; color: #1e293b; }
+  .provenance-block > div { margin-bottom: 2mm; }
+  .provenance-block > div:last-child { margin-bottom: 0; }
+  .prov-badge { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 8px; margin-left: 4px; }
+  .prov-live { background: #dcfce7; color: #15803d; }
+  .prov-fallback { background: #fef3c7; color: #b45309; }
+  .prov-detail { font-size: 7pt; color: #64748b; margin-top: 1mm; line-height: 1.35; }
+  .prov-caveat { margin-top: 2mm; padding: 2mm 3mm; background: #fffbeb; border-left: 3px solid #d97706; border-radius: 3px; font-size: 7.5pt; color: #78350f; line-height: 1.4; }
+
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page { page-break-after: always; min-height: 297mm; }
@@ -1301,7 +1355,7 @@ ${watermark}
   <div class="vertical-ribbon">${escape(quarterLabel)} Result Update</div>
   <div class="top-logo">
     <span>Retail Equity Research</span>
-    <span style="font-size: 7pt; color: #475569; font-weight: 600;">Data Freshness: As of ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST | Source: BSE/NSE Disclosures &amp; Live Quotes</span>
+    <span style="font-size: 7pt; color: #475569; font-weight: 600;">${escape(dataFreshnessLine)}</span>
     ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
   ${draftBanner}
@@ -1737,6 +1791,26 @@ ${watermark}
 
   ${publishedBlock}
 
+  <!-- DATA PROVENANCE — resolved from the report's actual audit + source state -->
+  <div class="provenance-block">
+${standardProvenance.items
+  .map(
+    (p) => `    <div>
+      <strong>${escape(p.label)}:</strong>
+      <span class="prov-badge ${provenanceBadgeClass(p.state)}">${escape(p.badge)}</span>
+      <div class="prov-detail">${escape(p.detail)}</div>
+    </div>`,
+  )
+  .join("\n")}
+  </div>
+${standardProvenance.hasUnverifiedItems
+  ? `<div class="prov-caveat">
+    <strong>Data-quality notice:</strong> not every input on this report is
+    exchange-verified. Items marked <em>Fallback used</em>, <em>Not available</em>
+    or <em>Not assessed</em> above were not confirmed against live disclosures.
+  </div>`
+  : ""}
+
   <div class="disclaimer">
     <strong>DISCLAIMER &amp; DISCLOSURES</strong><br><br>
     <strong>1. Certification:</strong> I, ${escape(cleanReviewer)}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(firm.orgName)}.<br>
@@ -1777,6 +1851,13 @@ export interface AutonomousReportInput {
     newsDigest?: Record<string, unknown> | null;
   } | null;
   dataSources?: Record<string, { isLive?: boolean; count?: number; found?: boolean; source?: string; isDerivedFromRealData?: boolean; quotesFound?: number }> | null;
+  /** Persisted financial authenticity audit, when one ran for this report. */
+  financialAudit?: Record<string, unknown> | null;
+  /**
+   * As-of timestamp of the underlying data (ISO). Distinct from the render time —
+   * rendering "as of now" on a three-month-old price series is a misstatement.
+   */
+  asOf?: string | null;
 }
 
 // ─── Clean Markdown Renderer (Filters meta-noise like 'User Safety: safe') ────
@@ -2358,11 +2439,28 @@ function buildAutonomousHtml(
 ): string {
   const compName = data.companyName || "Target Company";
   const ticker = data.ticker || "TICKER";
+  // Publication date is legitimately "now" — but the header beside it is labelled
+  // "As of", which readers interpret as the age of the data. Keep the two distinct:
+  // print the data's own as-of when known, otherwise say so.
   const dateStr = new Date().toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+  const _autonomousRec = data as unknown as Record<string, unknown>;
+  const _autonomousAsOfRaw =
+    (typeof _autonomousRec.asOf === "string" && _autonomousRec.asOf) ||
+    (typeof _autonomousRec.completedAt === "string" && _autonomousRec.completedAt) ||
+    null;
+  const asOfStr = _autonomousAsOfRaw
+    ? (() => {
+        const d = new Date(_autonomousAsOfRaw);
+        return isNaN(d.getTime())
+          ? _autonomousAsOfRaw
+          : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+      })()
+    : null;
+  const headerAsOfStr = asOfStr ?? "not recorded";
   const isDraft = options.status !== "published";
   const sections = data.sections || [];
 
@@ -2400,6 +2498,29 @@ function buildAutonomousHtml(
   const trajectoryMargins = m.financialYears.map((f) => f.marginPct);
   const trajectorySvg = svgAutonomousFinancialTrajectory(trajectoryYears, trajectoryRevenues, trajectoryMargins);
   const scenarioSvg = svgAutonomousScenarioChart(m.cmp, m.bearPrice, m.targetPrice, m.bullPrice);
+
+  // ── Data provenance: resolved from actual source state, never asserted ────
+  const provenance: ProvenanceSummary = resolveProvenance({
+    dataSources: data.dataSources,
+    financialAudit: data.financialAudit,
+    asOf: data.asOf,
+  });
+  const provenanceBlockHtml = provenance.items
+    .map(
+      (p) => `    <div>
+      <strong>${escape(p.label)}:</strong>
+      <span class="prov-badge ${provenanceBadgeClass(p.state)}">${escape(p.badge)}</span>
+      <div class="prov-detail">${escape(p.detail)}</div>
+    </div>`,
+    )
+    .join("\n");
+  const provenanceCaveat = provenance.hasUnverifiedItems
+    ? `<div class="prov-caveat">
+    <strong>Data-quality notice:</strong> not every input on this page is
+    exchange-verified. Items marked <em>Fallback used</em>, <em>Not available</em>
+    or <em>Not assessed</em> above were not confirmed against live disclosures.
+  </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2753,14 +2874,18 @@ function buildAutonomousHtml(
     background: #faf8f5;
     border: 1px solid #e3dfd5;
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 8px 10px;
     margin: 8px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    /* Grid, not flex: each item carries a detail line, so items need their own
+       cell. A single flex row squeezes four items and their explanations into
+       unreadable columns. */
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 14px;
     font-size: 7pt;
     color: #475569;
   }
+  .provenance-block > div { margin: 0; }
   .prov-badge {
     font-weight: 800;
     padding: 1px 5px;
@@ -2770,6 +2895,12 @@ function buildAutonomousHtml(
   }
   .prov-live { background: #dcfce7; color: #15803d; }
   .prov-fallback { background: #fef3c7; color: #b45309; }
+.prov-detail { font-size: 7pt; color: #64748b; margin-top: 1mm; line-height: 1.35; }
+.prov-caveat {
+  margin-top: 2mm; padding: 2mm 3mm; background: #fffbeb;
+  border-left: 3px solid #d97706; border-radius: 3px;
+  font-size: 7.5pt; color: #78350f; line-height: 1.4;
+}
 
   .disclaimer-box {
     background: #f8fafc;
@@ -2944,7 +3075,7 @@ function buildAutonomousHtml(
     </div>
     <div class="header-right">
       <div>${compName} (${ticker})</div>
-      <div>As of: ${dateStr}</div>
+      <div>Data as of: ${headerAsOfStr} · Published: ${dateStr}</div>
     </div>
   </div>
 
@@ -3127,21 +3258,11 @@ function buildAutonomousHtml(
     ${renderCleanMarkdown(risks?.content || "Key risks and market intelligence pending.")}
   </div>
 
-  <!-- DATA PROVENANCE & CREDIT RATING BLOCK -->
+  <!-- DATA PROVENANCE — badges reflect the ACTUAL source state, not an assertion -->
   <div class="provenance-block">
-    <div>
-      <strong>Research Provenance:</strong> Exchange Disclosures (BSE/NSE)
-      <span class="prov-badge prov-live">Verified</span>
-    </div>
-    <div>
-      <strong>Credit Rating:</strong> CRISIL / ICRA
-      <span class="prov-badge prov-live">Investment Grade</span>
-    </div>
-    <div>
-      <strong>Valuation Methodology:</strong> 3-Tier DCF &amp; Screener Multiples
-      <span class="prov-badge prov-live">Audited Inputs</span>
-    </div>
+${provenanceBlockHtml}
   </div>
+${provenanceCaveat}
 
   <!-- SEBI COMPLIANCE & DISCLOSURES -->
   <div class="section-card">
