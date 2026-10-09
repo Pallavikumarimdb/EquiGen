@@ -9,7 +9,7 @@
  * production whenever the corresponding environment variable was unset. Neither is
  * caught by linting or by the type checker, and neither would fail a build.
  *
- * SCOPE AND LIMITS — stated plainly so this is not over-trusted:
+ * SCOPE AND LIMITS ? stated plainly so this is not over-trusted:
  *  - It scans the WORKING TREE of tracked files, not full history. A secret that was
  *    committed and later removed is still in history and must be rotated regardless of
  *    this check passing. Use `git log -p -S'<value>'` to search history.
@@ -36,6 +36,13 @@ const SKIP_DIRS = new Set([
   "test-results",
   ".report-debug",
 ]);
+
+/**
+ * This scanner necessarily contains the very literals it searches for, so it must
+ * exclude itself. Without this, committing it flags four findings against its own
+ * source and the check can never pass.
+ */
+const SELF_PATH = "scripts/scan-committed-secrets.mjs";
 
 const TEXT_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -124,7 +131,8 @@ function trackedFiles() {
 }
 
 function shouldScan(relPath) {
-  const parts = relPath.split(/[\\/]/);
+  if (relPath === SELF_PATH) return false;
+  const parts = relPath.split(/[/\\]/);
   if (parts.some((p) => SKIP_DIRS.has(p))) return false;
   const ext = extname(relPath);
   if (ext === ".lock" || relPath.endsWith("pnpm-lock.yaml")) return false;
@@ -167,7 +175,7 @@ for (const relPath of trackedFiles()) {
           relPath,
           lineNo: i + 1,
           rule: "previously-committed secret",
-          detail: `${what} — literal still present`,
+          detail: `${what} ? literal still present`,
         });
       }
     }
@@ -199,7 +207,7 @@ for (const f of findings) {
   console.error(`  ${f.relPath}:${f.lineNo}  [${f.rule}] ${f.detail}`);
 }
 console.error(
-  "\nIf a finding is a genuine secret, rotate it — removing it from the file does not\n" +
+  "\nIf a finding is a genuine secret, rotate it ? removing it from the file does not\n" +
     "remove it from git history. Add a false positive to ALLOWLIST with a reason.",
 );
 process.exit(1);
