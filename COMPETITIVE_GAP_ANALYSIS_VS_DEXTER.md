@@ -1176,7 +1176,7 @@ Effort in engineer-days. Ordered by risk reduction per unit effort.
 | P0-8 | ~~**Collapse to one DCF engine**~~ **DONE.** Single TS engine; net-cash carried through; guards throw instead of emitting ₹1/Infinity; sensitivity grid and Monte Carlo now call the same engine. Also: real WACC (CoE + rating-spread Kd + weights), seeded RNG, and two fabrications removed from the report renderer. | GAP-16.1–4 | 3 |
 | P0-9 | **Fix BSE FY aggregation** (quarters→FY, EPS sum not max) and the `TTM` mislabel. | GAP-17 | 2 |
 | P0-10 | **Fix ₹ mojibake**; add a `\uFFFD` assertion to every output test. | GAP-17 | 0.5 |
-| **P0-11** | **NEW — stop fabricating peers and market cap in the renderer.** `html-report-generator.ts` invents `PEER1`/`PEER2` as "Sector Peer A/B" with derived multiples (`cmp x 0.92`, `pe x 0.85`, `roe: 14.5`) and defaults `marketCapCr = 250000`. Found while fixing P0-8. Inventing named comparables in a research report is worse than showing none. Render an explicit "peer data unavailable" instead. | GAP-17 addendum | 1.5 |
+| **P0-11** | ~~**Stop fabricating peers, metrics, history and ratings in the renderer**~~ **DONE.** `html-report-generator.ts` fabricated peer tables, a five-year history, six subject metrics, the reference price and the rating. All now null-render as `n/a` with explicit unavailability statements. See remediation log. | GAP-17 addendum | 1.5 |
 
 **P0 subtotal ≈ 26.5 engineer-days.**
 
@@ -1524,6 +1524,72 @@ monotonicity, the equity bridge, guards, no-fabricated-floor, reproducibility) a
 for discount-rate derivation. One test written during this work asserted that a more
 geared company must have a *higher* WACC; that is backwards, and the corrected test
 pins the real relationship (leverage lowers WACC when after-tax Kd < Ke).
+
+---
+
+### DONE — P0-11 The renderer was the largest single source of invented numbers (`fix(report-integrity)`)
+
+Found while fixing P0-8. Scope turned out to be far wider than the peer fabrication
+first logged: `html-report-generator.ts` invented roughly a dozen figures, several of
+which were load-bearing for the report's conclusions.
+
+**Defect — peer tables for real listed companies, gated on a keyword.**
+If the report text happened to contain `"SBIN"` or `"HDFCBANK"`, the renderer emitted a
+full comparison table for those **real, traded securities** with hardcoded prices and
+multiples: SBIN ₹812 / 12.0x P/E / 16.5% ROE / ₹7,24,000 Cr; PNB ₹114; HDFC Bank
+₹1,640 / ₹12,50,000 Cr. A reader has no way to distinguish a fabricated price from a
+fetched one — both are typeset identically. This is the most serious defect in the
+repository: **asserting market data for named listed companies that was never observed.**
+
+**Defect — comparables that do not exist.**
+Failing the keyword test, it emitted literal tickers `PEER1`/`PEER2` named "Sector Peer
+A"/"Sector Peer B", with multiples back-derived from the subject company
+(`cmp x 0.92`, `pe x 0.85`, `pb x 0.82`, `roe: 14.5`).
+
+**Defect — a five-year financial history invented from one revenue figure.**
+The fallback branch back-extrapolated FY24/FY25 revenue from base revenue at the assumed
+growth rate, invented EBITDA margins as `0.95x / 1.00x / 1.04x / 1.08x / 1.12x` of the
+assumed margin, set PAT at a flat 65% of EBITDA, the share count at 500 Cr and EPS at
+₹12.5. **FY24 and FY25 carry no "E" suffix, so fabricated extrapolations were labelled as
+reported actuals.** Inventing history is a more serious class of defect than inventing a
+forecast.
+
+**Defect — six subject metrics defaulted to plausible constants.**
+Market cap ₹2,50,000 Cr, P/E 21.5x, P/B 2.85x, ROE 15.8%, ROCE 12.4%, dividend yield
+0.85%. FII 44.4% and DII 45.3% were likewise hardcoded, making "promoter holding" an
+arithmetic remainder of two invented numbers. A company with no retrieved financials was
+presented with a complete, authoritative metrics block.
+
+**Defect — the current price was invented, which manufactured the rating.**
+With no price found, CMP was set to `targetPrice / 1.16` — a formula chosen because it
+yields ~16% upside. Upside then defaulted to `16.0`, and the **investment rating** was
+derived from it, defaulting to `"BUY"`. A report with no market data whatsoever issued a
+BUY recommendation with a fabricated reference price. An unpriced company is now
+**NOT RATED**, with null CMP and upside.
+
+**Defect — scenario cards stated drivers the model never ran.**
+The bear card printed "Growth x 0.75, EBITDA Margin x 0.88, WACC +1.0%, **Term Growth
+3.5%**" and the bull card "x 1.22 / x 1.15 / −0.8% / **5.0%**" — the terminal growth rates
+were hardcoded literals. The DCF engine derives bull and bear from the 10th and 90th
+percentiles of a Monte Carlo simulation, so these cards described scenarios that were
+never computed, sitting directly beneath prices that were. Cards now state the price and
+its real provenance; driver assumptions print only for the base case.
+
+**All fabrications removed.** Every affected field is nullable and renders `n/a` with an
+explicit statement of what is unavailable and why (peer comparables, financial history,
+sensitivity analysis, reference price). Charts are omitted rather than plotted against 0,
+which would draw a revenue collapse that never happened.
+
+**Tests: 352 passing (30 files).** 17 new tests assert the absence of each fabrication
+and the presence of each unavailability statement. One test initially failed on
+`not.toContain("Sector Peer")`; the string legitimately survives as a section heading
+("Sector Peer Valuation Multiples"), so the assertion was narrowed to the fabricated row
+labels "Sector Peer A"/"Sector Peer B".
+
+**Also discovered, not fixed here:** this file contains **36 literal U+FFFD replacement
+characters** where `₹`, `•`, `—` and `÷` belong — i.e. the mojibake in P0-10 *is* real in
+this file, contradicting the earlier "false positive" finding. Every currency value it
+renders is currently a `�`. Tracked as P0-10.
 
 ---
 
