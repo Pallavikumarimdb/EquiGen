@@ -48,10 +48,20 @@ function resolveJwtSecret(): Uint8Array {
 
 // Resolved lazily: reading env at module scope breaks builds that import this module
 // before the environment is populated, and it must not throw during `next build`.
-let cachedSecret: Uint8Array | null = null;
+//
+// The cache lives on `globalThis`, not in a module-scoped variable. Next.js dev
+// re-evaluates modules on every recompile, so a module-scoped cache would generate a
+// NEW ephemeral key on each rebuild and silently invalidate every session cookie
+// mid-session. globalThis survives module reloads within the same process, which
+// gives a stable key for the lifetime of the dev server while still being random and
+// unreproducible from the repository.
+const globalForJwt = globalThis as unknown as { __equigenJwtSecret?: Uint8Array };
+
 function getSecret(): Uint8Array {
-  if (!cachedSecret) cachedSecret = resolveJwtSecret();
-  return cachedSecret;
+  if (!globalForJwt.__equigenJwtSecret) {
+    globalForJwt.__equigenJwtSecret = resolveJwtSecret();
+  }
+  return globalForJwt.__equigenJwtSecret;
 }
 
 export interface UserSessionPayload {
