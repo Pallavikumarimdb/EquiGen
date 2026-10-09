@@ -4,6 +4,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ExternalLink } from "lucide-react";
+import { isSafeUrl } from "@/lib/utils/url";
 
 interface FormattedChatMessageProps {
   content: string;
@@ -151,10 +152,7 @@ export function FormattedChatMessage({ content, isUser = false }: FormattedChatM
             // XSS protection: strictly allow only safe URL protocols
             const isSafe =
               typeof href === "string" &&
-              (href.startsWith("http://") ||
-                href.startsWith("https://") ||
-                href.startsWith("/") ||
-                href.startsWith("#"));
+              (isSafeUrl(href) || href.startsWith("/") || href.startsWith("#"));
             const safeHref = isSafe ? href : "#";
 
             const rawText = Array.isArray(children)
