@@ -262,11 +262,21 @@ export interface SensitivityMatrix {
   colLabel: string;   // e.g. "Terminal Growth Rate"
   rowValues: number[];
   colValues: number[];
-  matrix: number[][];  // targetPrice at each (row, col) combination
+  /**
+   * Target price at each (row, col) combination.
+   *
+   * A cell is `null` when the Gordon Growth terminal value is undefined for that
+   * pairing — specifically when WACC <= terminal growth. `null` means "not
+   * computable"; it must never be rendered as `0`, which would read as "this company
+   * is worthless", a claim the model does not support.
+   */
+  matrix: Array<Array<number | null>>;
 }
 
 export interface MonteCarloResult {
   simulations: number;
+  /** Seed used for the simulation shocks. Re-running with this seed reproduces the result. */
+  seed?: number;
   meanTargetPrice: number;
   medianTargetPrice: number;
   p10TargetPrice: number;

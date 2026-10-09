@@ -694,6 +694,16 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
                         {modelResult.tgSteps.map((_tgStep, cIdx) => {
                           const price = modelResult.sensitivityMatrix[rIdx][cIdx];
                           const isBase = rIdx === 2 && cIdx === 2;
+                          // `null` = the terminal value is undefined for this pairing
+                          // (WACC <= terminal growth). Showing ₹0.0 would assert the
+                          // company is worthless; showing the number would be a lie.
+                          if (price === null) {
+                            return (
+                              <td key={cIdx} className="p-2 text-center text-[#8A8178] italic">
+                                n/a
+                              </td>
+                            );
+                          }
                           return (
                             <td
                               key={cIdx}

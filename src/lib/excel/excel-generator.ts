@@ -846,7 +846,9 @@ export class ExcelGenerationService {
         const colLetter = String.fromCharCode(66 + colIdx);
         const cell = dcfSheet.getCell(`${colLetter}${dR}`);
         const price = modelResult.sensitivityMatrix[rowIdx][colIdx];
-        cell.value = price;
+        // null = terminal value undefined for this WACC/terminal-growth pairing.
+        // Writing 0 would assert a ₹0 valuation; label it as not computable.
+        cell.value = price === null ? "n/a" : price;
         cell.numFmt = "₹#,##0.0";
         cell.alignment = { horizontal: "right" };
 

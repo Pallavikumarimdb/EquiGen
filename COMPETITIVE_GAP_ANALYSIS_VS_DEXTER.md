@@ -1173,11 +1173,12 @@ Effort in engineer-days. Ordered by risk reduction per unit effort.
 | P0-5 | **Refuse to display forensic values derived from missing inputs.** Implement real Altman/Beneish inputs or relabel as proxies; `auditorQuality: "Not assessed"`; make `workingCapitalCycleDays` real or `null`-labelled. | GAP-19.8/9 | 4 |
 | P0-6 | ~~**Make the existing checks binding**~~ **DONE.** All sections checked against real financials; bounded regenerate; `pipelineEval` awaited + persisted; `ComplianceAgent` verdict enforced (fail-closed). Also fixed a real ordering bug where the compliance audit flagged the disclosures it had not yet appended. | GAP-05.1/2, GAP-09 | 3 |
 | P0-7 | **Stop falsifying freshness/liveness.** Remove `?? new Date()`; `AUTH_02` FAILs on absent `fetchedAt`; fix `api/eval/run`'s non-null inference. | GAP-07.3 | 1 |
-| P0-8 | **Collapse to one DCF engine**; fix net-debt double-subtraction; guard `wacc > g` and `shares > 0`; make the sensitivity grid use the same FCFF. | GAP-16.1–4 | 3 |
+| P0-8 | ~~**Collapse to one DCF engine**~~ **DONE.** Single TS engine; net-cash carried through; guards throw instead of emitting ₹1/Infinity; sensitivity grid and Monte Carlo now call the same engine. Also: real WACC (CoE + rating-spread Kd + weights), seeded RNG, and two fabrications removed from the report renderer. | GAP-16.1–4 | 3 |
 | P0-9 | **Fix BSE FY aggregation** (quarters→FY, EPS sum not max) and the `TTM` mislabel. | GAP-17 | 2 |
 | P0-10 | **Fix ₹ mojibake**; add a `\uFFFD` assertion to every output test. | GAP-17 | 0.5 |
+| **P0-11** | **NEW — stop fabricating peers and market cap in the renderer.** `html-report-generator.ts` invents `PEER1`/`PEER2` as "Sector Peer A/B" with derived multiples (`cmp x 0.92`, `pe x 0.85`, `roe: 14.5`) and defaults `marketCapCr = 250000`. Found while fixing P0-8. Inventing named comparables in a research report is worse than showing none. Render an explicit "peer data unavailable" instead. | GAP-17 addendum | 1.5 |
 
-**P0 subtotal ≈ 25 engineer-days.**
+**P0 subtotal ≈ 26.5 engineer-days.**
 
 ### P1 — Quality measurement & verification depth
 
@@ -1428,6 +1429,101 @@ raises a **critical** violation when either is missing — so every run returned
 enforced it would have blocked every report from ever being approved. Disclosures are
 now appended before the audit runs, and the audit judges the document as it will
 actually ship.
+
+---
+
+### DONE — P0-8 One DCF engine, and numbers that cannot silently be wrong (`fix(dcf)`)
+
+Every defect below produced a confident, plausible-looking number rather than an
+error, which is why none of them surfaced in review.
+
+**Defect — the displayed sensitivity matrix described a different company.**
+`computeDCFValuation` re-derived FCFF inline for the grid as
+`revenue x margin x 0.85 x (1 - tax) - revenue x capex`, ignoring the DSO/DIO/DPO
+working-capital schedule and the capex/depreciation build that the headline
+valuation used. Measured on identical inputs: **centre cell 1502.34 against a
+headline target price of 1819.81** — a 17% discrepancy inside one table. Every cell
+now re-runs the same 3-statement engine with the stressed WACC and terminal growth.
+
+**Defect — `wacc <= terminalGrowth` produced a negative enterprise value.**
+The Gordon Growth terminal value divides by `(wacc - terminalGrowth)`. With
+`wacc 4% / g 5%` the engine returned **enterpriseValue −1,135,220**, which
+`Math.max(1, ...)` then reported as a confident **₹1 target price**. `runThreeStatementModel`
+now validates its drivers up front and throws `InvalidValuationInputError`, listing
+every problem rather than the first. No placeholder price is ever returned.
+
+**Defect — a zero share count produced a target price of `Infinity`.**
+`sharesOutstandingCr: 0` divided equity value by zero; `Math.max(1, NaN)` did not
+catch it. Shares are validated as positive, and `ModelingAgent` no longer substitutes
+a fabricated 50 Cr share count when the real figure is unknown — it leaves it at 0 so
+the valuation is refused and the reason is reported.
+
+**Defect — net cash was thrown away.**
+`buildParamsFromFinancials` computed `netDebt = Math.max(0, debt - cash)`, discarding
+the cash pile for every net-cash company (IT majors typically hold more cash than
+debt) and valuing them as though they had neither. Net debt is now carried through,
+including its negative sign, and increases equity value accordingly.
+
+**Correction to the original finding — net debt was NOT double-subtracted.**
+The analysis claimed `equityValue = EV − netDebt` was computed twice. Measured, the
+engine's internal value and the wrapper's recomputation are **identical**: the engine
+derives `netDebt = baseDebt − baseCash` from the same figure, so subtracting it twice
+from the same base is idempotent. `equityValueCr === enterpriseValueCr − netDebt`
+holds exactly. The wrapper was reading a value the engine had already computed, so it
+now reads `modelResult.equityValue` — a de-duplication, not a fix. Recorded here
+because a test now pins the single-subtraction property.
+
+**Defect — the reported valuation depended on whether Python was installed.**
+`ModelingAgent` preferred the Python sandbox output whenever Python ran and used the
+TypeScript engine only when it failed. The two engines disagreed: the Python path used
+`ebitda * 0.85 * (1 - tax) - revenue * capex` for FCFF, and derived bull/bear from fixed
+`x1.25 / x0.78` multipliers against the engine's Monte Carlo percentiles. Which
+"the" valuation was published therefore depended on the host environment. The
+TypeScript engine is now the single source of truth; the sandbox still runs so the
+generated script and inputs stay auditable, but its numbers are never presented.
+
+**Defect — cost of equity was labelled WACC.**
+`wacc = rf + beta x erp` is the CAPM **cost of equity**; it omitted the cost of debt
+and the capital-structure weights entirely, so the "WACC" was 12.5% for every company
+regardless of leverage. Now built properly:
+
+    Ke  = rf + beta x ERP                    (cost of equity)
+    Kd  = rf + rating-based credit spread     (pre-tax cost of debt)
+    WACC = Ke x E/(D+E) + Kd x (1-t) x D/(D+E)
+
+The credit spread is graded from the actual rating where one exists, with a documented
+spread for unrated issuers rather than an implicit AAA. `rf` remains a static India 10Y
+assumption, not a live G-Sec fetch — stated in the report's own `waccDerivation` field.
+
+**Defect — no valuation could be reproduced.**
+Monte Carlo used `Math.random()`, and its percentiles were read at hardcoded indices
+(`mcSims[100]`, `mcSims[500]`, `mcSims[900]`) that only happened to be p10/median/p90
+for exactly 1,000 sorted samples. Replaced with a seeded mulberry32 PRNG and true
+quantile indexing; the seed is returned on the result so a run can be re-derived.
+
+**Fabrications removed from the report renderer.**
+`html-report-generator.ts` invented, rather than omitted:
+- a full 5x5 sensitivity grid scaled off the headline price
+  (`target x (baseSpread / spread)`, and `target x 1.4` whenever the spread fell
+  below 1% — a 40% uplift implying a valuation that was never performed);
+- bull and bear cases of `target x 1.18` and `target x 0.82` when the model produced
+  none.
+It now renders only what the engine computed, and states that sensitivity analysis is
+unavailable otherwise. Cells where WACC <= terminal growth render `n/a` rather than a
+price, in HTML, Excel and the scenario modeller.
+
+**New finding, NOT fixed here (see GAP-17 addendum).**
+The same function fabricates **peer companies** — literal tickers `PEER1`/`PEER2`
+named "Sector Peer A"/"Sector Peer B", with multiples derived as `cmp x 0.92`,
+`pe x 0.85`, `roe: 14.5` — and a `marketCapCr = 250000` default. Inventing named
+comparables in an institutional research report is a more serious defect than any of
+the above and is tracked separately.
+
+**Tests: 335 passing (29 files).** New: 24 for DCF correctness (grid consistency,
+monotonicity, the equity bridge, guards, no-fabricated-floor, reproducibility) and 11
+for discount-rate derivation. One test written during this work asserted that a more
+geared company must have a *higher* WACC; that is backwards, and the corrected test
+pins the real relationship (leverage lowers WACC when after-tax Kd < Ke).
 
 ---
 

@@ -1982,6 +1982,12 @@ const SECTION_TITLE_MAP: Record<string, string> = {
 // ─── Quantitative Data Extractor for Autonomous Reports ────────────────────────
 
 interface ExtractedAutonomousMetrics {
+  /**
+   * A price of `0` is the established "not computed" sentinel used throughout the
+   * pipeline (see `ModelingAgent`: a sector-fallback model emits 0). It must never be
+   * replaced with a derived figure: a bull case that is really `target x 1.18` asserts
+   * a scenario range the model never ran.
+   */
   targetPrice: number;
   cmp: number;
   bullPrice: number;
@@ -2005,7 +2011,7 @@ interface ExtractedAutonomousMetrics {
   promoterHolding: number;
   peers: Array<{ ticker: string; name: string; cmp: number; pe: number; pb: number; roe: number; marketCapCr: number }>;
   financialYears: Array<{ year: string; revenue: number; growthPct: number; ebitda: number; marginPct: number; pat: number; eps: number }>;
-  sensitivityMatrix: { waccs: number[]; growths: number[]; grid: number[][] };
+  sensitivityMatrix: { waccs: number[]; growths: number[]; grid: Array<Array<number | null>> };
 }
 
 function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAutonomousMetrics {
@@ -2035,9 +2041,11 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       : typeof dcfObj?.targetPriceBull === "number"
       ? (dcfObj.targetPriceBull as number)
       : 0;
+  // Fall back to a figure stated in the report text, but never to an assumed one.
+  // `targetPrice * 1.18` was a guess dressed as a bull case.
   if (!bullPrice) {
     const bullMatch = fullText.match(/bull\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
-    bullPrice = bullMatch ? parseFloat(bullMatch[1].replace(/,/g, "")) : Math.round(targetPrice * 1.18);
+    bullPrice = bullMatch ? parseFloat(bullMatch[1].replace(/,/g, "")) : 0;
   }
 
   let bearPrice =
@@ -2048,7 +2056,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       : 0;
   if (!bearPrice) {
     const bearMatch = fullText.match(/bear\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
-    bearPrice = bearMatch ? parseFloat(bearMatch[1].replace(/,/g, "")) : Math.round(targetPrice * 0.82);
+    bearPrice = bearMatch ? parseFloat(bearMatch[1].replace(/,/g, "")) : 0;
   }
 
   // 2. Market Cap & Multiples
@@ -2273,30 +2281,37 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   }
 
   // 7. Sensitivity Matrix (Gordon Growth: P(w,g) = Target * (w0 - g0) / (w - g))
-  let sensitivityMatrix: { waccs: number[]; growths: number[]; grid: number[][] };
+  let sensitivityMatrix: { waccs: number[]; growths: number[]; grid: Array<Array<number | null>> };
 
-  const sMat = dcfObj?.sensitivityMatrix as { waccRange?: number[]; growthRange?: number[]; priceGrid?: number[][] } | undefined;
-  if (sMat?.waccRange && sMat?.priceGrid) {
+  const sMat = dcfObj?.sensitivityMatrix as
+    | {
+        waccRange?: number[];
+        growthRange?: number[];
+        priceGrid?: Array<Array<number | null>>;
+        rowValues?: number[];
+        colValues?: number[];
+        matrix?: Array<Array<number | null>>;
+      }
+    | undefined;
+
+  // Only a *real* matrix computed by the DCF engine may be rendered. The previous
+  // fallback invented one by scaling the headline target price —
+  // `targetPrice * (baseSpread / spread)`, and `targetPrice * 1.4` whenever the
+  // spread fell below 1%. That is a fabricated table of target prices presented with
+  // the same authority as the model's own output; a 40% uplift in a cell implied no
+  // valuation had been performed at all. When no matrix was computed, none is shown.
+  const priceGrid = sMat?.priceGrid ?? sMat?.matrix;
+  const waccAxis = sMat?.waccRange ?? sMat?.rowValues;
+  const growthAxis = sMat?.growthRange ?? sMat?.colValues;
+
+  if (waccAxis && growthAxis && Array.isArray(priceGrid)) {
     sensitivityMatrix = {
-      waccs: sMat.waccRange.map((w: number) => (w <= 1 ? parseFloat((w * 100).toFixed(1)) : w)),
-      growths: (sMat.growthRange || [0.04, 0.045, 0.05, 0.055, 0.06]).map((g: number) => (g <= 1 ? parseFloat((g * 100).toFixed(1)) : g)),
-      grid: sMat.priceGrid,
+      waccs: waccAxis.map((w: number) => (w <= 1 ? parseFloat((w * 100).toFixed(1)) : w)),
+      growths: growthAxis.map((g: number) => (g <= 1 ? parseFloat((g * 100).toFixed(1)) : g)),
+      grid: priceGrid,
     };
   } else {
-    const waccs = [10.0, 11.0, 12.0, 13.0, 14.0];
-    const growths = [4.0, 4.5, 5.0, 5.5, 6.0];
-    const baseSpread = (wacc / 100) - (terminalGrowth / 100) || 0.07;
-
-    const grid = waccs.map((wVal) => {
-      return growths.map((gVal) => {
-        const spread = (wVal / 100) - (gVal / 100);
-        if (spread <= 0.01) return Math.round(targetPrice * 1.4);
-        const scaled = Math.round(targetPrice * (baseSpread / spread));
-        return Math.max(1, scaled);
-      });
-    });
-
-    sensitivityMatrix = { waccs, growths, grid };
+    sensitivityMatrix = { waccs: [], growths: [], grid: [] };
   }
 
   return {
@@ -3139,7 +3154,9 @@ function buildAutonomousHtml(
       <div class="sec-heading">
         <span>DCF Sensitivity Matrix (Target Price ₹)</span>
       </div>
-      <table class="sens-table">
+      ${
+        m.sensitivityMatrix.waccs.length > 0 && m.sensitivityMatrix.growths.length > 0
+          ? `<table class="sens-table">
         <thead>
           <tr>
             <th>WACC \\ g</th>
@@ -3151,8 +3168,12 @@ function buildAutonomousHtml(
             .map((wVal, rIdx) => {
               const rowCells = m.sensitivityMatrix.growths
                 .map((gVal, cIdx) => {
-                  const val = m.sensitivityMatrix.grid[rIdx][cIdx];
+                  const val = m.sensitivityMatrix.grid[rIdx]?.[cIdx];
                   const isBase = Math.abs(wVal - m.wacc) < 0.2 && Math.abs(gVal - m.terminalGrowth) < 0.2;
+                  // null = terminal value undefined for this pairing (WACC <= g).
+                  if (val === null || val === undefined) {
+                    return `<td class="${isBase ? 'base-hit' : ''}">n/a</td>`;
+                  }
                   return `<td class="${isBase ? 'base-hit' : ''}">₹${val}</td>`;
                 })
                 .join("");
@@ -3161,7 +3182,12 @@ function buildAutonomousHtml(
             .join("")}
         </tbody>
       </table>
-      <div style="font-size:6.8pt;color:#64748b;margin-bottom:8px;">*Highlighted cell indicates base-case DCF valuation parameters.</div>
+      <div style="font-size:6.8pt;color:#64748b;margin-bottom:8px;">*Highlighted cell indicates base-case DCF valuation parameters. "n/a" marks pairings where the Gordon Growth terminal value is undefined (WACC &lt;= terminal growth).</div>`
+          : `<div style="font-size:7.4pt;color:#64748b;padding:6px 0;">
+             Sensitivity analysis not available: the DCF engine did not compute a grid for this
+             valuation, so none is shown. Values here are not estimated.
+           </div>`
+      }
     </div>
 
     <div>
