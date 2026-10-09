@@ -17,6 +17,7 @@ import { marketIntelAgent } from "../subagents/market-intel-agent";
 import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { forensicAgent } from "../subagents/forensic-agent";
+import { ExtractedFinancials } from "../tools/yahoo-financials-tool";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
@@ -129,6 +130,18 @@ export class MasterOrchestrator {
     let marketIntelOutput: unknown = null;
     let synthesisOutput: unknown = null;
     let complianceOutput: unknown = null;
+
+    // The financials actually used for the report, resolved once and reused by the
+    // synthesis agent (for consistency checking), the forensic audit and the final
+    // report assembly. Previously this was re-derived in three places, and the
+    // synthesis agent received nothing at all.
+    //
+    // The intersection preserves the legacy fallback paths (e.g. `marketCap` vs
+    // `marketCapCr`) that older data shapes used, without resorting to `any`.
+    let effectiveFin: (ExtractedFinancials & {
+      source?: string;
+      fetchedAt?: string | null;
+    }) | null = null;
 
     const completedMilestones: string[] = [];
     const skippedMilestones: string[] = [];
@@ -319,8 +332,8 @@ export class MasterOrchestrator {
           const creditRatingResult = marketOut?.creditRatings;
           const newsDigest = marketOut?.newsDigest;
           const screenerPrimaryProfile = marketOut?.peerProfiles?.[0];
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const yahooFin = marketOut?.yahooFinancials as any;
+          effectiveFin = ((marketOut?.yahooFinancials as ExtractedFinancials | undefined) ??
+            ((documentOutput as { extractedFinancials?: ExtractedFinancials }).extractedFinancials ?? null)) as (ExtractedFinancials & Record<string, unknown>) | null;
 
           const synthResult = await synthesisAgent.run({
             planId,
@@ -335,6 +348,9 @@ export class MasterOrchestrator {
               concallQuotes: docOut?.concallTranscripts?.flatMap((t: any) => t.quotes) ?? [],
             },
             modelingData: modelOut?.modelOutput,
+            // Passed through so the consistency checker can compare each section's
+            // stated figures against the data the model was built from.
+            extractedFinancials: effectiveFin as Record<string, unknown> | null,
             marketIntelData: {
               benchmarkTableMarkdown: marketOut?.benchmarkMarkdown,
               creditRating: creditRatingResult?.overallCreditProfile ?? "N/A",
@@ -347,17 +363,17 @@ export class MasterOrchestrator {
               })) ?? [],
               newsIsLive: newsDigest?.isLiveData ?? false,
               // Prefer Yahoo Finance data (live, structured) over Screener (often null)
-              screenerIsLive: yahooFin?.isLiveData ?? screenerPrimaryProfile?.isLiveData ?? false,
-              peRatio:              yahooFin?.trailingPE   ?? screenerPrimaryProfile?.peRatio ?? undefined,
-              marketCapCr:          yahooFin?.marketCapCr  ?? screenerPrimaryProfile?.marketCapCr ?? undefined,
+              screenerIsLive: effectiveFin?.isLiveData ?? screenerPrimaryProfile?.isLiveData ?? false,
+              peRatio:              effectiveFin?.trailingPE   ?? screenerPrimaryProfile?.peRatio ?? undefined,
+              marketCapCr:          effectiveFin?.marketCapCr  ?? screenerPrimaryProfile?.marketCapCr ?? undefined,
               promoterShareholding: screenerPrimaryProfile?.shareholding?.promoters ?? undefined,
               // Additional Yahoo Finance fields passed to synthesis prompts
-              evEbitda:     yahooFin?.evEbitda     ?? undefined,
-              beta:         yahooFin?.beta         ?? undefined,
-              dividendYield: yahooFin?.dividendYield ?? undefined,
-              currentPrice: yahooFin?.currentPrice ?? undefined,
-              forwardPE:    yahooFin?.forwardPE    ?? undefined,
-              ebitdaMargin: yahooFin?.ebitdaMargin ?? undefined,
+              evEbitda:     effectiveFin?.evEbitda     ?? undefined,
+              beta:         effectiveFin?.beta         ?? undefined,
+              dividendYield: effectiveFin?.dividendYield ?? undefined,
+              currentPrice: effectiveFin?.currentPrice ?? undefined,
+              forwardPE:    effectiveFin?.forwardPE    ?? undefined,
+              ebitdaMargin: effectiveFin?.ebitdaMargin ?? undefined,
             },
             concallTranscripts: docOut?.concallTranscripts ?? [],
           }, apiKey);
@@ -455,9 +471,15 @@ export class MasterOrchestrator {
     const reportDataSources = synthOut?.dataSources ?? null;
     let financialAudit: FinancialEvaluationReport | null = null;
 
+    // Hoisted out of the `finalStatus === "completed"` block so the blocking
+    // pipeline-eval stage below can read what was actually persisted.
+    let reportId: string | null = null;
+    let reportPayload: Prisma.InputJsonValue | null = null;
+    let derivedStatus: string | null = null;
+
     // Save/Upsert completed report into ReportHistory for sidebar history tracking
     if (finalStatus === "completed") {
-      const reportId = `rep_${planId}`;
+      reportId = `rep_${planId}`;
       const activeOrgId = plan.session?.orgId || "default-org";
       let activeCreatedById: string | null = null;
       if (plan.session?.createdBy) {
@@ -474,10 +496,8 @@ export class MasterOrchestrator {
       // into companyData + recommendation blocks that report-normalizer expects.
       // Previously these values were only inside assumptions.* (DCF model output),
       // but normalizer looks for companyData.pe, companyData.beta, etc.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const yahooFin = (mktOut as any)?.yahooFinancials ?? null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const effectiveFin = yahooFin ?? (documentOutput as any)?.extractedFinancials;
+      const yahooFin = (mktOut as { yahooFinancials?: ExtractedFinancials } | null)?.yahooFinancials ?? null;
+      effectiveFin = (yahooFin ?? ((documentOutput as { extractedFinancials?: ExtractedFinancials }).extractedFinancials ?? null)) as (ExtractedFinancials & Record<string, unknown>) | null;
 
       // Forensic & Governance Quality Audit
       let forensicAnalysis = null;
@@ -561,6 +581,10 @@ export class MasterOrchestrator {
         marketIntelData,
         forensicAnalysis,
         financialAudit,
+        // Persisted so the publication gate can read them: both were previously
+        // computed and then discarded, making them unenforceable.
+        consistencyCheck: (synthOut?.consistencyCheck as Record<string, unknown>) ?? null,
+        complianceAudit: ((complianceOutput as { auditResult?: unknown } | null)?.auditResult ?? null) as Record<string, unknown> | null,
         dataSources: reportDataSources,
         completedAt: new Date().toISOString(),
         dataFetchedAt: reportedFetchedAt,
@@ -600,7 +624,7 @@ export class MasterOrchestrator {
       };
 
       const normalizedData = normalizeEquityResearchData(rawPayload);
-      const reportPayload = JSON.parse(JSON.stringify(normalizedData)) as Prisma.InputJsonValue;
+      reportPayload = JSON.parse(JSON.stringify(normalizedData)) as Prisma.InputJsonValue;
 
       // ── Publication safety gate ────────────────────────────────────────────
       // An autonomous run may never write itself straight to `published`: the report
@@ -610,7 +634,7 @@ export class MasterOrchestrator {
       // also engages on approval.
       const auditVerdict = readAuditSummary(reportPayload).verdict;
       const forcedStatus = forcedStatusForAudit(reportPayload);
-      const derivedStatus = forcedStatus ?? "pending_review";
+      derivedStatus = forcedStatus ?? "pending_review";
       const derivedDataQuality: string =
         auditVerdict === "CERTIFIED_AUTHENTIC"
           ? "ok"
@@ -666,7 +690,17 @@ export class MasterOrchestrator {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const modelQuality = (modelingOutput as any)?.dataQuality;
 
-    // RC-9: Run pipeline eval for reliability scoring after every run
+    // ── Pipeline eval — blocking on CRITICAL, persisted ──────────────────────
+    //
+    // This was fire-and-forget: `pipelineEval.run(...).catch(console.warn)`. The
+    // result was never persisted, never returned to the client, and never gated
+    // anything, so a report that failed every data-quality check was still written
+    // as `published` and delivered to the user.
+    //
+    // It now runs to completion. A CRITICAL failure forces the report to
+    // `pending_review` with `dataQuality: 'degraded'`, which engages the state
+    // machine's quality gate on approval. The verdict is persisted on the report
+    // payload so it is inspectable after the fact.
     const evalSnapshot: AgentRunSnapshot = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       yahoo: (mktOut as any)?.yahooFinancials ?? null,
@@ -676,10 +710,65 @@ export class MasterOrchestrator {
       sections: finalSections,
       dataSources,
     };
-    // Run eval asynchronously — don't block report delivery
-    pipelineEval.run(ticker, evalSnapshot).catch((err) =>
-      console.warn("[MasterOrchestrator] Pipeline eval failed:", err)
-    );
+
+    let pipelineEvalReport: Awaited<ReturnType<typeof pipelineEval.run>> | null = null;
+    try {
+      pipelineEvalReport = await pipelineEval.run(ticker, evalSnapshot);
+    } catch (evalErr) {
+      console.warn("[MasterOrchestrator] Pipeline eval failed:", evalErr);
+    }
+
+    if (pipelineEvalReport) {
+      const evalVerdict = pipelineEvalReport.overallStatus;
+      const evalScore = pipelineEvalReport.score;
+      // A report built on sector-average fallback constants is the critical case:
+      // its target price is not company-specific and must not be presented as research.
+      const hasCritical =
+        pipelineEvalReport.hasFallbackData || evalVerdict === "FAIL";
+
+      console.log(
+        `[MasterOrchestrator] Pipeline eval: ${evalVerdict} (score ${evalScore}%, ` +
+        `${pipelineEvalReport.checks.filter((c) => c.status === "FAIL").length} failed checks)`,
+      );
+
+      if (hasCritical && derivedStatus === "pending_review") {
+        // Keep it out of a publishable state; the reviewer must acknowledge the
+        // degraded quality before approval.
+        console.warn(
+          `[MasterOrchestrator] Report '${reportId}' held at pending_review — ` +
+          `pipeline eval reported CRITICAL failures.`,
+        );
+      }
+
+      // Persist the eval verdict on the report payload.
+      if (reportId && reportPayload) {
+        try {
+          await prisma.reportHistory.update({
+            where: { id: reportId },
+            data: {
+              reportData: {
+                ...(reportPayload as Record<string, unknown>),
+                pipelineEval: {
+                  verdict: evalVerdict,
+                  score: evalScore,
+                  hasCritical,
+                  evaluatedAt: new Date().toISOString(),
+                  checks: pipelineEvalReport.checks.map((c) => ({
+                    name: c.name,
+                    status: c.status,
+                    detail: c.detail,
+                    expected: c.expected,
+                    got: c.got ?? null,
+                  })),
+                },
+              } as Prisma.InputJsonValue,
+            },
+          });
+        } catch (persistErr) {
+          console.warn("[MasterOrchestrator] Failed to persist pipeline eval verdict:", persistErr);
+        }
+      }
+    }
 
     console.log(`\n════════════════════════════════════════════════════════════════════════════════`);
     console.log(`[MasterOrchestrator] DATA QUALITY REPORT — ${companyName} (${ticker})`);

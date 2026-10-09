@@ -1171,7 +1171,7 @@ Effort in engineer-days. Ordered by risk reduction per unit effort.
 | P0-3 | **Delete/lock the synthetic generators.** `generateDynamicFinancialModel`, `generateSyntheticHistory`, the hardcoded `steer` payloads, `isSyntheticModel`. Fix `/api/download` auth ordering. | GAP-19.3/4/5/7 | 2 |
 | P0-4 | **Close the cross-tenant leaks.** One `requireOrgSession`; remove `default-org` super-tenant; delete the `equigen-internal` literal; fix the role-case mismatch; add the tenancy test matrix. | GAP-18 | 4 |
 | P0-5 | **Refuse to display forensic values derived from missing inputs.** Implement real Altman/Beneish inputs or relabel as proxies; `auditorQuality: "Not assessed"`; make `workingCapitalCycleDays` real or `null`-labelled. | GAP-19.8/9 | 4 |
-| P0-6 | **Make the existing checks binding**: `ConsistencyCheckerTool` over all 6 sections with real financials, blocking regenerate; `pipelineEval` blocking on CRITICAL; `ComplianceAgent` result respected. | GAP-05.1/2, GAP-09 | 3 |
+| P0-6 | ~~**Make the existing checks binding**~~ **DONE.** All sections checked against real financials; bounded regenerate; `pipelineEval` awaited + persisted; `ComplianceAgent` verdict enforced (fail-closed). Also fixed a real ordering bug where the compliance audit flagged the disclosures it had not yet appended. | GAP-05.1/2, GAP-09 | 3 |
 | P0-7 | **Stop falsifying freshness/liveness.** Remove `?? new Date()`; `AUTH_02` FAILs on absent `fetchedAt`; fix `api/eval/run`'s non-null inference. | GAP-07.3 | 1 |
 | P0-8 | **Collapse to one DCF engine**; fix net-debt double-subtraction; guard `wacc > g` and `shares > 0`; make the sensitivity grid use the same FCFF. | GAP-16.1–4 | 3 |
 | P0-9 | **Fix BSE FY aggregation** (quarters→FY, EPS sum not max) and the `TTM` mislabel. | GAP-17 | 2 |
@@ -1378,6 +1378,56 @@ Two real bugs were found and fixed *by these tests*:
 2. The auditor-opinion classifier tested `/qualified/` **before** `/unqualified/`,
    so "Unqualified opinion: true and fair view" was classified as **Qualified** —
    a clean opinion reported as a qualification. Reordered with a word boundary.
+
+### DONE — P0-6 Making the checks binding (`fix(consistency)`)
+
+Three verification stages existed, ran every time, cost real latency — and changed
+nothing. Each was computed and then discarded before the report was written.
+
+**Defect — the consistency checker only read one of six sections.**
+`ConsistencyCheckerTool` was called with the executive summary alone. A report
+could state a target price in `valuation` that bore no relation to the model and no
+one would ever compare them. It now runs `checkAllSections` over every section and
+probes nine fields (target price, WACC, terminal growth, revenue, EBITDA, PAT, EBITDA
+margin, net debt, shares outstanding) against the model output and the extracted
+financials.
+
+**Defect — the rating-vs-upside check could never fire.**
+The synthesis agent passed `undefined` as the extracted financials, so
+`currentPrice` was always missing and the comparison was always skipped. The
+orchestrator now resolves `effectiveFin` once and threads it through. A `SELL`
+against a modelled upside above 15% (or `BUY` against a modelled downside) is now
+caught.
+
+**Defect — the result was written to the DB and then ignored.**
+`consistencyCheck` was persisted on `SynthesisOutput` and read by nothing.
+Contradictions were regenerated at most twice and then logged to a console line; the
+report shipped anyway. The verdict is now persisted on the report payload and
+enforced by `forcedStatusForAudit` and the distribution gate.
+
+**Defect — `pipelineEval` was fire-and-forget.**
+`pipelineEval.run(...).catch(console.warn)` — the score was never stored, never
+returned, and never gated anything. It is now awaited, its verdict persisted under
+`reportData.pipelineEval`, and a `FAIL` verdict (or sector-fallback data) is logged
+as a reason the report is held.
+
+**Defect — `ComplianceAgent` ran to completion and was thrown away.**
+`complianceOutput` was assigned and never read; only `updatedSections` was used.
+`readIntegritySummary` now reads both the compliance audit and the consistency
+result, and blocks on: a critical SEBI violation, `isCompliant !== true`, an
+unreadable result, an unresolved high-severity contradiction, **or the absence of
+either check entirely** — consistent with the fail-closed rule already applied to
+the authenticity audit. "We could not check it" must never read as "it is fine".
+
+**Real bug found while binding the compliance gate — the audit flagged its own
+disclosures.** `ComplianceAgent` ran `auditReportAsync` on the section text *before*
+appending the statutory disclosures. The SEBI registration number and the
+conflict-of-interest statement live in those disclosures, and the rule-based audit
+raises a **critical** violation when either is missing — so every run returned
+`isCompliant: false`. Harmless while the verdict was discarded; with the verdict
+enforced it would have blocked every report from ever being approved. Disclosures are
+now appended before the audit runs, and the audit judges the document as it will
+actually ship.
 
 ---
 

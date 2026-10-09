@@ -100,10 +100,19 @@ export interface ExtractedFinancials {
   // Metadata
   ticker: string;
   currency: string;
-  fetchedAt: string;
+  fetchedAt: string | null;
   isLiveData: boolean;
   dataSource?: string;   // Which path succeeded: "quoteSummary" | "v7_quote" | "v8_chart" | "bse_api"
   fetchError?: string;
+
+  // Legacy field name fallbacks (kept for backward compatibility with older data shapes)
+  marketCap?: number | null;
+  peRatio?: number | null;
+  deRatio?: number | null;
+  outstandingShares?: number | null;
+  revenue?: number | null;
+  ebitda?: number | null;
+  source?: string;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────

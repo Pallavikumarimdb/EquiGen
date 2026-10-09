@@ -30,14 +30,14 @@ export interface PeerMetrics {
   currency: string;
   isLiveData: boolean;
   dataSource: string;
-  asOf: string;
+  asOf: string | null;
 }
 
 export interface PeerComparisonResult {
   targetCompany: string;
   sector: string;
   peers: PeerMetrics[];
-  asOf: string;
+  asOf: string | null;
   rawSummary: string;
   dataNote: string;
 }
@@ -134,7 +134,7 @@ function toPeerMetrics(fin: ExtractedFinancials, name: string): PeerMetrics {
     currency:       fin.currency,
     isLiveData:     fin.isLiveData,
     dataSource:     fin.dataSource ?? "yahoo_quotesummary",
-    asOf:           fin.fetchedAt,
+    asOf:           fin.fetchedAt ?? null,
   };
 }
 

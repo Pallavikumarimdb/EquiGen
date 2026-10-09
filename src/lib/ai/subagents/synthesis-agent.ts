@@ -65,6 +65,14 @@ export interface SynthesisInput {
   };
   /** Concall transcripts from DocumentAgent — used for management Q&A section */
   concallTranscripts?: ConcallTranscriptResult[];
+  /**
+   * Extracted financials, passed through to the consistency checker.
+   *
+   * Without this the checker cannot compare a section's stated figures against the
+   * data the model was built from — which is the entire point of the check. It was
+   * previously omitted, so the rating-vs-upside comparison could never run.
+   */
+  extractedFinancials?: Record<string, unknown> | null;
 }
 
 export interface DataSourceSummary {
@@ -416,20 +424,98 @@ export class SynthesisAgent {
       });
     }
 
-    // Run consistency check on executive summary vs modeling output
-    const consistencyCheck = ConsistencyCheckerTool.checkSectionConsistency(
-      "executive_summary",
-      sections.find(s => s.name === "executive_summary")?.content ?? "",
+    // ── Consistency verification (blocking) ─────────────────────────────────
+    //
+    // Previously this ran on `executive_summary` only, passed `undefined` for the
+    // extracted financials (so the rating-vs-upside check could never fire), and
+    // its result was written to the DB and then ignored — `updatedSections` was
+    // used regardless of `isConsistent`.
+    //
+    // It now checks every section against the real model output and financials, and
+    // a high-severity contradiction regenerates the offending section with the
+    // discrepancy injected into the prompt. Bounded at two passes.
+    const extractedFinancials = (input as { extractedFinancials?: Record<string, unknown> })
+      .extractedFinancials;
+
+    let consistencyCheck = ConsistencyCheckerTool.checkAllSections(
+      sections,
       input.modelingData,
-      undefined,
+      extractedFinancials,
     );
+
+    const MAX_REPAIR_PASSES = 2;
+    for (let pass = 0; pass < MAX_REPAIR_PASSES; pass++) {
+      const blocking = consistencyCheck.contradictions.filter((c) => c.severity === "high");
+      if (blocking.length === 0) break;
+
+      const affectedSections = [
+        ...new Set(blocking.map((c) => c.sectionName)),
+      ] as ReportSectionName[];
+      console.warn(
+        `[SynthesisAgent] Consistency check found ${blocking.length} high-severity contradiction(s) ` +
+        `in ${affectedSections.join(", ")}. Repair pass ${pass + 1}/${MAX_REPAIR_PASSES}.`,
+      );
+
+      for (const sectionName of affectedSections) {
+        const def = sectionDefs.find((d) => d.name === sectionName);
+        if (!def) continue;
+
+        const repairPrompt =
+          def.promptFn() +
+          "\n\n[CORRECTION REQUIRED — your previous draft contained figures that contradict the model. " +
+          "Recompute from the data below and restate the section so every number agrees:]\n" +
+          ConsistencyCheckerTool.describeForRepair({
+            ...consistencyCheck,
+            contradictions: consistencyCheck.contradictions.filter(
+              (c) => c.sectionName === sectionName,
+            ),
+          });
+
+        const repaired =
+          (await generateSectionWithLLM(sectionName, repairPrompt, apiKey)) ??
+          `[${sectionName} — data pending: repair generation unavailable.]`;
+
+        const idx = sections.findIndex((s) => s.name === sectionName);
+        if (idx >= 0) {
+          sections[idx] = {
+            ...sections[idx],
+            content: repaired,
+            lastUpdatedAt: new Date().toISOString(),
+            agentConfidence: 0.6,
+          };
+          SectionStore.saveSectionVersion(
+            input.planId,
+            sectionName,
+            repaired,
+            sections[idx].citations,
+          );
+        }
+      }
+
+      consistencyCheck = ConsistencyCheckerTool.checkAllSections(
+        sections,
+        input.modelingData,
+        extractedFinancials,
+      );
+    }
+
+    if (!consistencyCheck.isConsistent) {
+      console.warn(
+        `[SynthesisAgent] Consistency check still failing after ${MAX_REPAIR_PASSES} repair pass(es): ` +
+        `${consistencyCheck.contradictions.length} contradiction(s) remain. ` +
+        `The report will be flagged for review rather than published as consistent.`,
+      );
+    }
 
     trajectoryBus.emitEvent(
       input.planId,
       "milestone_done",
       {
         milestoneRef: "synthesise",
-        summary: `Synthesized ${sections.length} sections for ${input.companyName}. Consistency Score: ${(consistencyCheck.score * 100).toFixed(0)}%`,
+        summary:
+          `Synthesized ${sections.length} sections for ${input.companyName}. ` +
+          `Consistency Score: ${(consistencyCheck.score * 100).toFixed(0)}% ` +
+          `(${consistencyCheck.contradictions.length} contradiction(s))`,
       },
       "synthesise"
     );

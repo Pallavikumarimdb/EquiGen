@@ -29,6 +29,27 @@ import {
   type ReportStatus,
 } from "@/lib/report/state-machine";
 
+/**
+ * A report that clears every gate: authenticity, cross-section consistency, and
+ * SEBI compliance. The distribution gate fails closed on a missing integrity
+ * check, so a fixture must declare passing results to be approvable.
+ */
+const CLEAN_CONSISTENCY = {
+  isConsistent: true,
+  score: 1,
+  contradictions: [],
+  warnings: [],
+  sectionsChecked: ["executive_summary", "valuation"],
+};
+
+const CLEAN_COMPLIANCE = {
+  isCompliant: true,
+  score: 96,
+  violations: [],
+  mandatoryDisclaimersPresent: [],
+  missingDisclaimers: [],
+};
+
 const mockReport = {
   id: "rep_test",
   status: "pending_review",
@@ -43,6 +64,8 @@ const mockReport = {
       warnings: [],
       evaluatedAt: "2026-03-12T10:00:00.000Z",
     },
+    consistencyCheck: CLEAN_CONSISTENCY,
+    complianceAudit: CLEAN_COMPLIANCE,
   },
 };
 
@@ -201,6 +224,8 @@ describe("financial authenticity gate", () => {
           warnings: ["AUTH_02: freshness advisory"],
           evaluatedAt: "2026-03-12T10:00:00.000Z",
         },
+        consistencyCheck: CLEAN_CONSISTENCY,
+        complianceAudit: CLEAN_COMPLIANCE,
       },
     });
 

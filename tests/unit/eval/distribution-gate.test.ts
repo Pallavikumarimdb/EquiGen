@@ -4,13 +4,45 @@ import {
   evaluateDistributionGate,
   isDistributionAllowed,
   forcedStatusForAudit,
+  readIntegritySummary,
   type AuditState,
 } from "@/lib/eval/distribution-gate";
 
-/** Minimal report payload carrying a persisted authenticity audit. */
-function reportWithAudit(audit: unknown): Record<string, unknown> {
+/**
+ * A report payload carrying a persisted authenticity audit plus passing integrity
+ * checks. The gate fails closed when consistency/compliance results are absent, so
+ * tests about the *authenticity* verdict must declare those results explicitly.
+ */
+function reportWithAudit(audit: unknown, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    company: { ticker: "TCS" },
+    financialAudit: audit,
+    consistencyCheck: CLEAN_CONSISTENCY,
+    complianceAudit: CLEAN_COMPLIANCE,
+    ...extra,
+  };
+}
+
+/** A report payload that clears authenticity but omits the integrity checks. */
+function reportWithAuditOnly(audit: unknown): Record<string, unknown> {
   return { company: { ticker: "TCS" }, financialAudit: audit };
 }
+
+const CLEAN_CONSISTENCY = {
+  isConsistent: true,
+  score: 1,
+  contradictions: [],
+  warnings: [],
+  sectionsChecked: ["executive_summary", "valuation"],
+};
+
+const CLEAN_COMPLIANCE = {
+  isCompliant: true,
+  score: 96,
+  violations: [],
+  mandatoryDisclaimersPresent: [],
+  missingDisclaimers: [],
+};
 
 const PASSING = {
   verdict: "CERTIFIED_AUTHENTIC",
@@ -162,4 +194,153 @@ describe("forcedStatusForAudit", () => {
       expect(forcedStatusForAudit(reportWithAudit({ verdict }))).toBeNull();
     },
   );
+});
+
+describe("consistency gate (P0-6)", () => {
+  const CONTRADICTING = {
+    isConsistent: false,
+    score: 0.4,
+    contradictions: [
+      {
+        sectionName: "valuation",
+        field: "target_price",
+        expectedValue: "₹1,000",
+        foundValue: "₹1,300",
+        severity: "high",
+      },
+    ],
+    warnings: [],
+    sectionsChecked: ["valuation"],
+  };
+
+  it("blocks a report whose text contradicts its own model", () => {
+    const r = evaluateDistributionGate(
+      reportWithAudit(PASSING, { consistencyCheck: CONTRADICTING }),
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toMatch(/contradiction/i);
+    expect(r.reason).toContain("target_price");
+  });
+
+  it("holds such a report at pending_review", () => {
+    expect(forcedStatusForAudit(reportWithAudit(PASSING, { consistencyCheck: CONTRADICTING }))).toBe(
+      "pending_review",
+    );
+  });
+
+  it("ignores low-severity consistency notes", () => {
+    const advisory = {
+      ...CLEAN_CONSISTENCY,
+      isConsistent: false,
+      contradictions: [
+        { sectionName: "key_risks", field: "ebitda_margin", severity: "low", foundValue: "26%", expectedValue: "26.2%" },
+      ],
+    };
+    expect(forcedStatusForAudit(reportWithAudit(PASSING, { consistencyCheck: advisory }))).toBeNull();
+  });
+
+  it("blocks a report with no consistency check at all (fail closed)", () => {
+    const r = evaluateDistributionGate(reportWithAuditOnly(PASSING));
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toMatch(/consistency check/i);
+    expect(forcedStatusForAudit(reportWithAuditOnly(PASSING))).toBe("pending_review");
+  });
+
+  it("blocks an unreadable consistency result rather than passing it", () => {
+    expect(
+      forcedStatusForAudit(reportWithAudit(PASSING, { consistencyCheck: "passed!" })),
+    ).toBe("pending_review");
+    expect(
+      forcedStatusForAudit(reportWithAudit(PASSING, { consistencyCheck: { score: 1 } })),
+    ).toBe("pending_review");
+  });
+
+  it("permits an explicit, attributed override", () => {
+    const r = evaluateDistributionGate(reportWithAudit(PASSING, { consistencyCheck: CONTRADICTING }), {
+      overrideWithJustification: true,
+      overriddenBy: "Pallavi Kumari",
+    });
+    expect(r.allowed).toBe(true);
+    expect(r.overridden).toBe(true);
+  });
+});
+
+describe("compliance gate (P0-6)", () => {
+  it("blocks a report that failed its SEBI compliance audit", () => {
+    const nonCompliant = {
+      isCompliant: false,
+      score: 42,
+      violations: [
+        {
+          ruleId: "R_001",
+          ruleName: "Target price without timeframe",
+          severity: "critical",
+          description: "Target price stated without a 12-month horizon.",
+          recommendation: "Add the rating definition and timeframe.",
+        },
+      ],
+      missingDisclaimers: ["Rating Definition & Target Timeframe"],
+    };
+    const r = evaluateDistributionGate(
+      reportWithAudit(PASSING, { complianceAudit: nonCompliant }),
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toMatch(/target price without timeframe/i);
+    expect(forcedStatusForAudit(reportWithAudit(PASSING, { complianceAudit: nonCompliant }))).toBe(
+      "pending_review",
+    );
+  });
+
+  it("blocks a report with no compliance audit at all (fail closed)", () => {
+    const r = evaluateDistributionGate(reportWithAuditOnly(PASSING));
+    expect(r.reason).toMatch(/compliance audit/i);
+    expect(forcedStatusForAudit(reportWithAuditOnly(PASSING))).toBe("pending_review");
+  });
+
+  it("ignores warning-level compliance violations", () => {
+    const warningOnly = {
+      isCompliant: true,
+      score: 78,
+      violations: [
+        { ruleId: "R_010", ruleName: "Analyst certification", severity: "warning", description: "Signed by a reviewer." },
+      ],
+    };
+    expect(forcedStatusForAudit(reportWithAudit(PASSING, { complianceAudit: warningOnly }))).toBeNull();
+  });
+});
+
+describe("readIntegritySummary", () => {
+  it("reports no blockers for a fully clean report", () => {
+    const s = readIntegritySummary(reportWithAudit(PASSING));
+    expect(s.blockers).toHaveLength(0);
+    expect(s.consistencyContradictions).toHaveLength(0);
+    expect(s.complianceViolations).toHaveLength(0);
+  });
+
+  it("reports a blocker per missing integrity check on a bare payload", () => {
+    const s = readIntegritySummary(null);
+    expect(s.blockers.map((b) => b.source)).toEqual(["consistency", "compliance"]);
+  });
+
+  it("describes each contradiction with both values", () => {
+    const s = readIntegritySummary(
+      reportWithAudit(PASSING, {
+        consistencyCheck: {
+          isConsistent: false,
+          contradictions: [
+            {
+              sectionName: "valuation",
+              field: "wacc",
+              expectedValue: "11.5%",
+              foundValue: "115%",
+              severity: "high",
+            },
+          ],
+        },
+      }),
+    );
+    expect(s.consistencyContradictions[0]).toContain("valuation");
+    expect(s.consistencyContradictions[0]).toContain("115%");
+    expect(s.consistencyContradictions[0]).toContain("11.5%");
+  });
 });
