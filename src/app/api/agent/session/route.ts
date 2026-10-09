@@ -1,14 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import {
+  canAccessTenantRecord,
+  isTenantFailure,
+  requireTenantSession,
+  tenantForbidden,
+} from "@/lib/utils/tenant";
 
 /**
  * GET /api/agent/session?reportId=...
  * Retrieves the current session (or creates a new one if not found) for a report.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const { searchParams } = new URL(req.url);
     const reportId = searchParams.get("reportId");
@@ -20,9 +26,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const sessionUser = getAuthSession(req);
-    const orgId = sessionUser?.orgId || "default-org";
-    const userId = sessionUser?.userId || "analyst";
+    const orgId = session.orgId;
+    const userId = session.userId;
 
     // Enforce Tenant Isolation Check: Verify report ownership
     const report = await prisma.reportHistory.findUnique({
@@ -30,12 +35,21 @@ export async function GET(req: NextRequest) {
     }).catch(() => null);
 
     if (!report) {
-      // Check if this is an autonomous ResearchPlan ID
+      // Check if this is an autonomous ResearchPlan ID.
+      //
+      // SECURITY: this branch returned BEFORE the `canAccessTenantRecord` check, so
+      // passing a `researchPlan` id instead of a `reportHistory` id disclosed the
+      // goalText, ticker and companyName of any tenant's plan. The `.catch(() => null)`
+      // on both lookups had the same fail-open shape as the audit route.
       const plan = await prisma.researchPlan.findUnique({
         where: { id: reportId },
+        include: { session: { select: { orgId: true } } },
       }).catch(() => null);
 
       if (plan) {
+        if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+          return tenantForbidden();
+        }
         return NextResponse.json({
           id: plan.id,
           reportId: plan.id,
@@ -48,24 +62,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, session: null }, { status: 200 });
     }
 
-    const isSystemAdmin = sessionUser?.userId === "system-test-user" || sessionUser?.userId === "agent-user" || sessionUser?.role?.toLowerCase() === "admin";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
-      return NextResponse.json(
-        { message: "Forbidden. Access denied." },
-        { status: 403 },
-      );
-    }
+    // Legacy `orgId: null` reports were previously readable by ANY caller, because
+    // `!report.orgId` short-circuited the check. They are now platform-operator only.
+    if (!canAccessTenantRecord(session, report)) return tenantForbidden();
 
-    let session = await prisma.researchSession.findFirst({
+    let researchSession = await prisma.researchSession.findFirst({
       where: {
         reportId,
-        ...(isSystemAdmin ? {} : {
-          OR: [
-            { orgId },
-            ...(orgId === "default-org" ? [{ orgId: null }] : []),
-          ],
-        }),
+        ...(session.isPlatformOperator ? {} : { orgId }),
       },
       orderBy: { createdAt: "desc" },
       include: {
@@ -75,11 +79,11 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    if (!session) {
-      session = await prisma.researchSession.create({
+    if (!researchSession) {
+      researchSession = await prisma.researchSession.create({
         data: {
           reportId,
-          orgId: orgId || "default-org",
+          orgId,
           createdBy: userId,
         },
         include: {
@@ -88,7 +92,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json(session);
+    return NextResponse.json(researchSession);
   } catch (error) {
     console.error("Failed to resolve agent session:", error);
     return NextResponse.json(
@@ -99,3 +103,4 @@ export async function GET(req: NextRequest) {
 }
 
 export const dynamic = "force-dynamic";
+

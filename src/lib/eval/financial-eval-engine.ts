@@ -13,6 +13,11 @@
  */
 
 import { EquityResearchData } from "@/types";
+import {
+  assessMarketFreshness,
+  holidaysFromEnv,
+  istTradingDate,
+} from "@/lib/market/india-trading-calendar";
 
 export type AuditSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "INFO";
 export type AuditCheckStatus = "PASS" | "WARN" | "FAIL";
@@ -52,9 +57,42 @@ export interface FinancialEvaluationReport {
     primarySource: string;
     isLiveData: boolean;
     dataFreshnessHours: number | null;
+    /**
+     * Exchange venue, or "unverified" when the ticker carried no exchange suffix.
+     * Never guesses a venue from a bare symbol.
+     */
     verifiedExchange: string | null;
+    /** IST calendar date the underlying data belongs to, or null when unknown. */
+    dataAsOfIstDate?: string | null;
+    /** Raw fetch timestamp as reported by the source, or null when not recorded. */
+    dataFetchedAt?: string | null;
+    /** Full freshness narrative, including whether holidays were accounted for. */
+    freshnessDetail?: string;
   };
   recommendation: string;
+}
+
+/**
+ * Exchange attribution from the evidence actually available.
+ *
+ * A symbol with an explicit exchange suffix is attributable; a bare symbol like
+ * `RELIANCE` is not, because the suffix is the only signal here and inferring NSE
+ * from its absence is an assertion the data does not support.
+ */
+export function resolveExchangeClaim(ticker: string): string {
+  const upper = String(ticker ?? "").trim().toUpperCase();
+  if (upper.endsWith(".BO")) return "BSE";
+  if (upper.endsWith(".NS")) return "NSE";
+  return "unverified";
+}
+
+/** `istTradingDate` that returns null for absent or unparseable input. */
+function safeIstTradingDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  const iso = istTradingDate(d);
+  return iso || null;
 }
 
 // ─── Input Snapshot Interface ──────────────────────────────────────────────────
@@ -75,7 +113,12 @@ export interface FinancialEvaluationInput {
     dividendYield?: number | null;
     isLiveData?: boolean;
     dataSource?: string;
-    fetchedAt?: string;
+    /**
+   * Raw fetch timestamp from the source. Nullable on purpose: an absent timestamp is
+   * a real state that AUTH_02 must be able to FAIL on, so the type must allow null
+   * rather than inviting a `?? new Date()` backfill at the call site.
+   */
+  fetchedAt?: string | null;
   } | null;
   // Modeling assumptions & outputs
   modelingData?: {
@@ -174,27 +217,39 @@ export class FinancialEvaluationEngine {
       actual: isLive ? `live (${sourceStr})` : "offline/unverified",
     });
 
-    // Check 1.2: Timestamp freshness (< 24 hours for intraday market data)
-    let freshnessHours: number | null = null;
-    if (mkt?.fetchedAt) {
-      const fetchedTime = new Date(mkt.fetchedAt).getTime();
-      if (!isNaN(fetchedTime)) {
-        freshnessHours = Math.round(((Date.now() - fetchedTime) / (1000 * 60 * 60)) * 10) / 10;
-      }
-    }
-    const isFresh = freshnessHours === null || freshnessHours <= 24;
+    // Check 1.2: Freshness, measured in elapsed TRADING SESSIONS.
+    //
+    // Previously: `const isFresh = freshnessHours === null || freshnessHours <= 24`
+    // with a WARN-only status. An absent timestamp scored an instant PASS, so the
+    // check could not fail — and because the orchestrator backfilled a missing
+    // `fetchedAt` with `new Date()`, the 24h branch was never reached either.
+    // A 24-hour wall-clock rule is also wrong for India: a Friday-evening fetch read
+    // Monday morning is current, and a Tuesday-morning read presented Wednesday
+    // afternoon is stale well inside 24 hours.
+    const freshness = assessMarketFreshness(mkt?.fetchedAt, undefined, holidaysFromEnv());
+    const freshnessHours = freshness.ageHours;
+
+    const freshStatus: AuditCheckStatus = !freshness.timestampKnown
+      ? "FAIL"
+      : freshness.isStale
+        ? "FAIL"
+        : "PASS";
+
     checks.push({
       id: "AUTH_02",
       category: "AUTHENTICITY",
       name: "Market Data Freshness",
-      status: isFresh ? "PASS" : "WARN",
-      severity: "MEDIUM",
-      message: freshnessHours !== null
-        ? `Data age: ${freshnessHours}h (${freshnessHours <= 24 ? "Current session" : "Stale intraday"})`
-        : "Timestamp verified against active execution session.",
-      expected: "≤ 24.0h",
-      actual: freshnessHours !== null ? `${freshnessHours}h` : "Current",
+      status: freshStatus,
+      // Unknown or multi-session-stale data is a provenance failure, not a nitpick:
+      // a target price derived from it cannot be presented as current.
+      severity: !freshness.timestampKnown || freshness.isStale ? "CRITICAL" : "INFO",
+      message: freshness.summary,
+      expected: "Current trading session (0 sessions elapsed)",
+      actual: freshness.timestampKnown
+        ? `${freshness.sessionsElapsed} session(s), ${freshnessHours}h`
+        : "timestamp not recorded",
     });
+
 
     // Check 1.3: Regulatory exchange alignment
     const isIndianScrip = /^[A-Z0-9_&]{2,12}(\.(NS|BO))?$/.test(ticker);
@@ -482,7 +537,17 @@ export class FinancialEvaluationEngine {
         primarySource: sourceStr,
         isLiveData: isLive,
         dataFreshnessHours: freshnessHours,
-        verifiedExchange: ticker.endsWith(".BO") ? "BSE" : "NSE",
+        // Exchange attribution previously read `ticker.endsWith(".BO") ? "BSE" : "NSE"`,
+        // which claims NSE for a bare `RELIANCE` that was never resolved against an
+        // exchange master. The suffix is the only evidence actually available here, so
+        // an unresolved ticker reports "unverified" rather than a guessed venue.
+        verifiedExchange: resolveExchangeClaim(ticker),
+        // IST calendar date the data belongs to, so downstream artifacts can print a
+        // real as-of date instead of the render time. Guarded because an unparseable
+        // source timestamp must not throw here — it is already reported by AUTH_02.
+        dataAsOfIstDate: safeIstTradingDate(mkt?.fetchedAt),
+        dataFetchedAt: mkt?.fetchedAt ?? null,
+        freshnessDetail: freshness.summary,
       },
       recommendation,
     };

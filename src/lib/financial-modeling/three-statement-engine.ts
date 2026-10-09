@@ -129,13 +129,90 @@ export interface ThreeStatementModelResult {
   // Sensitivity Matrix: WACC vs Terminal Growth
   waccSteps: number[];
   tgSteps: number[];
-  sensitivityMatrix: number[][]; // rows: WACC, cols: TG
+  // rows: WACC, cols: TG. A cell is null when WACC <= TG (terminal value undefined).
+  sensitivityMatrix: Array<Array<number | null>>;
+}
+
+/** Thrown when DCF drivers cannot produce a meaningful valuation. */
+export class InvalidValuationInputError extends Error {
+  readonly issues: string[];
+  constructor(issues: string[]) {
+    super(
+      `Cannot produce a DCF valuation: ${issues.join("; ")}. ` +
+      "A DCF target price derived from these inputs would be meaningless, so none is returned.",
+    );
+    this.name = "InvalidValuationInputError";
+    this.issues = issues;
+  }
+}
+
+/**
+ * Validates DCF drivers before any arithmetic runs.
+ *
+ * Every case here previously produced a silently wrong *number* rather than an error:
+ *  - `wacc <= terminalGrowth` divides by zero in the Gordon Growth terminal value, giving
+ *    a negative enterprise value that `Math.max(1, …)` then reported as a ₹1 target price.
+ *  - `sharesOutstandingCr <= 0` divided equity value by zero or a negative, yielding
+ *    `Infinity` or a negative price.
+ *  - A non-finite or non-positive revenue makes every projection meaningless.
+ *
+ * Returns the list of problems; empty means the inputs are usable.
+ */
+export function validateDcfDrivers(drivers: ThreeStatementDrivers): string[] {
+  const issues: string[] = [];
+  const num = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v);
+
+  if (!num(drivers.baseRevenue) || drivers.baseRevenue <= 0) {
+    issues.push(
+      `baseRevenue must be a positive finite number (got ${JSON.stringify(drivers.baseRevenue)})`,
+    );
+  }
+  if (!num(drivers.sharesOutstandingCr) || drivers.sharesOutstandingCr <= 0) {
+    issues.push(
+      `sharesOutstandingCr must be a positive finite number (got ${JSON.stringify(drivers.sharesOutstandingCr)})`,
+    );
+  }
+  if (!num(drivers.wacc) || drivers.wacc <= 0) {
+    issues.push(`wacc must be a positive finite number (got ${JSON.stringify(drivers.wacc)})`);
+  }
+  if (!num(drivers.terminalGrowth)) {
+    issues.push(
+      `terminalGrowth must be a finite number (got ${JSON.stringify(drivers.terminalGrowth)})`,
+    );
+  } else if (num(drivers.wacc) && drivers.wacc <= drivers.terminalGrowth) {
+    issues.push(
+      `wacc (${(drivers.wacc * 100).toFixed(2)}%) must exceed terminalGrowth ` +
+        `(${(drivers.terminalGrowth * 100).toFixed(2)}%) or the Gordon Growth terminal value is undefined`,
+    );
+  }
+  if (!num(drivers.revenueGrowthRate)) {
+    issues.push(
+      `revenueGrowthRate must be a finite number (got ${JSON.stringify(drivers.revenueGrowthRate)})`,
+    );
+  }
+  if (!num(drivers.ebitdaMargin)) {
+    issues.push(`ebitdaMargin must be a finite number (got ${JSON.stringify(drivers.ebitdaMargin)})`);
+  }
+
+  const years = drivers.projectionYears ?? 5;
+  if (!Number.isInteger(years) || years < 1) {
+    issues.push(`projectionYears must be a positive integer (got ${JSON.stringify(years)})`);
+  }
+
+  return issues;
 }
 
 /**
  * Executes a deterministic, fully integrated 3-statement model and DCF valuation.
+ *
+ * Throws {@link InvalidValuationInputError} for drivers that cannot produce a
+ * meaningful valuation. It never returns a placeholder price.
  */
 export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeStatementModelResult {
+  const issues = validateDcfDrivers(drivers);
+  if (issues.length > 0) {
+    throw new InvalidValuationInputError(issues);
+  }
   const {
     baseRevenue,
     sharesOutstandingCr,
@@ -315,7 +392,10 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
   const enterpriseValue = Math.round(sumPvFcff + pvTerminalValue);
   const netDebt = baseDebt - baseCash;
   const equityValue = enterpriseValue - netDebt;
-  const targetPrice = Math.max(1, Math.round((equityValue / sharesOutstandingCr) * 10) / 10);
+  // Shares are validated as positive at entry, so this division cannot produce
+  // Infinity/NaN. A negative equity value is a real (if bleak) result and is
+  // reported as-is rather than floored to a fake ₹1 target.
+  const targetPrice = Math.round((equityValue / sharesOutstandingCr) * 10) / 10;
 
   const bullCasePrice = Math.round(targetPrice * 1.22 * 10) / 10;
   const bearCasePrice = Math.round(targetPrice * 0.81 * 10) / 10;
@@ -337,12 +417,15 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     parseFloat((terminalGrowth + 0.01).toFixed(3)),
   ];
 
-  const sensitivityMatrix: number[][] = [];
+  const sensitivityMatrix: Array<Array<number | null>> = [];
   for (const sWacc of waccSteps) {
-    const row: number[] = [];
+    const row: Array<number | null> = [];
     for (const sTg of tgSteps) {
       if (sWacc <= sTg) {
-        row.push(0);
+        // Terminal value is undefined when WACC <= terminal growth. `null` means
+        // "not computable"; a 0 here would read as "worthless", which the model
+        // does not actually support.
+        row.push(null);
         continue;
       }
       let pvSum = 0;
@@ -352,7 +435,7 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
       const tv = (lastYear.fcff * (1 + sTg)) / (sWacc - sTg);
       const pvTv = tv / Math.pow(1 + sWacc, projectionYears);
       const eqVal = (pvSum + pvTv) - netDebt;
-      const price = Math.max(1, Math.round((eqVal / sharesOutstandingCr) * 10) / 10);
+      const price = Math.round((eqVal / sharesOutstandingCr) * 10) / 10;
       row.push(price);
     }
     sensitivityMatrix.push(row);

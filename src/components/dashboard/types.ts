@@ -22,6 +22,14 @@ export interface DashboardHistoryItem {
   sourceType?: "autonomous" | "manual";
 }
 
+/** Org-level plan entitlements, returned alongside the profile by /api/auth/me. */
+export interface UserPlanInfo {
+  id: string;
+  name: string;
+  reportsPerMonth: number | null;
+  status: string;
+}
+
 export interface UserSessionProfile {
   id: string;
   name: string;
@@ -29,6 +37,7 @@ export interface UserSessionProfile {
   role: string;
   sebiRegNo: string | null;
   orgName: string;
+  plan?: UserPlanInfo | null;
 }
 
 export interface DashboardToast {

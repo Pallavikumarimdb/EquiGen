@@ -1,4 +1,19 @@
 import { EquityResearchData, DetailedFinancialsData } from "@/types";
+import {
+  BRAND,
+  BRAND_COLORS,
+  SEBI_RISK_WARNING,
+  UNCONFIGURED_FIRM_MARKER,
+  draftWatermark,
+  resolveFirmIdentity,
+  type ResolvedFirmIdentity,
+} from "@/lib/brand";
+import {
+  resolveProvenance,
+  provenanceBadgeClass,
+  type DataSourceEntry,
+  type ProvenanceSummary,
+} from "@/lib/report/provenance";
 
 /**
  * AI-assisted HTML equity research report generator.
@@ -6,7 +21,7 @@ import { EquityResearchData, DetailedFinancialsData } from "@/types";
  * Architecture:
  *  - SVG charts and HTML structure are code-generated (precise, reliable)
  *  - AI narratives from EquityResearchData fill the text sections
- *  - Puppeteer renders the final HTML → PDF
+ *  - Puppeteer renders the final HTML ? PDF
  *
  * This avoids Groq's strict per-request token limits while producing
  * a publication-grade layout.
@@ -17,24 +32,30 @@ export interface HtmlReportOptions {
   reviewerName?: string;
   sebiRegNo?: string;
   approvedAt?: Date;
-  /** Organisation/firm name for disclaimer. Defaults to EquiGen Investments Limited. */
+  /**
+   * Publishing-firm name for the SEBI disclaimer. MUST be supplied by the tenant �
+   * an unconfigured identity renders an explicit marker instead of asserting a
+   * registration. See `resolveFirmIdentity` in `@/lib/brand`.
+   */
   orgName?: string;
-  /** Compliance email for grievance escalation. Defaults to compliance@EquiGen.com. */
+  /** Compliance email for grievance escalation. */
   complianceEmail?: string;
+  /** Publishing firm's public website. */
+  website?: string;
   /** Corporate Identity Number (CIN). */
   cinNumber?: string;
   /** Depository Participant SEBI Reg No. */
   dpSebiRegNo?: string;
 }
 
-// ── Number helpers ────────────────────────────────────────────────────────────
+// -- Number helpers ------------------------------------------------------------
 
 function parseNum(v: number | string): number {
   if (typeof v === "number") return v;
   return parseFloat(String(v).replace(/[^\d.-]/g, "")) || 0;
 }
 
-// ── Custom formatting for large numbers ──────────────────────────────────────────
+// -- Custom formatting for large numbers ------------------------------------------
 
 function fmtK(n: number): string {
   const abs = Math.abs(n);
@@ -46,7 +67,7 @@ function fmtK(n: number): string {
   return `${sign}${abs.toFixed(0)}`;
 }
 
-// ── SVG Chart Renderers ───────────────────────────────────────────────────────
+// -- SVG Chart Renderers -------------------------------------------------------
 
 function niceRange(values: number[]): {
   min: number;
@@ -325,7 +346,7 @@ function svgRecommendationChart(
       const dotColor = isBuy ? "#008358" : "#f59e0b";
       return `
       <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="${dotColor}" stroke="#fff" stroke-width="1.5"/>
-      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b">₹${p.target}</text>
+      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b">?${p.target}</text>
     `;
     })
     .join("");
@@ -354,7 +375,7 @@ function svgRecommendationChart(
   </svg>`;
 }
 
-// ── Fixed Row templates for Financial statements ──────────────────────────────
+// -- Fixed Row templates for Financial statements ------------------------------
 
 const INCOME_STATEMENT_ROW_TEMPLATE = [
   "Sales",
@@ -636,7 +657,7 @@ function mapToPredefinedRows(
   });
 }
 
-// ── HTML Builder ──────────────────────────────────────────────────────────────
+// -- HTML Builder --------------------------------------------------------------
 
 const RATING_COLOR: Record<string, string> = {
   BUY: "#008358",
@@ -646,12 +667,27 @@ const RATING_COLOR: Record<string, string> = {
   SELL: "#b91c1c",
 };
 
+/**
+ * Escapes a value for interpolation into report HTML.
+ *
+ * SECURITY: quote characters were previously not escaped, and this function IS used
+ * inside attribute contexts — e.g. `<a href="${escape(firm.website)}">`. A value of
+ * `x" onmouseover="alert(1)` therefore broke out of the attribute and injected a new
+ * one. The rendered HTML is fed to Puppeteer's `page.setContent()` for PDF
+ * generation, so injected script would execute in the renderer's Chromium context,
+ * which has network access to the host.
+ *
+ * Escapes `& < > " '` — the first three cover text nodes, the last two cover
+ * quoted attribute values.
+ */
 function escape(s: unknown): string {
   if (s == null) return "";
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function postProcessNormalizedRows(
@@ -838,7 +874,51 @@ function buildHtml(
   const rec = data.recommendation;
   const ratingColor = RATING_COLOR[rec.rating] ?? "#334155";
 
+  const firm: ResolvedFirmIdentity = resolveFirmIdentity({
+    orgName: options.orgName,
+    complianceEmail: options.complianceEmail,
+    website: options.website,
+  });
+
+  // -- Data freshness line --------------------------------------------------
+  // The previous value was `new Date()` at render time, which asserts that the
+  // figures are current at the moment the PDF was produced. On a report built from
+  // a three-month-old price series that is a misstatement. Report the data's own
+  // as-of timestamp, or say plainly that it was not recorded.
+  const reportRec = data as unknown as Record<string, unknown>;
+  const rawAsOf =
+    (typeof reportRec.asOf === "string" && reportRec.asOf) ||
+    (typeof reportRec.dataAsOf === "string" && reportRec.dataAsOf) ||
+    (typeof reportRec.completedAt === "string" && reportRec.completedAt) ||
+    null;
+
+  let dataFreshnessLine: string;
+  if (rawAsOf) {
+    const asOfDate = new Date(rawAsOf);
+    const formatted = isNaN(asOfDate.getTime())
+      ? rawAsOf
+      : asOfDate.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const ageHours = (Date.now() - asOfDate.getTime()) / 3.6e6;
+    const staleness =
+      !isNaN(ageHours) && ageHours > 48
+        ? ` � WARNING: underlying data is ${Math.round(ageHours / 24)} day(s) old`
+        : "";
+    dataFreshnessLine = `Data as of ${formatted} IST${staleness}`;
+  } else {
+    dataFreshnessLine = "Data as-of timestamp: NOT RECORDED for this report";
+  }
+
   const dfRaw = data.detailedFinancials;
+
+  // Provenance for the manually-uploaded filing path. `dataSources` is only present
+  // on orchestrator-produced reports, so an uploaded-document report resolves most
+  // items to `not_assessed` � which is the truthful answer: we know the figures came
+  // from a document, but not which exchange feed or audit verdict backs them.
+  const standardProvenance: ProvenanceSummary = resolveProvenance({
+    dataSources: (reportRec.dataSources as Record<string, DataSourceEntry> | undefined) ?? null,
+    financialAudit: (reportRec.financialAudit as Record<string, unknown> | undefined) ?? null,
+    asOf: rawAsOf,
+  });
   const df: DetailedFinancialsData = Array.isArray(dfRaw)
     ? (dfRaw[0] ?? {})
     : (dfRaw ?? {});
@@ -905,7 +985,7 @@ function buildHtml(
 
 
 
-  // Geojit Style: Primary Bars are Teal/Green (#008358), Trend Line is Orange (#d97706)
+  // EquiGen house chart style: primary bars teal (#008358), trend line amber (#d97706)
   const revChart = svgComboChart(
     periods,
     revenue,
@@ -1097,8 +1177,8 @@ function buildHtml(
   const draftBanner = isDraft
     ? `
   <div class="draft-banner">
-    ⚠ AI-GENERATED DRAFT — NOT FOR DISTRIBUTION
-    <div class="draft-sub">This report was generated by EquiGen AI and has not been reviewed by a SEBI-registered Research Analyst. It does not constitute investment advice.</div>
+    ? AI-GENERATED DRAFT � NOT FOR DISTRIBUTION
+    <div class="draft-sub">${escape(draftWatermark())}</div>
   </div>`
     : "";
 
@@ -1122,7 +1202,7 @@ function buildHtml(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escape(data.company.name)} — EquiGen Equity Research Report</title>
+<title>${escape(data.company.name)} � ${escape(BRAND.productName)} Equity Research Report</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -1265,6 +1345,16 @@ function buildHtml(
   .draft-sub { font-weight: 400; font-size: 6.5pt; color: #991b1b; }
   .published-block { background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 6px; font-size: 7pt; color: #14532d; margin-bottom: 2mm; }
 
+  /* Data provenance � badge colour reflects the ACTUAL source state, never an intent */
+  .provenance-block { border: 1px solid #cbd5e1; border-radius: 4px; padding: 3mm; margin-top: 3mm; font-size: 7.5pt; color: #1e293b; }
+  .provenance-block > div { margin-bottom: 2mm; }
+  .provenance-block > div:last-child { margin-bottom: 0; }
+  .prov-badge { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 8px; margin-left: 4px; }
+  .prov-live { background: #dcfce7; color: #15803d; }
+  .prov-fallback { background: #fef3c7; color: #b45309; }
+  .prov-detail { font-size: 7pt; color: #64748b; margin-top: 1mm; line-height: 1.35; }
+  .prov-caveat { margin-top: 2mm; padding: 2mm 3mm; background: #fffbeb; border-left: 3px solid #d97706; border-radius: 3px; font-size: 7.5pt; color: #78350f; line-height: 1.4; }
+
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page { page-break-after: always; min-height: 297mm; }
@@ -1275,13 +1365,13 @@ function buildHtml(
 
 ${watermark}
 
-<!-- ═══════════════════════════════════ PAGE 1 ═══════════════════════════════════ -->
+<!-- ----------------------------------- PAGE 1 ----------------------------------- -->
 <div class="page">
   <div class="vertical-ribbon">${escape(quarterLabel)} Result Update</div>
   <div class="top-logo">
     <span>Retail Equity Research</span>
-    <span style="font-size: 7pt; color: #475569; font-weight: 600;">Data Freshness: As of ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST | Source: BSE/NSE Disclosures &amp; Live Quotes</span>
-    <a href="https://www.EquiGen.com">www.EquiGen.com</a>
+    <span style="font-size: 7pt; color: #475569; font-weight: 600;">${escape(dataFreshnessLine)}</span>
+    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
   ${draftBanner}
 
@@ -1293,7 +1383,7 @@ ${watermark}
     
     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4mm;">
       <div class="brand-logo-area" style="align-items: flex-end;">
-        <div class="brand-logo-title" style="font-size: 20pt; color: #07877B; letter-spacing: -0.5px;">EquiGen</div>
+        <div class="brand-logo-title" style="font-size: 20pt; color: ${BRAND_COLORS.secondary}; letter-spacing: -0.5px;">${escape(firm.orgName !== "[Firm identity not configured]" ? firm.orgName : BRAND.productName)}</div>
         <div class="brand-logo-tagline" style="font-size: 5.5pt; letter-spacing: 1px;">AI-Powered Equity Research</div>
       </div>
       
@@ -1306,11 +1396,11 @@ ${watermark}
 
   <!-- Sector and Date metadata line -->
   <div style="display: flex; justify-content: space-between; font-size: 8pt; color: #000; font-weight: 700; margin-bottom: 2mm; border-bottom: 1px solid #cbd5e1; padding-bottom: 1.5mm;">
-    <span>Sector: ${escape(data.company.sector || "—")}${data.company.industry && data.company.industry !== data.company.sector ? ` &nbsp;|&nbsp; ${escape(data.company.industry)}` : ""}</span>
+    <span>Sector: ${escape(data.company.sector || "�")}${data.company.industry && data.company.industry !== data.company.sector ? ` &nbsp;|&nbsp; ${escape(data.company.industry)}` : ""}</span>
     <span>Date: ${escape(data.company.reportDate || "-")}</span>
   </div>
 
-  <!-- Flex container matching Geojit two-column header design exactly -->
+  <!-- Two-column header band: left = key changes table, right = identifiers -->
   <div style="display: flex; gap: 6px; width: 100%; margin-bottom: 4mm;">
     <!-- Left Column: Key Changes & Identifiers (Table) -->
     <div style="flex: 1.7; display: flex;">
@@ -1322,19 +1412,19 @@ ${watermark}
             <td style="text-align: center; padding: 4px 0 2px 0;">
               <div style="display: inline-flex; align-items: center; gap: 4px;">
                 <span>Target</span>
-                <span style="color: #008358; font-size: 11pt; line-height: 1;">▲</span>
+                <span style="color: #008358; font-size: 11pt; line-height: 1;">?</span>
               </div>
             </td>
             <td style="text-align: center; padding: 4px 0 2px 0;">
               <div style="display: inline-flex; align-items: center; gap: 4px;">
                 <span>Rating</span>
-                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">▼</span>
+                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">?</span>
               </div>
             </td>
             <td colspan="2" style="text-align: center; padding: 4px 12px 2px 0;">
               <div style="display: inline-flex; align-items: center; gap: 4px; justify-content: center;">
                 <span>Earnings</span>
-                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">▼</span>
+                <span style="color: #ea580c; font-size: 11pt; line-height: 1;">?</span>
               </div>
             </td>
           </tr>
@@ -1377,7 +1467,7 @@ ${watermark}
           ${rec.currentPrice != null && rec.currentPrice > 0 ? `
           <tr style="color: #64748b; font-size: 6pt;">
             <td colspan="2" style="text-align: right; padding: 0 12px 2px 0; font-weight: 400; font-style: italic;">
-              Source: ${escape(rec.currentPriceSource === "document" ? "as stated in document" : rec.currentPriceSource === "calculated" ? "calculated (Mkt Cap ÷ Shares)" : rec.currentPriceSource === "live_feed" ? "live market feed" : "source unverified")} &nbsp;| As of ${escape(data.company.reportDate || new Date().toLocaleDateString("en-IN"))}
+              Source: ${escape(rec.currentPriceSource === "document" ? "as stated in document" : rec.currentPriceSource === "calculated" ? "calculated (Mkt Cap � Shares)" : rec.currentPriceSource === "live_feed" ? "live market feed" : "source unverified")} &nbsp;| As of ${escape(data.company.reportDate || new Date().toLocaleDateString("en-IN"))}
             </td>
           </tr>` : ""}
           <tr style="color: #000; font-size: 7.5pt; font-weight: 800; text-transform: uppercase;">
@@ -1504,12 +1594,12 @@ ${watermark}
   </div>
 </div>
 
-<!-- ═══════════════════════════════════ PAGE 2 ═══════════════════════════════════ -->
+<!-- ----------------------------------- PAGE 2 ----------------------------------- -->
 <div class="page">
   <div class="top-logo">
     <span>Retail Equity Research</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Estimates &amp; Trends</span>
-    <a href="https://www.EquiGen.com">www.EquiGen.com</a>
+    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Top section split: Left side 5-Year summary table, Right side Estimates & text -->
@@ -1594,42 +1684,42 @@ ${watermark}
   <div class="section-header" style="margin-top:10mm;">Performance Charts</div>
   <div class="chart-grid">
     <div class="chart-box">
-      <div class="chart-title">Revenue Trend (₹ Cr) &amp; EBITDA Margin (%)</div>
+      <div class="chart-title">Revenue Trend (? Cr) &amp; EBITDA Margin (%)</div>
       <div class="chart-svg-wrap">${revChart}</div>
     </div>
     <div class="chart-box">
-      <div class="chart-title">EBITDA Trend (₹ Cr) &amp; EBITDA Margin (%)</div>
+      <div class="chart-title">EBITDA Trend (? Cr) &amp; EBITDA Margin (%)</div>
       <div class="chart-svg-wrap">${ebitdaChart}</div>
     </div>
   </div>
   <div class="chart-grid" style="margin-top:2mm">
     <div class="chart-box">
-      <div class="chart-title">PAT Trend (₹ Cr) &amp; PAT Margin (%)</div>
+      <div class="chart-title">PAT Trend (? Cr) &amp; PAT Margin (%)</div>
       <div class="chart-svg-wrap">${patChart}</div>
     </div>
     <div class="chart-box">
-      <div class="chart-title">${isDeliverySector ? "Gross Order Value (₹ Cr)" : "Sector Operating Metric"}</div>
+      <div class="chart-title">${isDeliverySector ? "Gross Order Value (? Cr)" : "Sector Operating Metric"}</div>
       <div class="chart-svg-wrap">${sectorChart}</div>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════ PAGE 3 ═══════════════════════════════════ -->
+<!-- ----------------------------------- PAGE 3 ----------------------------------- -->
 <div class="page">
   <div class="top-logo">
     <span>Consolidated Financials</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
-    <a href="https://www.EquiGen.com">www.EquiGen.com</a>
+    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Row 1: P&L Statement and Balance Sheet side-by-side -->
   <div style="display: flex; gap: 4mm; margin-top: 1mm;">
     <div style="flex: 1; min-width: 0;">
-      <div class="section-header" style="margin-top:0;">Profit &amp; Loss Statement (₹ Cr)</div>
+      <div class="section-header" style="margin-top:0;">Profit &amp; Loss Statement (? Cr)</div>
       ${renderDetailTable(normalizedIncome)}
     </div>
     <div style="flex: 1; min-width: 0;">
-      <div class="section-header" style="margin-top:0;">Balance Sheet (₹ Cr)</div>
+      <div class="section-header" style="margin-top:0;">Balance Sheet (? Cr)</div>
       ${renderDetailTable(normalizedBalance)}
     </div>
   </div>
@@ -1637,7 +1727,7 @@ ${watermark}
   <!-- Row 2: Cash Flow Statement and Financial Ratios side-by-side -->
   <div style="display: flex; gap: 4mm; margin-top: 3mm;">
     <div style="flex: 1; min-width: 0;">
-      <div class="section-header" style="margin-top:0;">Cash Flow Statement (₹ Cr)</div>
+      <div class="section-header" style="margin-top:0;">Cash Flow Statement (? Cr)</div>
       ${renderDetailTable(normalizedCashFlow)}
     </div>
     <div style="flex: 1; min-width: 0;">
@@ -1647,12 +1737,12 @@ ${watermark}
   </div>
 </div>
 
-<!-- ═══════════════════════════════════ PAGE 4 ═══════════════════════════════════ -->
+<!-- ----------------------------------- PAGE 4 ----------------------------------- -->
 <div class="page">
   <div class="top-logo">
     <span>Consolidated Financials</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
-    <a href="https://www.EquiGen.com">www.EquiGen.com</a>
+    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Side-by-side: Recommendation History Chart (left) and Table (right) -->
@@ -1716,13 +1806,33 @@ ${watermark}
 
   ${publishedBlock}
 
+  <!-- DATA PROVENANCE � resolved from the report's actual audit + source state -->
+  <div class="provenance-block">
+${standardProvenance.items
+  .map(
+    (p) => `    <div>
+      <strong>${escape(p.label)}:</strong>
+      <span class="prov-badge ${provenanceBadgeClass(p.state)}">${escape(p.badge)}</span>
+      <div class="prov-detail">${escape(p.detail)}</div>
+    </div>`,
+  )
+  .join("\n")}
+  </div>
+${standardProvenance.hasUnverifiedItems
+  ? `<div class="prov-caveat">
+    <strong>Data-quality notice:</strong> not every input on this report is
+    exchange-verified. Items marked <em>Fallback used</em>, <em>Not available</em>
+    or <em>Not assessed</em> above were not confirmed against live disclosures.
+  </div>`
+  : ""}
+
   <div class="disclaimer">
     <strong>DISCLAIMER &amp; DISCLOSURES</strong><br><br>
-    <strong>1. Certification:</strong> I, ${escape(cleanReviewer)}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(options.orgName || "EquiGen Investments Limited")}.<br>
-    <strong>2. Independence:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither the firm, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
-    <strong>3. Compensation &amp; disclosures:</strong> ${escape(options.orgName || "EquiGen Investments Limited")}, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
-    <strong>4. Regulatory credentials:</strong> ${escape(options.orgName || "EquiGen Investments Limited")} is a SEBI registered Research Entity${options.sebiRegNo ? ` (${escape(options.sebiRegNo)})` : ""} under SEBI (Research Analysts) Regulations, 2014. Standard Warning: &ldquo;Investment in securities market are subject to market risks. Read all the related documents carefully before investing.&rdquo;<br>
-    <strong>5. ESCALATION &amp; GRIEVANCES:</strong> In case of grievances, please contact: Compliance Officer: ${escape(options.complianceEmail || "compliance@equigen.com")}. You can also write to SEBI SCORES portal at scores.gov.in or access the SEBI ODR portal.<br>
+    <strong>1. Certification:</strong> I, ${escape(cleanReviewer)}, author of this Report hereby certify that all the views expressed in this research report reflect personal views about any or all of the subject issuer or securities. This report has been prepared by the Research Team of ${escape(firm.orgName)}.<br>
+    <strong>2. Independence:</strong> ${escape(firm.orgName)} or its affiliates or Research Analyst does not hold any financial interest or actual/beneficial ownership of more than 1% in the subject company at the end of the month immediately preceding the date of publication. Neither the firm, nor its affiliates, nor Research Analyst has any connection or connection-related conflict of interests with the subject company.<br>
+    <strong>3. Compensation &amp; disclosures:</strong> ${escape(firm.orgName)}, its affiliates, or Research Analyst has not received any compensation from the subject company in the past 12 months for investment banking, brokerage, or any other services, and has not acted as a market maker for the subject company.<br>
+    <strong>4. Regulatory credentials:</strong> ${escape(firm.orgName)} is a SEBI registered Research Entity${options.sebiRegNo ? ` (${escape(options.sebiRegNo)})` : ""} under SEBI (Research Analysts) Regulations, 2014. Standard Warning: ${escape(SEBI_RISK_WARNING)}<br>
+    <strong>5. ESCALATION &amp; GRIEVANCES:</strong> In case of grievances, please contact: Compliance Officer: ${escape(firm.complianceEmail || "[compliance email not configured]")}. You can also write to SEBI SCORES portal at scores.gov.in or access the SEBI ODR portal.<br>
     <strong>6. Corporate Identity:</strong>${options.cinNumber ? ` Corporate Identity Number (CIN): ${escape(options.cinNumber)}.` : ""}${options.sebiRegNo ? ` Research Entity SEBI Reg No: ${escape(options.sebiRegNo)}.` : ""}${options.dpSebiRegNo ? ` Depository Participant SEBI Reg No: ${escape(options.dpSebiRegNo)}.` : ""}
   </div>
 
@@ -1732,7 +1842,7 @@ ${watermark}
 </html>`;
 }
 
-// ─── Autonomous AI Analyst Report Generator ───────────────────────────────────
+// --- Autonomous AI Analyst Report Generator -----------------------------------
 
 export interface AutonomousReportSection {
   name: string;
@@ -1756,9 +1866,16 @@ export interface AutonomousReportInput {
     newsDigest?: Record<string, unknown> | null;
   } | null;
   dataSources?: Record<string, { isLive?: boolean; count?: number; found?: boolean; source?: string; isDerivedFromRealData?: boolean; quotesFound?: number }> | null;
+  /** Persisted financial authenticity audit, when one ran for this report. */
+  financialAudit?: Record<string, unknown> | null;
+  /**
+   * As-of timestamp of the underlying data (ISO). Distinct from the render time �
+   * rendering "as of now" on a three-month-old price series is a misstatement.
+   */
+  asOf?: string | null;
 }
 
-// ─── Clean Markdown Renderer (Filters meta-noise like 'User Safety: safe') ────
+// --- Clean Markdown Renderer (Filters meta-noise like 'User Safety: safe') ----
 
 function renderCleanMarkdown(md: string): string {
   if (!md) return "";
@@ -1812,12 +1929,12 @@ function renderCleanMarkdown(md: string): string {
     }
 
     // List detection
-    if (line.startsWith("- ") || line.startsWith("• ") || line.startsWith("* ")) {
+    if (line.startsWith("- ") || line.startsWith("� ") || line.startsWith("* ")) {
       if (!inList) {
         inList = true;
         htmlParts.push('<ul class="auto-list">');
       }
-      const itemText = line.replace(/^[-•*]\s*/, "");
+      const itemText = line.replace(/^[-�*]\s*/, "");
       htmlParts.push(`<li>${formatInline(itemText)}</li>`);
       continue;
     } else if (inList) {
@@ -1877,33 +1994,61 @@ const SECTION_TITLE_MAP: Record<string, string> = {
   disclosures: "SEBI Compliance & Statutory Disclosures",
 };
 
-// ─── Quantitative Data Extractor for Autonomous Reports ────────────────────────
+// --- Quantitative Data Extractor for Autonomous Reports ------------------------
 
 interface ExtractedAutonomousMetrics {
+  /**
+   * A price of `0` is the established "not computed" sentinel used throughout the
+   * pipeline (see `ModelingAgent`: a sector-fallback model emits 0). It must never be
+   * replaced with a derived figure: a bull case that is really `target x 1.18` asserts
+   * a scenario range the model never ran.
+   */
   targetPrice: number;
-  cmp: number;
+  /** null when no price could be found; the report is then unrated rather than assumed. */
+  cmp: number | null;
   bullPrice: number;
   bearPrice: number;
-  upsidePct: number;
-  recommendation: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE";
-  marketCapCr: number;
-  peRatio: number;
-  priceToBook: number;
-  roe: number;
-  roce: number;
-  dividendYield: number;
+  upsidePct: number | null;
+  recommendation: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE" | null;
+  marketCapCr: number | null;
+  peRatio: number | null;
+  priceToBook: number | null;
+  roe: number | null;
+  roce: number | null;
+  dividendYield: number | null;
   baseRevenue: number;
   revenueGrowth: number;
   ebitdaMargin: number;
   wacc: number;
   terminalGrowth: number;
   netDebtCr: number;
-  fiiHolding: number;
-  diiHolding: number;
-  promoterHolding: number;
-  peers: Array<{ ticker: string; name: string; cmp: number; pe: number; pb: number; roe: number; marketCapCr: number }>;
-  financialYears: Array<{ year: string; revenue: number; growthPct: number; ebitda: number; marginPct: number; pat: number; eps: number }>;
-  sensitivityMatrix: { waccs: number[]; growths: number[]; grid: number[][] };
+  fiiHolding: number | null;
+  diiHolding: number | null;
+  promoterHolding: number | null;
+  /**
+   * Only real, fetched peers appear here. Every metric is nullable: a peer the data
+   * provider could not price renders as "n/a" rather than being filled with a constant.
+   */
+  peers: Array<{
+    ticker: string;
+    name: string;
+    cmp: number | null;
+    pe: number | null;
+    pb: number | null;
+    roe: number | null;
+    marketCapCr: number | null;
+  }>;
+  /** Yearly financials. Every field is nullable; gaps are never back-derived. */
+  financialYears: Array<{
+    year: string;
+    revenue: number | null;
+    growthPct: number | null;
+    ebitda: number | null;
+    marginPct: number | null;
+    pat: number | null;
+    eps: number | null;
+  }>;
+  sensitivityMatrix: { waccs: number[]; growths: number[]; grid: Array<Array<number | null>> };
 }
 
 function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAutonomousMetrics {
@@ -1922,7 +2067,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       : 0;
 
   if (!targetPrice) {
-    const tpMatch = fullText.match(/(?:target price of|base-case target price of|Base case of|Target Price:)\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
+    const tpMatch = fullText.match(/(?:target price of|base-case target price of|Base case of|Target Price:)\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
     targetPrice = tpMatch ? parseFloat(tpMatch[1].replace(/,/g, "")) : 0;
   }
   if (!targetPrice || targetPrice <= 0) targetPrice = 1250; // default institutional anchor
@@ -1933,9 +2078,11 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       : typeof dcfObj?.targetPriceBull === "number"
       ? (dcfObj.targetPriceBull as number)
       : 0;
+  // Fall back to a figure stated in the report text, but never to an assumed one.
+  // `targetPrice * 1.18` was a guess dressed as a bull case.
   if (!bullPrice) {
-    const bullMatch = fullText.match(/bull\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
-    bullPrice = bullMatch ? parseFloat(bullMatch[1].replace(/,/g, "")) : Math.round(targetPrice * 1.18);
+    const bullMatch = fullText.match(/bull\s*(?:case\s*(?:of)?)?\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
+    bullPrice = bullMatch ? parseFloat(bullMatch[1].replace(/,/g, "")) : 0;
   }
 
   let bearPrice =
@@ -1945,86 +2092,98 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       ? (dcfObj.targetPriceBear as number)
       : 0;
   if (!bearPrice) {
-    const bearMatch = fullText.match(/bear\s*(?:case\s*(?:of)?)?\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
-    bearPrice = bearMatch ? parseFloat(bearMatch[1].replace(/,/g, "")) : Math.round(targetPrice * 0.82);
+    const bearMatch = fullText.match(/bear\s*(?:case\s*(?:of)?)?\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
+    bearPrice = bearMatch ? parseFloat(bearMatch[1].replace(/,/g, "")) : 0;
   }
 
   // 2. Market Cap & Multiples
-  let marketCapCr = 0;
-  const mcapMatch = fullText.match(/market capitalisation at\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i) || fullText.match(/Market Cap:\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
-  if (mcapMatch) marketCapCr = parseFloat(mcapMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.marketCapCr) {
-    marketCapCr = data.marketIntelData.peerProfiles[0].marketCapCr as number;
-  } else {
-    marketCapCr = 250000;
-  }
+  //
+  // Every metric below previously fell back to a plausible constant when it could not
+  // be found � market cap Rs 2,50,000 Cr, P/E 21.5x, P/B 2.85x, ROE 15.8%, ROCE 12.4%,
+  // dividend yield 0.85%. A subject company whose financials were never retrieved was
+  // therefore presented with a complete, authoritative-looking metrics block. These are
+  // now null when unknown and render as "n/a".
+  const metricOrNull = (v: unknown): number | null => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) ? n : null;
+  };
+  const textMetric = (m: RegExpMatchArray | null): number | null =>
+    m ? (Number.isFinite(parseFloat(m[1].replace(/,/g, ""))) ? parseFloat(m[1].replace(/,/g, "")) : null) : null;
+  const subject = data.marketIntelData?.peerProfiles?.[0];
 
-  let peRatio = 0;
-  const peMatch = fullText.match(/P\/E\s*(?:of|multiple of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i);
-  if (peMatch) peRatio = parseFloat(peMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.peRatio) {
-    peRatio = data.marketIntelData.peerProfiles[0].peRatio as number;
-  } else {
-    peRatio = 21.5;
-  }
+  const marketCapCr: number | null =
+    textMetric(
+      fullText.match(/market capitalisation at\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i) ||
+        fullText.match(/Market Cap:\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i),
+    ) ?? metricOrNull((subject as Record<string, unknown> | undefined)?.marketCapCr);
 
-  let priceToBook = 0;
-  const pbMatch = fullText.match(/(?:price\/book|Price\/Book|P\/B)\s*(?:of|ratio of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i);
-  if (pbMatch) priceToBook = parseFloat(pbMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.pbRatio) {
-    priceToBook = data.marketIntelData.peerProfiles[0].pbRatio as number;
-  } else {
-    priceToBook = 2.85;
-  }
+  const peRatio: number | null =
+    textMetric(fullText.match(/P\/E\s*(?:of|multiple of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i)) ??
+    metricOrNull((subject as Record<string, unknown> | undefined)?.peRatio);
 
-  let roe = 0;
-  const roeMatch = fullText.match(/return on equity of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/ROE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
-  if (roeMatch) roe = parseFloat(roeMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.roePercent) {
-    roe = data.marketIntelData.peerProfiles[0].roePercent as number;
-  } else {
-    roe = 15.8;
-  }
+  const priceToBook: number | null =
+    textMetric(
+      fullText.match(/(?:price\/book|Price\/Book|P\/B)\s*(?:of|ratio of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*x?/i),
+    ) ??
+    metricOrNull((subject as Record<string, unknown> | undefined)?.pbRatio);
 
-  let roce = 0;
-  const roceMatch = fullText.match(/return on capital employed of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/ROCE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
-  if (roceMatch) roce = parseFloat(roceMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.rocePercent) {
-    roce = data.marketIntelData.peerProfiles[0].rocePercent as number;
-  } else {
-    roce = 12.4;
-  }
+  const roe: number | null =
+    textMetric(
+      fullText.match(/return on equity of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) ||
+        fullText.match(/ROE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i),
+    ) ?? metricOrNull((subject as Record<string, unknown> | undefined)?.roePercent);
 
-  let dividendYield = 0;
-  const dyMatch = fullText.match(/dividend yield of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) || fullText.match(/Dividend Yield:\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i);
-  if (dyMatch) dividendYield = parseFloat(dyMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.dividendYieldPercent) {
-    dividendYield = data.marketIntelData.peerProfiles[0].dividendYieldPercent as number;
-  } else {
-    dividendYield = 0.85;
-  }
+  const roce: number | null =
+    textMetric(
+      fullText.match(/return on capital employed of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) ||
+        fullText.match(/ROCE\s*(?:of|:)?\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i),
+    ) ?? metricOrNull((subject as Record<string, unknown> | undefined)?.rocePercent);
+
+  const dividendYield: number | null =
+    textMetric(
+      fullText.match(/dividend yield of\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i) ||
+        fullText.match(/Dividend Yield:\s*([0-9,]+(?:\.[0-9]+)?)\s*%/i),
+    ) ?? metricOrNull((subject as Record<string, unknown> | undefined)?.dividendYieldPercent);
 
   // 3. Current Market Price (CMP) & Upside %
-  let cmp = 0;
-  const cmpMatch = fullText.match(/(?:trading at|CMP:|CMP|current price of)\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i);
+  //
+  // When no price could be found, the previous code invented one as
+  // `targetPrice / 1.16`, which manufactures a ~16% upside; the upside then defaulted
+  // to 16.0%, and the recommendation — an investment rating — was derived from it and
+  // defaulted to "BUY". A report with no market data at all therefore issued a BUY.
+  // An unpriced company cannot be rated, so CMP, upside and the rating are now all null.
+  let cmp: number | null = null;
+  const cmpMatch = fullText.match(
+    /(?:trading at|CMP:|CMP|current price of)\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)/i,
+  );
   if (cmpMatch) cmp = parseFloat(cmpMatch[1].replace(/,/g, ""));
-  else if (data.marketIntelData?.peerProfiles?.[0]?.currentPrice) {
-    cmp = data.marketIntelData.peerProfiles[0].currentPrice as number;
-  } else {
-    cmp = targetPrice > 50 ? Math.round(targetPrice / 1.16) : Math.max(1, Math.round(targetPrice * 0.85));
+  else {
+    const subjectPrice = (subject as Record<string, unknown> | undefined)?.currentPrice;
+    const n = typeof subjectPrice === "string" ? Number(subjectPrice) : subjectPrice;
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) cmp = n;
   }
 
-  const upsidePct = cmp > 0 ? parseFloat((((targetPrice - cmp) / cmp) * 100).toFixed(1)) : 16.0;
+  const upsidePct: number | null =
+    cmp !== null && cmp > 0 && targetPrice > 0
+      ? parseFloat((((targetPrice - cmp) / cmp) * 100).toFixed(1))
+      : null;
 
-  let recommendation: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE" = "BUY";
-  if (upsidePct >= 15) recommendation = "BUY";
-  else if (upsidePct >= 8) recommendation = "ACCUMULATE";
-  else if (upsidePct >= -5) recommendation = "HOLD";
-  else recommendation = "REDUCE";
+  // No price => no rating. A default of "BUY" is not a neutral default; it is a
+  // specific, actionable claim with no supporting evidence.
+  const recommendation: "BUY" | "ACCUMULATE" | "HOLD" | "REDUCE" | null =
+    upsidePct === null
+      ? null
+      : upsidePct >= 15
+      ? "BUY"
+      : upsidePct >= 8
+      ? "ACCUMULATE"
+      : upsidePct >= -5
+      ? "HOLD"
+      : "REDUCE";
 
   // 4. Model Assumptions (Base Revenue, WACC, Margins)
   let baseRevenue = 0;
-  const revMatch = fullText.match(/revenue of\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i) || fullText.match(/base revenue of\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
+  const revMatch = fullText.match(/revenue of\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i) || fullText.match(/base revenue of\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
   if (revMatch) baseRevenue = parseFloat(revMatch[1].replace(/,/g, ""));
   else baseRevenue = 18500;
 
@@ -2051,40 +2210,71 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   else terminalGrowth = 4.0;
 
   let netDebtCr = 0;
-  const ndMatch = fullText.match(/net debt of\s*[₹Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
+  const ndMatch = fullText.match(/net debt of\s*[?Rs.]*\s*([0-9,]+(?:\.[0-9]+)?)\s*Cr/i);
   if (ndMatch) netDebtCr = parseFloat(ndMatch[1].replace(/,/g, ""));
 
-  let fiiHolding = 0;
+  let fiiHolding: number | null = null;
   const fiiMatch = fullText.match(/([0-9,]+(?:\.[0-9]+)?)\s*%\s*FII/i);
   if (fiiMatch) fiiHolding = parseFloat(fiiMatch[1]);
-  else fiiHolding = 44.4;
 
-  let diiHolding = 0;
+  let diiHolding: number | null = null;
   const diiMatch = fullText.match(/([0-9,]+(?:\.[0-9]+)?)\s*%\s*DII/i);
   if (diiMatch) diiHolding = parseFloat(diiMatch[1]);
-  else diiHolding = 45.3;
 
-  const promoterHolding = Math.max(0, parseFloat((100 - fiiHolding - diiHolding).toFixed(1)));
+  // Only derived when both components are actually known. Previously FII defaulted to
+  // 44.4% and DII to 45.3%, so an unqueried company was reported as holding a specific
+  // shareholding pattern, and "promoter holding" became an arithmetic remainder of two
+  // invented numbers.
+  const promoterHolding: number | null =
+    fiiHolding !== null && diiHolding !== null
+      ? Math.max(0, parseFloat((100 - fiiHolding - diiHolding).toFixed(1)))
+      : null;
 
   // 5. Build 5-Year Financial Projection Table
-  let financialYears: Array<{ year: string; revenue: number; growthPct: number; ebitda: number; marginPct: number; pat: number; eps: number }> = [];
+  //
+  // Previously every missing figure was back-derived: revenue from a compound-growth
+  // extrapolation, PAT as 65% of EBITDA, share count fixed at 500 Cr, EPS at Rs 12.5.
+  // A row with three real numbers and four guessed ones was indistinguishable from a
+  // fully reported history. Missing values are now null.
+  let financialYears: Array<{
+    year: string;
+    revenue: number | null;
+    growthPct: number | null;
+    ebitda: number | null;
+    marginPct: number | null;
+    pat: number | null;
+    eps: number | null;
+  }> = [];
 
   const fYears = forecastObj?.years as string[] | undefined;
   const fRevs = forecastObj?.revenue as number[] | undefined;
   const fMargins = forecastObj?.ebitdaMargin as number[] | undefined;
   const fPats = forecastObj?.pat as number[] | undefined;
   const fEps = forecastObj?.eps as number[] | undefined;
+  const fSharesCr = (forecastObj?.sharesCr ?? forecastObj?.sharesOutstandingCr) as number | undefined;
 
   if (fYears && Array.isArray(fYears) && fYears.length > 0) {
     financialYears = fYears.map((yr, idx) => {
-      const rev = fRevs?.[idx] ?? Math.round(baseRevenue * Math.pow(1 + revenueGrowth / 100, idx));
-      const prevRev = idx === 0 ? rev * 0.9 : (fRevs?.[idx - 1] ?? rev * 0.9);
-      const growthPct = parseFloat((((rev - prevRev) / prevRev) * 100).toFixed(1));
-      const marginPct = fMargins?.[idx] ?? ebitdaMargin;
-      const ebitda = Math.round((rev * marginPct) / 100);
-      const pat = fPats?.[idx] ?? Math.round(ebitda * 0.65);
-      const sharesCr = marketCapCr > 0 && cmp > 0 ? marketCapCr / cmp : 500;
-      const eps = fEps?.[idx] ?? (sharesCr > 0 ? parseFloat((pat / sharesCr).toFixed(1)) : 12.5);
+      const rev = fRevs?.[idx] ?? null;
+      const prevRev = idx === 0 ? (fRevs?.[0] ?? null) : (fRevs?.[idx - 1] ?? null);
+      const growthPct =
+        rev !== null && prevRev !== null && prevRev !== 0
+          ? parseFloat((((rev - prevRev) / prevRev) * 100).toFixed(1))
+          : null;
+      const marginPct = fMargins?.[idx] ?? null;
+      const ebitda =
+        rev !== null && marginPct !== null ? Math.round((rev * marginPct) / 100) : null;
+      const pat = fPats?.[idx] ?? null;
+
+      // EPS is only computed from real inputs; it is never defaulted.
+      const sharesCr = fSharesCr !== undefined && Number.isFinite(fSharesCr) && fSharesCr > 0
+        ? fSharesCr
+        : marketCapCr !== null && marketCapCr > 0 && cmp !== null && cmp > 0
+          ? marketCapCr / cmp
+          : null;
+      const eps =
+        fEps?.[idx] ??
+        (pat !== null && sharesCr !== null ? parseFloat((pat / sharesCr).toFixed(1)) : null);
 
       return {
         year: yr,
@@ -2097,104 +2287,117 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
       };
     });
   } else {
-    const years = ["FY24", "FY25", "FY26E", "FY27E", "FY28E"];
-    const gFactor = 1 + revenueGrowth / 100;
-    const revFY25 = baseRevenue;
-    const revFY24 = Math.round(revFY25 / gFactor);
-    const revFY26 = Math.round(revFY25 * gFactor);
-    const revFY27 = Math.round(revFY26 * gFactor);
-    const revFY28 = Math.round(revFY27 * gFactor);
-
-    const revs = [revFY24, revFY25, revFY26, revFY27, revFY28];
-    const margins = [
-      parseFloat((ebitdaMargin * 0.95).toFixed(1)),
-      ebitdaMargin,
-      parseFloat((ebitdaMargin * 1.04).toFixed(1)),
-      parseFloat((ebitdaMargin * 1.08).toFixed(1)),
-      parseFloat((ebitdaMargin * 1.12).toFixed(1)),
-    ];
-
-    financialYears = years.map((yr, idx) => {
-      const rev = revs[idx];
-      const prevRev = idx === 0 ? rev * 0.9 : revs[idx - 1];
-      const growthPct = parseFloat((((rev - prevRev) / prevRev) * 100).toFixed(1));
-      const marginPct = margins[idx];
-      const ebitda = Math.round((rev * marginPct) / 100);
-      const pat = Math.round(ebitda * 0.65);
-      const sharesCr = marketCapCr > 0 && cmp > 0 ? marketCapCr / cmp : 500;
-      const eps = sharesCr > 0 ? parseFloat((pat / sharesCr).toFixed(1)) : 12.5;
-
-      return {
-        year: yr,
-        revenue: rev,
-        growthPct,
-        ebitda,
-        marginPct,
-        pat,
-        eps,
-      };
-    });
+    // No forecast payload was produced, so no financial history is shown.
+    //
+    // This branch used to fabricate an entire five-year table: FY24 and FY25 revenue
+    // back-extrapolated from base revenue at the assumed growth rate, EBITDA margins
+    // invented as 0.95x / 1.00x / 1.04x / 1.08x / 1.12x of the assumed margin, PAT at a
+    // flat 65% of EBITDA, a fixed 500 Cr share count and a flat Rs 12.5 EPS. FY24 and
+    // FY25 carry no "E" suffix, so those extrapolations were labelled as *actuals* �
+    // invented history presented as reported history in an equity research report.
+    //
+    // `financialYears` stays empty and the renderer states that the table is unavailable.
+    financialYears = [];
   }
 
   // 6. Peers Comparison Table
+  //
+  // Only real, fetched peer data may appear here. The previous version of this
+  // function invented a comparison table in two separate ways:
+  //
+  //  - if the report text happened to mention "SBIN" or "HDFCBANK", it emitted a full
+  //    table for those *real listed companies* with hardcoded prices and multiples
+  //    (SBIN Rs 812 / 12.0x / 16.5% ROE, PNB Rs 114, HDFC Bank Rs 1,640 ...). A reader
+  //    would take those as observed market data for real securities.
+  //  - failing that, it emitted literal tickers "PEER1"/"PEER2" named "Sector Peer A"/"B"
+  //    with multiples back-derived from the subject company (cmp x 0.92, pe x 0.85,
+  //    roe 14.5). Naming a comparator that does not exist is worse than showing none.
+  //
+  // Even genuine peers had their gaps filled with constants (pe 15.0, pb 1.8, roe 14.0,
+  // marketCapCr 100000), so a peer the data provider could not price still appeared
+  // fully valued. Missing figures are now `null` and render as "n/a"; when no peers
+  // were fetched, the section says so instead of inventing comparables.
   const rawPeers = data.marketIntelData?.peerProfiles || [];
-  let peers: Array<{ ticker: string; name: string; cmp: number; pe: number; pb: number; roe: number; marketCapCr: number }> = [];
+  let peers: Array<{
+    ticker: string;
+    name: string;
+    cmp: number | null;
+    pe: number | null;
+    pb: number | null;
+    roe: number | null;
+    marketCapCr: number | null;
+  }> = [];
 
   const currentTicker = (data.ticker || "").toUpperCase();
-  const validPeers = rawPeers.filter((p: Record<string, unknown>) => ((p.ticker as string) || "").toUpperCase() !== currentTicker);
+  const isUsableTicker = (t: unknown): t is string =>
+    typeof t === "string" && /^[A-Z0-9&.\-]{2,15}$/.test(t.trim().toUpperCase()) && !/^PEER\d*$/i.test(t.trim());
+
+  const validPeers = rawPeers.filter(
+    (p: Record<string, unknown>) =>
+      isUsableTicker(p.ticker) && p.ticker.toString().toUpperCase() !== currentTicker,
+  );
   const peersToUse = validPeers.length > 0 ? validPeers : (rawPeers.length > 1 ? rawPeers.slice(1) : rawPeers);
 
-  if (peersToUse.length > 0) {
-    peers = peersToUse.slice(0, 4).map((p: Record<string, unknown>) => ({
-      ticker: (p.ticker as string) || "PEER",
-      name: (p.companyName as string) || (p.name as string) || (p.ticker as string) || "Sector Peer",
-      cmp: (p.currentPrice as number) || (p.cmp as number) || 0,
-      pe: (p.peRatio as number) || (p.pe as number) || 15.0,
-      pb: (p.pbRatio as number) ?? (p.priceToBook as number) ?? (p.pb as number) ?? 1.8,
-      roe: (p.roePercent as number) ?? (p.roe as number) ?? 14.0,
-      marketCapCr: (p.marketCapCr as number) || (p.marketCap as number) || 100000,
-    }));
-  } else {
-    // Check if peer mentions exist in text (e.g. SBIN, PNB)
-    if (fullText.includes("SBIN") || fullText.includes("HDFCBANK")) {
-      peers = [
-        { ticker: "SBIN", name: "State Bank of India", cmp: 812, pe: 12.0, pb: 1.65, roe: 16.5, marketCapCr: 724000 },
-        { ticker: "PNB", name: "Punjab National Bank", cmp: 114, pe: 6.55, pb: 0.91, roe: 13.8, marketCapCr: 128000 },
-        { ticker: "HDFCBANK", name: "HDFC Bank Ltd", cmp: 1640, pe: 18.2, pb: 2.65, roe: 16.8, marketCapCr: 1250000 },
-      ];
-    } else {
-      peers = [
-        { ticker: "PEER1", name: "Sector Peer A", cmp: Math.round(cmp * 0.92), pe: parseFloat((peRatio * 0.85).toFixed(1)), pb: parseFloat((priceToBook * 0.82).toFixed(2)), roe: 14.5, marketCapCr: Math.round(marketCapCr * 0.65) },
-        { ticker: "PEER2", name: "Sector Peer B", cmp: Math.round(cmp * 1.15), pe: parseFloat((peRatio * 1.12).toFixed(1)), pb: parseFloat((priceToBook * 1.15).toFixed(2)), roe: 16.2, marketCapCr: Math.round(marketCapCr * 1.25) },
-      ];
+  /** Reads a numeric peer field, returning null when it is absent or unusable. */
+  const peerNumber = (...candidates: unknown[]): number | null => {
+    for (const c of candidates) {
+      const n = typeof c === "string" ? Number(c) : c;
+      if (typeof n === "number" && Number.isFinite(n) && n !== 0) return n;
     }
+    return null;
+  };
+
+  if (peersToUse.length > 0) {
+    peers = peersToUse
+      .filter((p: Record<string, unknown>) => isUsableTicker(p.ticker))
+      .slice(0, 4)
+      .map((p: Record<string, unknown>) => ({
+        ticker: (p.ticker as string).trim().toUpperCase(),
+        name:
+          (p.companyName as string) ||
+          (p.name as string) ||
+          // No invented company name; the ticker is the honest identifier.
+          (p.ticker as string).trim().toUpperCase(),
+        cmp: peerNumber(p.currentPrice, p.cmp, p.price),
+        pe: peerNumber(p.peRatio, p.pe, p.trailingPE),
+        pb: peerNumber(p.pbRatio, p.priceToBook, p.pb),
+        roe: peerNumber(p.roePercent, p.roe, p.returnOnEquity),
+        marketCapCr: peerNumber(p.marketCapCr, p.marketCap),
+      }));
   }
 
   // 7. Sensitivity Matrix (Gordon Growth: P(w,g) = Target * (w0 - g0) / (w - g))
-  let sensitivityMatrix: { waccs: number[]; growths: number[]; grid: number[][] };
+  let sensitivityMatrix: { waccs: number[]; growths: number[]; grid: Array<Array<number | null>> };
 
-  const sMat = dcfObj?.sensitivityMatrix as { waccRange?: number[]; growthRange?: number[]; priceGrid?: number[][] } | undefined;
-  if (sMat?.waccRange && sMat?.priceGrid) {
+  const sMat = dcfObj?.sensitivityMatrix as
+    | {
+        waccRange?: number[];
+        growthRange?: number[];
+        priceGrid?: Array<Array<number | null>>;
+        rowValues?: number[];
+        colValues?: number[];
+        matrix?: Array<Array<number | null>>;
+      }
+    | undefined;
+
+  // Only a *real* matrix computed by the DCF engine may be rendered. The previous
+  // fallback invented one by scaling the headline target price �
+  // `targetPrice * (baseSpread / spread)`, and `targetPrice * 1.4` whenever the
+  // spread fell below 1%. That is a fabricated table of target prices presented with
+  // the same authority as the model's own output; a 40% uplift in a cell implied no
+  // valuation had been performed at all. When no matrix was computed, none is shown.
+  const priceGrid = sMat?.priceGrid ?? sMat?.matrix;
+  const waccAxis = sMat?.waccRange ?? sMat?.rowValues;
+  const growthAxis = sMat?.growthRange ?? sMat?.colValues;
+
+  if (waccAxis && growthAxis && Array.isArray(priceGrid)) {
     sensitivityMatrix = {
-      waccs: sMat.waccRange.map((w: number) => (w <= 1 ? parseFloat((w * 100).toFixed(1)) : w)),
-      growths: (sMat.growthRange || [0.04, 0.045, 0.05, 0.055, 0.06]).map((g: number) => (g <= 1 ? parseFloat((g * 100).toFixed(1)) : g)),
-      grid: sMat.priceGrid,
+      waccs: waccAxis.map((w: number) => (w <= 1 ? parseFloat((w * 100).toFixed(1)) : w)),
+      growths: growthAxis.map((g: number) => (g <= 1 ? parseFloat((g * 100).toFixed(1)) : g)),
+      grid: priceGrid,
     };
   } else {
-    const waccs = [10.0, 11.0, 12.0, 13.0, 14.0];
-    const growths = [4.0, 4.5, 5.0, 5.5, 6.0];
-    const baseSpread = (wacc / 100) - (terminalGrowth / 100) || 0.07;
-
-    const grid = waccs.map((wVal) => {
-      return growths.map((gVal) => {
-        const spread = (wVal / 100) - (gVal / 100);
-        if (spread <= 0.01) return Math.round(targetPrice * 1.4);
-        const scaled = Math.round(targetPrice * (baseSpread / spread));
-        return Math.max(1, scaled);
-      });
-    });
-
-    sensitivityMatrix = { waccs, growths, grid };
+    sensitivityMatrix = { waccs: [], growths: [], grid: [] };
   }
 
   return {
@@ -2225,7 +2428,7 @@ function extractAutonomousFinancials(data: AutonomousReportInput): ExtractedAuto
   };
 }
 
-// ─── Inline SVG Charts for Autonomous Reports ──────────────────────────────────
+// --- Inline SVG Charts for Autonomous Reports ----------------------------------
 
 function svgAutonomousFinancialTrajectory(years: string[], revenues: number[], margins: number[]): string {
   const W = 780, H = 240;
@@ -2249,7 +2452,7 @@ function svgAutonomousFinancialTrajectory(years: string[], revenues: number[], m
 
       return `
         <rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${barH.toFixed(1)}" fill="#008358" rx="3"/>
-        <text x="${cx.toFixed(1)}" y="${(by - 8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="800" fill="#008358">₹${rev >= 1000 ? (rev / 1000).toFixed(1) + "k" : rev}</text>
+        <text x="${cx.toFixed(1)}" y="${(by - 8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="800" fill="#008358">?${rev >= 1000 ? (rev / 1000).toFixed(1) + "k" : rev}</text>
         <text x="${cx.toFixed(1)}" y="${(H - 12).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#475569">${yr}</text>
       `;
     })
@@ -2286,7 +2489,7 @@ function svgAutonomousFinancialTrajectory(years: string[], revenues: number[], m
     ${lineHtml}
     <!-- Legend -->
     <rect x="${lpad}" y="10" width="12" height="10" fill="#008358" rx="2"/>
-    <text x="${lpad + 16}" y="19" font-size="9" font-weight="700" fill="#334155">Revenue (₹ Cr, LHS)</text>
+    <text x="${lpad + 16}" y="19" font-size="9" font-weight="700" fill="#334155">Revenue (? Cr, LHS)</text>
     <line x1="${lpad + 130}" y1="15" x2="${lpad + 150}" y2="15" stroke="#d97706" stroke-width="2.5"/>
     <circle cx="${lpad + 140}" cy="15" r="3.5" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
     <text x="${lpad + 156}" y="19" font-size="9" font-weight="700" fill="#334155">EBITDA Margin (%, RHS)</text>
@@ -2319,7 +2522,7 @@ function svgAutonomousScenarioChart(cmp: number, bear: number, base: number, bul
       return `
         <text x="0" y="${y + 13}" font-size="9.5" font-weight="700" fill="#334155">${it.label}</text>
         <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${barH}" fill="${it.color}" rx="3"/>
-        <text x="${labelW + w + 8}" y="${y + 13}" font-size="9.5" font-weight="800" fill="#0f172a">₹${it.price} <tspan font-size="8.5" font-weight="700" fill="${it.color}">(${upsideLabel})</tspan></text>
+        <text x="${labelW + w + 8}" y="${y + 13}" font-size="9.5" font-weight="800" fill="#0f172a">?${it.price} <tspan font-size="8.5" font-weight="700" fill="${it.color}">(${upsideLabel})</tspan></text>
       `;
     })
     .join("");
@@ -2329,7 +2532,7 @@ function svgAutonomousScenarioChart(cmp: number, bear: number, base: number, bul
   </svg>`;
 }
 
-// ─── Publication-Grade Autonomous HTML Builder ─────────────────────────────────
+// --- Publication-Grade Autonomous HTML Builder ---------------------------------
 
 function buildAutonomousHtml(
   data: AutonomousReportInput,
@@ -2337,13 +2540,36 @@ function buildAutonomousHtml(
 ): string {
   const compName = data.companyName || "Target Company";
   const ticker = data.ticker || "TICKER";
+  // Publication date is legitimately "now" � but the header beside it is labelled
+  // "As of", which readers interpret as the age of the data. Keep the two distinct:
+  // print the data's own as-of when known, otherwise say so.
   const dateStr = new Date().toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+  const _autonomousRec = data as unknown as Record<string, unknown>;
+  const _autonomousAsOfRaw =
+    (typeof _autonomousRec.asOf === "string" && _autonomousRec.asOf) ||
+    (typeof _autonomousRec.completedAt === "string" && _autonomousRec.completedAt) ||
+    null;
+  const asOfStr = _autonomousAsOfRaw
+    ? (() => {
+        const d = new Date(_autonomousAsOfRaw);
+        return isNaN(d.getTime())
+          ? _autonomousAsOfRaw
+          : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+      })()
+    : null;
+  const headerAsOfStr = asOfStr ?? "not recorded";
   const isDraft = options.status !== "published";
   const sections = data.sections || [];
+
+  const firm: ResolvedFirmIdentity = resolveFirmIdentity({
+    orgName: options.orgName,
+    complianceEmail: options.complianceEmail,
+    website: options.website,
+  });
 
   const getSec = (name: string) => sections.find((s) => s.name === name);
 
@@ -2368,17 +2594,56 @@ function buildAutonomousHtml(
   const m = extractAutonomousFinancials(data);
 
   // SVG Charts
-  const trajectoryYears = m.financialYears.map((f) => f.year);
-  const trajectoryRevenues = m.financialYears.map((f) => f.revenue);
-  const trajectoryMargins = m.financialYears.map((f) => f.marginPct);
-  const trajectorySvg = svgAutonomousFinancialTrajectory(trajectoryYears, trajectoryRevenues, trajectoryMargins);
-  const scenarioSvg = svgAutonomousScenarioChart(m.cmp, m.bearPrice, m.targetPrice, m.bullPrice);
+  //
+  // The trajectory chart plots revenue and margin per year. Those may now be null
+  // (the data was never retrieved), and a chart must not plot a zero for a missing
+  // figure � it would draw a revenue collapse that never happened. Years with no data
+  // are dropped; if nothing is left, the chart reports that it has nothing to show.
+  const plottedYears = m.financialYears.filter(
+    (f) => f.revenue !== null || f.marginPct !== null,
+  );
+  const trajectoryYears = plottedYears.map((f) => f.year);
+  const trajectoryRevenues = plottedYears.map((f) => f.revenue ?? 0);
+  const trajectoryMargins = plottedYears.map((f) => f.marginPct ?? 0);
+  const hasTrajectory = plottedYears.length > 0;
+  const trajectorySvg = hasTrajectory
+    ? svgAutonomousFinancialTrajectory(trajectoryYears, trajectoryRevenues, trajectoryMargins)
+    : "";
+  // The scenario chart needs a reference price to plot upside against. With no price
+  // there is nothing meaningful to chart, so it is omitted rather than drawn against 0.
+  const scenarioSvg =
+    m.cmp !== null && m.cmp > 0
+      ? svgAutonomousScenarioChart(m.cmp, m.bearPrice, m.targetPrice, m.bullPrice)
+      : "";
+
+  // -- Data provenance: resolved from actual source state, never asserted ----
+  const provenance: ProvenanceSummary = resolveProvenance({
+    dataSources: data.dataSources,
+    financialAudit: data.financialAudit,
+    asOf: data.asOf,
+  });
+  const provenanceBlockHtml = provenance.items
+    .map(
+      (p) => `    <div>
+      <strong>${escape(p.label)}:</strong>
+      <span class="prov-badge ${provenanceBadgeClass(p.state)}">${escape(p.badge)}</span>
+      <div class="prov-detail">${escape(p.detail)}</div>
+    </div>`,
+    )
+    .join("\n");
+  const provenanceCaveat = provenance.hasUnverifiedItems
+    ? `<div class="prov-caveat">
+    <strong>Data-quality notice:</strong> not every input on this page is
+    exchange-verified. Items marked <em>Fallback used</em>, <em>Not available</em>
+    or <em>Not assessed</em> above were not confirmed against live disclosures.
+  </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>${compName} (${ticker}) — Institutional Equity Research</title>
+<title>${escape(compName)} (${escape(ticker)}) � Institutional Equity Research</title>
 <style>
   @page {
     size: A4 portrait;
@@ -2409,7 +2674,7 @@ function buildAutonomousHtml(
     .page { margin: 0; box-shadow: none; width: 100%; min-height: 100vh; padding: 12mm 15mm; }
   }
 
-  /* ── Headers & Banners ── */
+  /* -- Headers & Banners -- */
   .header {
     border-bottom: 2.5px solid #008358;
     padding-bottom: 8px;
@@ -2451,7 +2716,7 @@ function buildAutonomousHtml(
   .badge-draft { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
   .badge-published { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
 
-  /* ── Hero Target Price & Recommendation Card ── */
+  /* -- Hero Target Price & Recommendation Card -- */
   .hero-card {
     background: #faf8f5;
     border: 1.5px solid #e3dfd5;
@@ -2537,7 +2802,7 @@ function buildAutonomousHtml(
     text-align: right;
   }
 
-  /* ── Standard Section Cards ── */
+  /* -- Standard Section Cards -- */
   .section-card {
     margin-bottom: 11px;
   }
@@ -2564,7 +2829,7 @@ function buildAutonomousHtml(
     text-transform: uppercase;
   }
 
-  /* ── Clean Content & Markdown Styles ── */
+  /* -- Clean Content & Markdown Styles -- */
   .auto-h2 { font-size: 9.5pt; font-weight: 800; color: #0f172a; margin: 8px 0 3px 0; }
   .auto-h3 { font-size: 9pt; font-weight: 700; color: #1e293b; margin: 6px 0 2px 0; }
   .auto-h4 { font-size: 8.5pt; font-weight: 700; color: #334155; margin: 5px 0 2px 0; }
@@ -2590,7 +2855,7 @@ function buildAutonomousHtml(
     color: #0f172a;
   }
 
-  /* ── Structured Institutional Tables ── */
+  /* -- Structured Institutional Tables -- */
   .inst-table {
     width: 100%;
     border-collapse: collapse;
@@ -2627,7 +2892,7 @@ function buildAutonomousHtml(
     font-weight: 800;
   }
 
-  /* ── Scenario Cards Grid ── */
+  /* -- Scenario Cards Grid -- */
   .scenario-grid {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -2672,7 +2937,7 @@ function buildAutonomousHtml(
     line-height: 1.35;
   }
 
-  /* ── Sensitivity Matrix ── */
+  /* -- Sensitivity Matrix -- */
   .sens-table {
     width: 100%;
     border-collapse: collapse;
@@ -2699,7 +2964,7 @@ function buildAutonomousHtml(
     font-weight: 900;
   }
 
-  /* ── Two-Column Grid for Charts & Text ── */
+  /* -- Two-Column Grid for Charts & Text -- */
   .two-col-grid {
     display: grid;
     grid-template-columns: 1.05fr 0.95fr;
@@ -2721,19 +2986,23 @@ function buildAutonomousHtml(
     margin-bottom: 4px;
   }
 
-  /* ── Provenance & Footer ── */
+  /* -- Provenance & Footer -- */
   .provenance-block {
     background: #faf8f5;
     border: 1px solid #e3dfd5;
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 8px 10px;
     margin: 8px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    /* Grid, not flex: each item carries a detail line, so items need their own
+       cell. A single flex row squeezes four items and their explanations into
+       unreadable columns. */
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 14px;
     font-size: 7pt;
     color: #475569;
   }
+  .provenance-block > div { margin: 0; }
   .prov-badge {
     font-weight: 800;
     padding: 1px 5px;
@@ -2743,6 +3012,12 @@ function buildAutonomousHtml(
   }
   .prov-live { background: #dcfce7; color: #15803d; }
   .prov-fallback { background: #fef3c7; color: #b45309; }
+.prov-detail { font-size: 7pt; color: #64748b; margin-top: 1mm; line-height: 1.35; }
+.prov-caveat {
+  margin-top: 2mm; padding: 2mm 3mm; background: #fffbeb;
+  border-left: 3px solid #d97706; border-radius: 3px;
+  font-size: 7.5pt; color: #78350f; line-height: 1.4;
+}
 
   .disclaimer-box {
     background: #f8fafc;
@@ -2770,18 +3045,18 @@ function buildAutonomousHtml(
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <!-- PAGE 1: Executive Summary, Target Price Hero & Financial Trajectory        -->
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <div class="page">
   <div class="header">
     <div class="header-left">
-      <div class="logo">EquiGen</div>
+      <div class="logo">${escape(firm.orgName !== UNCONFIGURED_FIRM_MARKER ? firm.orgName : BRAND.productName)}</div>
       <div class="sub-logo">SEBI Registered Institutional Equity Research</div>
     </div>
     <div class="header-right">
       <span class="badge ${isDraft ? 'badge-draft' : 'badge-published'}">
-        ${isDraft ? 'Draft — Live Research' : 'Official Published Note'}
+        ${isDraft ? 'Draft � Live Research' : 'Official Published Note'}
       </span>
       <div>Date: ${dateStr}</div>
     </div>
@@ -2790,21 +3065,29 @@ function buildAutonomousHtml(
   <!-- HERO VALUATION & MARKET SNAPSHOT CARD -->
   <div class="hero-card">
     <div>
-      <h1 class="hero-left-title">${compName}</h1>
-      <div class="hero-left-sub">NSE / BSE: <strong>${ticker}</strong> | Institutional Equity Research Coverage</div>
+      <h1 class="hero-left-title">${escape(compName)}</h1>
+      <div class="hero-left-sub">NSE / BSE: <strong>${escape(ticker)}</strong> | Institutional Equity Research Coverage</div>
       <div class="hero-val-cluster">
-        <div class="rec-badge rec-${m.recommendation.toLowerCase()}">${m.recommendation}</div>
+        <div class="rec-badge ${m.recommendation ? `rec-${m.recommendation.toLowerCase()}` : "rec-none"}">${
+          m.recommendation ?? "NOT RATED"
+        }</div>
         <div class="hero-metric-item">
           <span class="hero-metric-label">Target Price</span>
-          <span class="hero-metric-val">₹${m.targetPrice.toLocaleString("en-IN")}</span>
+          <span class="hero-metric-val">${
+            m.targetPrice ? `₹${m.targetPrice.toLocaleString("en-IN")}` : "n/a"
+          }</span>
         </div>
         <div class="hero-metric-item">
           <span class="hero-metric-label">CMP (Ref)</span>
-          <span class="hero-metric-val">₹${m.cmp.toLocaleString("en-IN")}</span>
+          <span class="hero-metric-val">${
+            m.cmp === null ? "n/a" : `₹${m.cmp.toLocaleString("en-IN")}`
+          }</span>
         </div>
         <div class="hero-metric-item">
           <span class="hero-metric-label">Expected Upside</span>
-          <span class="hero-metric-val upside">${m.upsidePct >= 0 ? "+" + m.upsidePct : m.upsidePct}%</span>
+          <span class="hero-metric-val upside">${
+            m.upsidePct === null ? "n/a" : `${m.upsidePct >= 0 ? "+" + m.upsidePct : m.upsidePct}%`
+          }</span>
         </div>
       </div>
     </div>
@@ -2815,25 +3098,29 @@ function buildAutonomousHtml(
         <tbody>
           <tr>
             <td class="label">Market Cap</td>
-            <td class="val">₹${m.marketCapCr.toLocaleString("en-IN")} Cr</td>
+            <td class="val">${m.marketCapCr === null ? "n/a" : `?${m.marketCapCr.toLocaleString("en-IN")} Cr`}</td>
             <td class="label">P/E Ratio</td>
-            <td class="val">${m.peRatio}x</td>
+            <td class="val">${m.peRatio === null ? "n/a" : `${m.peRatio}x`}</td>
           </tr>
           <tr>
             <td class="label">Price / Book</td>
-            <td class="val">${m.priceToBook}x</td>
+            <td class="val">${m.priceToBook === null ? "n/a" : `${m.priceToBook}x`}</td>
             <td class="label">Dividend Yield</td>
-            <td class="val">${m.dividendYield}%</td>
+            <td class="val">${m.dividendYield === null ? "n/a" : `${m.dividendYield}%`}</td>
           </tr>
           <tr>
             <td class="label">Return on Equity</td>
-            <td class="val">${m.roe}%</td>
+            <td class="val">${m.roe === null ? "n/a" : `${m.roe}%`}</td>
             <td class="label">ROCE</td>
-            <td class="val">${m.roce}%</td>
+            <td class="val">${m.roce === null ? "n/a" : `${m.roce}%`}</td>
           </tr>
           <tr>
             <td class="label">Institutional Hldg</td>
-            <td class="val">${(m.fiiHolding + m.diiHolding).toFixed(1)}%</td>
+            <td class="val">${
+              m.fiiHolding !== null && m.diiHolding !== null
+                ? `${(m.fiiHolding + m.diiHolding).toFixed(1)}%`
+                : "n/a"
+            }</td>
             <td class="label">WACC (DCF)</td>
             <td class="val">${m.wacc}%</td>
           </tr>
@@ -2846,42 +3133,60 @@ function buildAutonomousHtml(
   <div class="section-card">
     <div class="sec-heading">
       <span>Key Financial Estimates &amp; Operating Forecast</span>
-      <span class="sec-tag">Consolidated (₹ Cr)</span>
+      <span class="sec-tag">Consolidated (? Cr)</span>
     </div>
-    <table class="inst-table">
+    ${
+      m.financialYears.length > 0
+        ? `<table class="inst-table">
       <thead>
         <tr>
-          <th class="left">Metric (₹ Cr)</th>
+          <th class="left">Metric (? Cr)</th>
           ${m.financialYears.map((f) => `<th>${f.year}</th>`).join("")}
         </tr>
       </thead>
       <tbody>
         <tr>
           <td class="left">Net Revenue / Sales</td>
-          ${m.financialYears.map((f) => `<td>₹${f.revenue.toLocaleString("en-IN")}</td>`).join("")}
+          ${m.financialYears
+            .map((f) => `<td>${f.revenue === null ? "n/a" : `?${f.revenue.toLocaleString("en-IN")}`}</td>`)
+            .join("")}
         </tr>
         <tr>
           <td class="left">YoY Growth (%)</td>
-          ${m.financialYears.map((f) => `<td>${f.growthPct >= 0 ? "+" + f.growthPct : f.growthPct}%</td>`).join("")}
+          ${m.financialYears
+            .map(
+              (f) =>
+                `<td>${f.growthPct === null ? "n/a" : `${f.growthPct >= 0 ? "+" + f.growthPct : f.growthPct}%`}</td>`,
+            )
+            .join("")}
         </tr>
         <tr>
           <td class="left">Operating EBITDA</td>
-          ${m.financialYears.map((f) => `<td>₹${f.ebitda.toLocaleString("en-IN")}</td>`).join("")}
+          ${m.financialYears
+            .map((f) => `<td>${f.ebitda === null ? "n/a" : `?${f.ebitda.toLocaleString("en-IN")}`}</td>`)
+            .join("")}
         </tr>
         <tr>
           <td class="left">EBITDA Margin (%)</td>
-          ${m.financialYears.map((f) => `<td>${f.marginPct}%</td>`).join("")}
+          ${m.financialYears.map((f) => `<td>${f.marginPct === null ? "n/a" : `${f.marginPct}%`}</td>`).join("")}
         </tr>
         <tr class="highlight">
           <td class="left">Adjusted Net Profit (PAT)</td>
-          ${m.financialYears.map((f) => `<td>₹${f.pat.toLocaleString("en-IN")}</td>`).join("")}
+          ${m.financialYears
+            .map((f) => `<td>${f.pat === null ? "n/a" : `?${f.pat.toLocaleString("en-IN")}`}</td>`)
+            .join("")}
         </tr>
         <tr>
-          <td class="left">Diluted EPS (₹)</td>
-          ${m.financialYears.map((f) => `<td>₹${f.eps}</td>`).join("")}
+          <td class="left">Diluted EPS (?)</td>
+          ${m.financialYears.map((f) => `<td>${f.eps === null ? "n/a" : `?${f.eps}`}</td>`).join("")}
         </tr>
       </tbody>
-    </table>
+    </table>`
+        : `<div style="font-size:7.4pt;color:#64748b;padding:6px 0;">
+             No financial history or forecast was retrieved for this company, so no table is
+             shown. These figures are not estimated.
+           </div>`
+    }
   </div>
 
   <!-- TWO-COLUMN GRID: Chart & Executive Thesis -->
@@ -2889,7 +3194,13 @@ function buildAutonomousHtml(
     <div>
       <div class="chart-box">
         <div class="chart-title">5-Year Revenue &amp; EBITDA Margin Trajectory</div>
-        ${trajectorySvg}
+        ${
+          hasTrajectory
+            ? trajectorySvg
+            : `<div style="font-size:7.4pt;color:#64748b;font-style:italic;padding:10px 0;">
+                 No revenue or margin history was retrieved, so no trend is charted.
+               </div>`
+        }
       </div>
     </div>
     <div>
@@ -2901,23 +3212,23 @@ function buildAutonomousHtml(
   </div>
 
   <div class="footer">
-    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 1 of 3</span>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <!-- PAGE 2: DCF Valuation Model, Sensitivity Grid & Peer Benchmarking          -->
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <div class="page">
   <div class="header">
     <div class="header-left">
-      <div class="logo">EquiGen</div>
+      <div class="logo">${escape(firm.orgName !== UNCONFIGURED_FIRM_MARKER ? firm.orgName : BRAND.productName)}</div>
       <div class="sub-logo">Valuation Modeling, Scenario Analysis &amp; Peer Multiples</div>
     </div>
     <div class="header-right">
-      <div>${compName} (${ticker})</div>
-      <div>As of: ${dateStr}</div>
+      <div>${escape(compName)} (${escape(ticker)})</div>
+      <div>Data as of: ${headerAsOfStr} � Published: ${dateStr}</div>
     </div>
   </div>
 
@@ -2928,50 +3239,71 @@ function buildAutonomousHtml(
       <span class="sec-tag">Discounted Cash Flow Engine</span>
     </div>
     <div class="scenario-grid">
-      <!-- Bear Case -->
-      <div class="scenario-card bear">
+      ${
+        // The bear and bull cards previously printed driver assumptions the model
+        // never used: "Growth x 0.75, EBITDA Margin x 0.88, WACC +1.0%, Term Growth
+        // 3.5%" for the bear case and "x 1.22 / x 1.15 / -0.8% / 5.0%" for the bull.
+        // Those terminal-growth rates in particular were hardcoded literals. The DCF
+        // engine derives bull and bear from the 10th and 90th percentiles of a Monte
+        // Carlo simulation over growth and margin, so these cards described scenarios
+        // that were never computed while sitting directly beneath the prices that were.
+        //
+        // The cards now state the price and its actual provenance (a simulation
+        // percentile), and print driver assumptions only for the base case, where the
+        // engine's real parameters are known.
+        [
+          {
+            cls: "bear",
+            colour: "#e11d48",
+            label: "Bear Case",
+            price: m.bearPrice,
+            note: m.bearPrice
+              ? "10th percentile of the Monte Carlo simulation over revenue growth and EBITDA margin."
+              : "Not computed — the valuation engine produced no bear case.",
+            drivers: null as string | null,
+          },
+          {
+            cls: "base",
+            colour: "#008358",
+            label: "Base Case (Target)",
+            price: m.targetPrice,
+            note: m.targetPrice ? "Base-case DCF output." : "Not computed — see the assumptions disclosed above.",
+            drivers:
+              `Growth: ${m.revenueGrowth.toFixed(1)}% CAGR<br>` +
+              `EBITDA Margin: ${m.ebitdaMargin.toFixed(1)}%<br>` +
+              `WACC: ${m.wacc.toFixed(1)}% | Term Growth: ${m.terminalGrowth.toFixed(1)}%`,
+          },
+          {
+            cls: "bull",
+            colour: "#10b981",
+            label: "Bull Case",
+            price: m.bullPrice,
+            note: m.bullPrice
+              ? "90th percentile of the Monte Carlo simulation over revenue growth and EBITDA margin."
+              : "Not computed — the valuation engine produced no bull case.",
+            drivers: null as string | null,
+          },
+        ]
+          .map((sc) => {
+            const pct =
+              sc.price && m.cmp !== null && m.cmp > 0 ? ((sc.price - m.cmp) / m.cmp) * 100 : null;
+            return `
+      <div class="scenario-card ${sc.cls}">
         <div class="scenario-header">
-          <span style="color:#e11d48;">Bear Case</span>
-          <span style="color:#e11d48;">${(((m.bearPrice - m.cmp) / m.cmp) * 100).toFixed(0)}%</span>
+          <span style="color:${sc.colour};">${sc.label}</span>
+          <span style="color:${sc.colour};">${pct === null ? "" : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}%`}</span>
         </div>
-        <div class="scenario-price">₹${m.bearPrice.toLocaleString("en-IN")}</div>
+        <div class="scenario-price">${
+          sc.price ? `₹${sc.price.toLocaleString("en-IN")}` : "n/a"
+        }</div>
         <div class="scenario-detail">
-          • Growth: ${(m.revenueGrowth * 0.75).toFixed(1)}% CAGR<br>
-          • EBITDA Margin: ${(m.ebitdaMargin * 0.88).toFixed(1)}%<br>
-          • WACC: ${(m.wacc + 1.0).toFixed(1)}% | Term Growth: 3.5%<br>
-          • Compression from macro slowdown.
+          ${sc.drivers ? `• ${sc.drivers}<br>` : ""}
+          • ${sc.note}
         </div>
-      </div>
-
-      <!-- Base Case -->
-      <div class="scenario-card base">
-        <div class="scenario-header">
-          <span style="color:#008358;">Base Case (Target)</span>
-          <span style="color:#008358;">+${m.upsidePct}%</span>
-        </div>
-        <div class="scenario-price">₹${m.targetPrice.toLocaleString("en-IN")}</div>
-        <div class="scenario-detail">
-          • Growth: ${m.revenueGrowth.toFixed(1)}% CAGR<br>
-          • EBITDA Margin: ${m.ebitdaMargin.toFixed(1)}%<br>
-          • WACC: ${m.wacc.toFixed(1)}% | Term Growth: ${m.terminalGrowth.toFixed(1)}%<br>
-          • Baseline audited filing execution.
-        </div>
-      </div>
-
-      <!-- Bull Case -->
-      <div class="scenario-card bull">
-        <div class="scenario-header">
-          <span style="color:#10b981;">Bull Case</span>
-          <span style="color:#10b981;">+${(((m.bullPrice - m.cmp) / m.cmp) * 100).toFixed(0)}%</span>
-        </div>
-        <div class="scenario-price">₹${m.bullPrice.toLocaleString("en-IN")}</div>
-        <div class="scenario-detail">
-          • Growth: ${(m.revenueGrowth * 1.22).toFixed(1)}% CAGR<br>
-          • EBITDA Margin: ${(m.ebitdaMargin * 1.15).toFixed(1)}%<br>
-          • WACC: ${(m.wacc - 0.8).toFixed(1)}% | Term Growth: 5.0%<br>
-          • Margin expansion &amp; market share gains.
-        </div>
-      </div>
+      </div>`;
+          })
+          .join("")
+      }
     </div>
   </div>
 
@@ -2979,9 +3311,11 @@ function buildAutonomousHtml(
   <div class="two-col-grid">
     <div>
       <div class="sec-heading">
-        <span>DCF Sensitivity Matrix (Target Price ₹)</span>
+        <span>DCF Sensitivity Matrix (Target Price ?)</span>
       </div>
-      <table class="sens-table">
+      ${
+        m.sensitivityMatrix.waccs.length > 0 && m.sensitivityMatrix.growths.length > 0
+          ? `<table class="sens-table">
         <thead>
           <tr>
             <th>WACC \\ g</th>
@@ -2993,9 +3327,13 @@ function buildAutonomousHtml(
             .map((wVal, rIdx) => {
               const rowCells = m.sensitivityMatrix.growths
                 .map((gVal, cIdx) => {
-                  const val = m.sensitivityMatrix.grid[rIdx][cIdx];
+                  const val = m.sensitivityMatrix.grid[rIdx]?.[cIdx];
                   const isBase = Math.abs(wVal - m.wacc) < 0.2 && Math.abs(gVal - m.terminalGrowth) < 0.2;
-                  return `<td class="${isBase ? 'base-hit' : ''}">₹${val}</td>`;
+                  // null = terminal value undefined for this pairing (WACC <= g).
+                  if (val === null || val === undefined) {
+                    return `<td class="${isBase ? 'base-hit' : ''}">n/a</td>`;
+                  }
+                  return `<td class="${isBase ? 'base-hit' : ''}">?${val}</td>`;
                 })
                 .join("");
               return `<tr><th>${wVal.toFixed(1)}%</th>${rowCells}</tr>`;
@@ -3003,13 +3341,24 @@ function buildAutonomousHtml(
             .join("")}
         </tbody>
       </table>
-      <div style="font-size:6.8pt;color:#64748b;margin-bottom:8px;">*Highlighted cell indicates base-case DCF valuation parameters.</div>
+      <div style="font-size:6.8pt;color:#64748b;margin-bottom:8px;">*Highlighted cell indicates base-case DCF valuation parameters. "n/a" marks pairings where the Gordon Growth terminal value is undefined (WACC &lt;= terminal growth).</div>`
+          : `<div style="font-size:7.4pt;color:#64748b;padding:6px 0;">
+             Sensitivity analysis not available: the DCF engine did not compute a grid for this
+             valuation, so none is shown. Values here are not estimated.
+           </div>`
+      }
     </div>
 
     <div>
       <div class="chart-box">
         <div class="chart-title">Valuation Scenarios vs. Current Market Price</div>
-        ${scenarioSvg}
+        ${
+          scenarioSvg ||
+          `<div style="font-size:7.4pt;color:#64748b;font-style:italic;padding:10px 0;">
+             No current market price was retrieved, so the scenarios cannot be plotted
+             against it. No reference price is assumed.
+           </div>`
+        }
       </div>
     </div>
   </div>
@@ -3025,8 +3374,8 @@ function buildAutonomousHtml(
         <tr>
           <th class="left">Company</th>
           <th class="left">Ticker</th>
-          <th>CMP (₹)</th>
-          <th>M.Cap (₹ Cr)</th>
+          <th>CMP (?)</th>
+          <th>M.Cap (? Cr)</th>
           <th>P/E (x)</th>
           <th>P/B (x)</th>
           <th>RoE (%)</th>
@@ -3034,29 +3383,34 @@ function buildAutonomousHtml(
       </thead>
       <tbody>
         <tr class="highlight">
-          <td class="left">${compName}</td>
-          <td class="left">${ticker}</td>
-          <td>₹${m.cmp}</td>
-          <td>₹${m.marketCapCr.toLocaleString("en-IN")}</td>
-          <td>${m.peRatio}x</td>
-          <td>${m.priceToBook}x</td>
-          <td>${m.roe}%</td>
+          <td class="left">${escape(compName)}</td>
+          <td class="left">${escape(ticker)}</td>
+          <td>?${m.cmp}</td>
+          <td>${m.marketCapCr === null ? "n/a" : `?${m.marketCapCr.toLocaleString("en-IN")}`}</td>
+          <td>${m.peRatio === null ? "n/a" : `${m.peRatio}x`}</td>
+          <td>${m.priceToBook === null ? "n/a" : `${m.priceToBook}x`}</td>
+          <td>${m.roe === null ? "n/a" : `${m.roe}%`}</td>
         </tr>
-        ${m.peers
-          .map(
-            (p) => `
+        ${m.peers.length > 0
+          ? m.peers
+              .map(
+                (p) => `
           <tr>
-            <td class="left">${p.name}</td>
-            <td class="left">${p.ticker}</td>
-            <td>₹${p.cmp}</td>
-            <td>₹${p.marketCapCr.toLocaleString("en-IN")}</td>
-            <td>${p.pe}x</td>
-            <td>${p.pb}x</td>
-            <td>${p.roe}%</td>
+            <td class="left">${escape(p.name)}</td>
+            <td class="left">${escape(p.ticker)}</td>
+            <td>${p.cmp === null ? "n/a" : `?${p.cmp}`}</td>
+            <td>${p.marketCapCr === null ? "n/a" : `?${p.marketCapCr.toLocaleString("en-IN")}`}</td>
+            <td>${p.pe === null ? "n/a" : `${p.pe}x`}</td>
+            <td>${p.pb === null ? "n/a" : `${p.pb}x`}</td>
+            <td>${p.roe === null ? "n/a" : `${p.roe}%`}</td>
           </tr>
         `,
-          )
-          .join("")}
+              )
+              .join("")
+          : `<tr><td colspan="7" class="left" style="color:#64748b;font-style:italic;">
+               No peer comparables were retrieved for this company, so no comparison is shown.
+               Peer multiples are not estimated.
+             </td></tr>`}
       </tbody>
     </table>
   </div>
@@ -3068,22 +3422,22 @@ function buildAutonomousHtml(
   </div>
 
   <div class="footer">
-    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 2 of 3</span>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <!-- PAGE 3: Risks, Governance, Concall & Statutory SEBI RA Attestation         -->
-<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- --------------------------------------------------------------------------- -->
 <div class="page">
   <div class="header">
     <div class="header-left">
-      <div class="logo">EquiGen</div>
+      <div class="logo">${escape(firm.orgName !== UNCONFIGURED_FIRM_MARKER ? firm.orgName : BRAND.productName)}</div>
       <div class="sub-logo">Management Q&amp;A, Key Risks &amp; Statutory Compliance</div>
     </div>
     <div class="header-right">
-      <div>${compName} (${ticker})</div>
+      <div>${escape(compName)} (${escape(ticker)})</div>
       <div>${options.sebiRegNo ? `SEBI RA Reg: ${options.sebiRegNo}` : "SEBI Registration: Pending / Unregistered"}</div>
     </div>
   </div>
@@ -3100,21 +3454,11 @@ function buildAutonomousHtml(
     ${renderCleanMarkdown(risks?.content || "Key risks and market intelligence pending.")}
   </div>
 
-  <!-- DATA PROVENANCE & CREDIT RATING BLOCK -->
+  <!-- DATA PROVENANCE � badges reflect the ACTUAL source state, not an assertion -->
   <div class="provenance-block">
-    <div>
-      <strong>Research Provenance:</strong> Exchange Disclosures (BSE/NSE)
-      <span class="prov-badge prov-live">Verified</span>
-    </div>
-    <div>
-      <strong>Credit Rating:</strong> CRISIL / ICRA
-      <span class="prov-badge prov-live">Investment Grade</span>
-    </div>
-    <div>
-      <strong>Valuation Methodology:</strong> 3-Tier DCF &amp; Screener Multiples
-      <span class="prov-badge prov-live">Audited Inputs</span>
-    </div>
+${provenanceBlockHtml}
   </div>
+${provenanceCaveat}
 
   <!-- SEBI COMPLIANCE & DISCLOSURES -->
   <div class="section-card">
@@ -3125,14 +3469,14 @@ function buildAutonomousHtml(
   <!-- STATUTORY ATTESTATION BLOCK -->
   <div class="disclaimer-box">
     <strong>STATUTORY SEBI RA (2014) COMPLIANCE ATTESTATION:</strong><br>
-    This institutional equity research note was generated via the EquiGen autonomous multi-agent equity research pipeline.
+    This institutional equity research note was generated via the ${escape(BRAND.productName)} autonomous multi-agent equity research pipeline.
     <strong>Analyst Certification:</strong> The research subagents and certifying analyst (${fallbackAnalystName}${options.sebiRegNo ? `, Reg: ${options.sebiRegNo}` : ""}) confirm that all findings reflect structured synthesis of BSE/NSE corporate disclosures, audited statements, and quantitative valuation models.
-    <strong>Conflict of Interest:</strong> EquiGen Investments Limited and its analysts hold no financial interest exceeding 1% in ${compName}.
+    <strong>Conflict of Interest:</strong> ${escape(firm.orgName)} and its analysts hold no financial interest exceeding 1% in ${escape(compName)}.
     <strong>Standard Warning:</strong> Investments in securities market are subject to market risks. Read all related documents carefully before investing.
   </div>
 
   <div class="footer">
-    <span>EquiGen Institutional Research · ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 3 of 3</span>
   </div>
 </div>
@@ -3141,7 +3485,7 @@ function buildAutonomousHtml(
 </html>`;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// -- Public API ----------------------------------------------------------------
 
 export class HtmlReportGenerator {
   /**

@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/**
+ * @deprecated Use `requireTenantSession` / `canAccessTenantRecord` from
+ * `./tenant` instead.
+ *
+ * Why this module is no longer the authorisation boundary:
+ *
+ *  - `requireApiSecret` accepted a request whenever it merely carried `x-user-id`
+ *    and `x-org-id` headers. Those are middleware-injected, so any route the
+ *    middleware matcher failed to cover would honour client-supplied identity.
+ *  - `getAuthSession` fell back to `orgId: "default-org"` with `role: "admin"`
+ *    whenever only `API_SECRET` was present, and several routes then treated
+ *    `default-org` as a cross-tenant wildcard.
+ *
+ * The tenant guard verifies the session JWT itself and only accepts injected
+ * headers alongside a valid internal service credential. See `src/lib/utils/tenant.ts`.
+ */
+
 export interface AuthSession {
   userId: string;
   orgId: string;
@@ -8,24 +25,7 @@ export interface AuthSession {
   sebiRegNo: string | null;
 }
 
-/**
- * Validates request authorization. Retains backward compatibility for API calls
- * using the x-api-secret header or direct middleware-injected session headers.
- */
-export function requireApiSecret(req: NextRequest): NextResponse | null {
-  const userId = req.headers.get("x-user-id");
-  const orgId = req.headers.get("x-org-id");
-
-  // Auth passed via Next.js Middleware header injection
-  if (userId && orgId) return null;
-
-  // API client bypass check (requires configured API_SECRET in production)
-  const secret = process.env.API_SECRET;
-  const isDevOrTest = process.env.NODE_ENV !== "production";
-  const provided = req.headers.get("x-api-secret");
-  if (secret && provided === secret) return null;
-  if (isDevOrTest && (provided === "equigen-internal" || (!secret && provided === "equigen-internal"))) return null;
-
+function unauthorized(): NextResponse {
   return NextResponse.json(
     {
       message:
@@ -36,7 +36,29 @@ export function requireApiSecret(req: NextRequest): NextResponse | null {
 }
 
 /**
- * Extracts and parses user authentication session context from the request.
+ * Legacy authorisation check. Retained only so that a route which has not yet been
+ * migrated keeps working; it is NOT a tenant boundary.
+ *
+ * @deprecated Use `requireTenantSession`.
+ */
+export function requireApiSecret(req: NextRequest): NextResponse | null {
+  const userId = req.headers.get("x-user-id");
+  const orgId = req.headers.get("x-org-id");
+
+  if (userId && orgId) return null;
+
+  const secret = process.env.API_SECRET;
+  const provided = req.headers.get("x-api-secret");
+  if (secret && provided === secret) return null;
+
+  return unauthorized();
+}
+
+/**
+ * Legacy identity extraction. Trusts injected headers and defaults the tenant.
+ *
+ * @deprecated Use `requireTenantSession`, which verifies the session JWT and
+ * refuses to invent an orgId.
  */
 export function getAuthSession(req: NextRequest): AuthSession | null {
   const userId = req.headers.get("x-user-id");
@@ -46,7 +68,6 @@ export function getAuthSession(req: NextRequest): AuthSession | null {
   const sebiRegNo = req.headers.get("x-user-sebi-reg-no");
 
   if (!userId || !orgId) {
-    // If not matching middleware headers, fall back to checking x-api-secret for local CLI tools
     const secret = process.env.API_SECRET;
     const provided = req.headers.get("x-api-secret");
     if (secret && provided === secret) {

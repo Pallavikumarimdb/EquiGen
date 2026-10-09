@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession } from "@/lib/utils/auth";
+import { getOrgSubscription } from "@/lib/billing/entitlements";
+import { getPlan } from "@/lib/billing/plans";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-
-    if (!session) {
-      return NextResponse.json(
-        { message: "Not authenticated" },
-        { status: 401 }
-      );
-    }
 
     // Fetch user details with organization context
     const user = await prisma.user.findUnique({
@@ -26,6 +23,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Plan entitlements are per-org, so one lookup covers every seat.
+    const subscription = await getOrgSubscription(user.orgId).catch(() => null);
+    const plan = getPlan(subscription?.planId);
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -39,11 +40,16 @@ export async function GET(req: NextRequest) {
         orgPrimaryColor: user.org.primaryColor,
         orgAccentColor: user.org.accentColor,
       },
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        reportsPerMonth: plan.reportsPerMonth,
+        status: subscription?.status ?? "none",
+      },
     });
   } catch (error: unknown) {
     console.error("Auth me API error:", error);
     try {
-      const session = getAuthSession(req);
       if (session?.userId) {
         return NextResponse.json({
           user: {
@@ -52,7 +58,7 @@ export async function GET(req: NextRequest) {
             email: "",
             role: session.role || "RESEARCH_ANALYST",
             sebiRegNo: session.sebiRegNo || "",
-            orgId: session.orgId || "default-org",
+            orgId: session.orgId,
             orgName: "EquiGen Research",
             orgLogoUrl: null,
             orgPrimaryColor: "#1A1917",
@@ -71,8 +77,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
 
     if (!session || !session.userId) {
       return NextResponse.json(
@@ -152,7 +160,8 @@ export async function PATCH(req: NextRequest) {
     return response;
   } catch (error: unknown) {
     console.error("PATCH /api/auth/me error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error.";
-    return NextResponse.json({ message }, { status: 500 });
+    // SECURITY: the raw Prisma error was returned to the caller, disclosing column
+    // and constraint names.
+    return NextResponse.json({ message: "Internal server error." }, { status: 500 });
   }
 }

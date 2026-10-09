@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDecryptedApiKey, saveEncryptedApiKey } from "@/lib/utils/api-keys";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/settings/keys?provider=groq
  * Returns whether a key is configured for the given provider (does not return the raw key).
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const { searchParams } = new URL(req.url);
     const provider = searchParams.get("provider");
@@ -21,8 +22,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
 
     const key = await getDecryptedApiKey(orgId, provider);
     return NextResponse.json(
@@ -45,8 +46,9 @@ export async function GET(req: NextRequest) {
  * Receives key payload and encrypts it in database.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const body = await req.json();
     const { provider, apiKey } = body;
@@ -59,8 +61,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
 
     await saveEncryptedApiKey(orgId, provider, apiKey || "");
 
@@ -73,9 +75,9 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: POST /api/settings/keys failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

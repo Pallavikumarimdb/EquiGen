@@ -13,6 +13,8 @@ import {
   User,
   Building2,
   Shield,
+  Crown,
+  CreditCard,
   ChevronDown,
 } from "lucide-react";
 import { UserSessionProfile } from "./types";
@@ -146,6 +148,21 @@ export function HeaderNav({
 
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-[#E3DFD5]" />
+
+        {/* Org Plan Badge -> Billing */}
+        <Link
+          href="/billing"
+          title={`${user?.plan?.name ?? "Free"} plan — view usage and change plan`}
+          className="h-8 flex items-center gap-1.5 px-2.5 bg-[#F1EFEA] border border-[#E3DFD5] rounded-lg text-[10px] font-bold uppercase tracking-wider text-[#6E695E] hover:bg-white hover:border-[#D5D0C3] transition-all shrink-0"
+        >
+          <Crown
+            className={`w-3 h-3 ${
+              user?.plan?.id && user.plan.id !== "free" ? "text-amber-600" : "text-[#8C877D]"
+            }`}
+          />
+          <span className="hidden md:inline">{user?.plan?.name ?? "Free"} Plan</span>
+          {user?.plan?.id === "free" && <span className="md:hidden">Free</span>}
+        </Link>
 
         {/* Interactive User Avatar & Profile Dropdown */}
         <div className="relative" ref={profileMenuRef}>
@@ -281,6 +298,22 @@ export function HeaderNav({
                     <div className="text-xs font-bold">Compliance Disclosures</div>
                     <div className="text-[10px] text-[#7A7569] truncate">
                       SEBI statutory guidelines & disclaimers
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/billing"
+                  onClick={() => setIsProfileOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#F4F1EA] text-[#1A1917] transition-all group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold">Billing &amp; Plans</div>
+                    <div className="text-[10px] text-[#7A7569] truncate">
+                      {user?.plan?.name ?? "Free"} plan, usage &amp; invoices
                     </div>
                   </div>
                 </Link>

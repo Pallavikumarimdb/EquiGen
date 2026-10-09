@@ -1,15 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import {
   buildValuationBands,
+  InsufficientPriceHistoryError,
   ValuationMetric,
   LookbackPeriod,
 } from "@/lib/financial-modeling/valuation-bands-engine";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/valuation-bands
  * Returns historical valuation multiples (P/E and EV/EBITDA) and ±1σ, ±2σ standard deviation corridors
+ *
+ * Fails with 422 when there is not enough REAL price history. It never substitutes a
+ * synthetic series — an invented distribution would produce a chart indistinguishable
+ * from real statistical analysis.
  */
 export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
   try {
     const { searchParams } = new URL(req.url);
     const rawTicker = searchParams.get("ticker");
@@ -50,9 +58,24 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
+    if (error instanceof InsufficientPriceHistoryError) {
+      return NextResponse.json(
+        {
+          error: "INSUFFICIENT_PRICE_HISTORY",
+          message: error.message,
+          ticker: error.ticker,
+          availableCandles: error.availableCandles,
+          requiredCandles: error.requiredCandles,
+        },
+        { status: 422 }
+      );
+    }
     console.error("[ValuationBandsAPI] Error:", error);
+    // SECURITY: `details: String(error)` exposed the full Prisma/pg error to the
+    // caller, including query metadata. The `InsufficientPriceHistoryError` branch
+    // above is a deliberate, typed exception and stays informative.
     return NextResponse.json(
-      { error: "Failed to compute valuation multiples bands", details: String(error) },
+      { error: "Failed to compute valuation multiples bands" },
       { status: 500 }
     );
   }

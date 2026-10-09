@@ -45,8 +45,6 @@ export class ComplianceAgent {
     );
 
     // Combine all sections text for audit
-    const fullText = input.sections.map((s) => `${s.name}: ${s.content}`).join("\n\n");
-
     // Resolve real analyst name if input is a UUID or undefined
     let resolvedAnalyst = input.analystName;
     let resolvedSebiReg = input.sebiRegNo;
@@ -85,14 +83,14 @@ export class ComplianceAgent {
       resolvedOrg = "Organisation Pending";
     }
 
-    // 2. Perform SEBI Compliance Audit (Async semantic evaluation)
-    const auditResult = await SebiComplianceTool.auditReportAsync(
-      fullText,
-      resolvedSebiReg,
-      resolvedAnalyst
-    );
-
-    // 3. Append statutory disclosures section if missing
+    // 2. Append statutory disclosures section if missing
+    //
+    // This must happen BEFORE the audit. The disclosures carry the SEBI
+    // registration number and the conflict-of-interest statement, and the rule-based
+    // audit raises a *critical* violation when either is absent. Auditing first meant
+    // the agent flagged its own not-yet-appended disclosures, so every run reported
+    // `isCompliant: false`. Now that the verdict is enforced by the publication gate,
+    // that ordering bug would have blocked every report.
     const updatedSections = [...input.sections];
     let disclosuresAdded = false;
 
@@ -113,6 +111,15 @@ export class ComplianceAgent {
       });
       disclosuresAdded = true;
     }
+
+    // 3. Perform SEBI Compliance Audit against the document as it will ship
+    //    (Async semantic evaluation)
+    const fullText = updatedSections.map((s) => `${s.name}: ${s.content}`).join("\n\n");
+    const auditResult = await SebiComplianceTool.auditReportAsync(
+      fullText,
+      resolvedSebiReg,
+      resolvedAnalyst
+    );
 
     // 4. Emit milestone done event & broadcast trajectory
     trajectoryBus.emitEvent(

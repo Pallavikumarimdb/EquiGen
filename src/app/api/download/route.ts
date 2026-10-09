@@ -3,8 +3,9 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
-import { buildInstitutionalEquityData } from "@/lib/ai/institutional-equity-data";
+
+import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
+import { isTenantFailure, requireTenantSession, canAccessTenantRecord, tenantForbidden } from "@/lib/utils/tenant";
 
 /**
  * GET /api/download?id=<reportId>
@@ -13,14 +14,13 @@ import { buildInstitutionalEquityData } from "@/lib/ai/institutional-equity-data
  * Scoped by organization ID from the secure user session.
  */
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    const paramTicker = searchParams.get("ticker");
-    const paramCompanyName = searchParams.get("companyName");
 
     if (!id) {
       return NextResponse.json(
@@ -28,9 +28,7 @@ export async function GET(req: NextRequest) {
         { status: 400 },
       );
     }
-
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    const orgId = session.orgId;
 
     const cleanId = id.replace(/^rep_/, "");
 
@@ -71,71 +69,101 @@ export async function GET(req: NextRequest) {
       report = null;
     }
 
-    // 2. If NO existing report is found in ReportHistory, check if there is an ad-hoc plan
+    // 2. No persisted report exists for this id.
+    //
+    // This endpoint previously fell through to `buildInstitutionalEquityData()`, which
+    // generates a full "institutional" report — complete with shareholding patterns,
+    // promoter pledge, financial history and a DCF narrative — seeded from a hash of the
+    // company name. Any request could therefore download a fabricated research note that
+    // looked authoritative, and the call happened *before* the tenant boundary check.
+    //
+    // A report that was never generated must not be downloadable. Return 404.
     if (!report) {
-      // Check if this is an autonomous ResearchPlan
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = prisma as any;
-      let plan = null;
-      try {
-        if (db.researchPlan) {
-          plan = await db.researchPlan.findFirst({
-            where: {
-              OR: [{ id }, { id: cleanId }],
-            },
-          });
-        }
-      } catch {
-        // offline fallback
-      }
-
-      const companyName = plan?.companyName || paramCompanyName || (plan?.goalText
-        ? plan.goalText.replace(/^(Initiation\s+(?:of\s+)?coverage\s+on|Deep\s+dive\s+on|Research\s+on|Valuation\s+analysis\s+of)\s*/i, "").trim().split("—")[0].trim()
-        : "Target Corporation");
-      const ticker = (plan?.ticker || paramTicker || (companyName.length <= 8 ? companyName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : companyName.substring(0, 6).toUpperCase())).toUpperCase();
-
-      // Build full institutional equity research dataset with field coverage dynamically via AI
-      const synthReportData = await buildInstitutionalEquityData(companyName, ticker, plan?.goalText);
-
-      try {
-        const reportBuffer = await pdfGenerationService.generateReportPDF(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          synthReportData as any,
-          "draft"
-        );
-
-        return new NextResponse(new Uint8Array(reportBuffer), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="equigen-${ticker.toLowerCase()}-research.pdf"`,
-          },
-        });
-      } catch (e) {
-        console.error("[/api/download] PDF compilation error:", e);
-        return NextResponse.json(
-          { message: `Failed to compile research PDF for ${companyName}.` },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Tenant boundary check
-    const isSystemAdmin =
-      session?.userId === "system-test-user" ||
-      session?.userId === "agent-user" ||
-      session?.role === "ADMIN";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
       return NextResponse.json(
-        { message: "Forbidden. Access denied." },
-        { status: 403 },
+        {
+          message:
+            "No research report exists for this identifier. Reports must be generated and persisted before they can be downloaded.",
+          code: "REPORT_NOT_FOUND",
+        },
+        { status: 404 },
       );
     }
+
+    // Tenant boundary check. `!orgId` (legacy pre-tenancy rows) is no longer a
+    // grant; those are reachable only by a platform operator holding the internal
+    // service credential.
+    const hasAccess = canAccessTenantRecord(session, report);
+    if (!hasAccess) return tenantForbidden();
 
     const safeName = (report.companyName || "research")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-");
+
+    // Publishing-firm identity for the report's SEBI disclaimer. Always tenant-supplied.
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
+    // Financial authenticity gate. A report whose figures fail (or cannot be shown to
+    // pass) verification must not leave the system as a distributable PDF.
+    //
+    // SECURITY: `?overrideQuality=true` was honoured for any authenticated user of any
+    // role, while the message claimed "a SEBI-registered reviewer may re-request".
+    // The state machine treats this gate as reviewer-gated, so an `analyst` could
+    // bypass it here. The override now requires a reviewer role and an explicit
+    // justification naming who inspected the failures.
+    const overrideRequested = searchParams.get("overrideQuality") === "true";
+    const overrideJustification = searchParams.get("overrideReason")?.trim() ?? "";
+    const isReviewer =
+      session?.isPlatformOperator === true ||
+      ["reviewer", "admin", "research_analyst"].includes((session?.role ?? "").toLowerCase());
+
+    const overrideGranted =
+      overrideRequested && isReviewer && overrideJustification.length >= 10;
+
+    const gate = evaluateDistributionGate(report.reportData, {
+      overrideWithJustification: overrideGranted,
+      overriddenBy: session?.name ?? session?.userId,
+    });
+
+    if (!gate.allowed) {
+      const overrideRefusedReason = !overrideRequested
+        ? null
+        : !isReviewer
+        ? "An override requires the reviewer or admin role."
+        : "An override requires a written justification (overrideReason, at least 10 characters) describing the failures you inspected.";
+
+      return NextResponse.json(
+        {
+          message: gate.reason,
+          code: "AUTHENTICITY_GATE_BLOCKED",
+          auditState: gate.state,
+          canOverride: isReviewer,
+          overrideRefusedReason,
+          overrideHint: isReviewer
+            ? "A SEBI-registered reviewer may re-request with ?overrideQuality=true&overrideReason=<what you inspected>. The override is written to the audit trail."
+            : "Ask a SEBI-registered reviewer in your organization to review and re-request this export.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (gate.overridden) {
+      await prisma.auditLog.create({
+        data: {
+          reportId: report.id,
+          userId: session?.userId ?? null,
+          actorType: "human",
+          action: "quality_override",
+          fromState: report.status,
+          toState: report.status,
+          metadata: {
+            reason: gate.reason,
+            justification: overrideJustification,
+            auditState: gate.state,
+            artifact: "pdf",
+          },
+        },
+      });
+    }
 
     // Cache priority after an edit (proposal-apply.ts sets pdfBase64 = null):
     //   pdfBase64 = null → skip ALL caches, compile fresh from reportData
@@ -199,7 +227,16 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Try filesystem cache (cold start for drafts that were compiled externally)
+    //
+    // SECURITY: `id` came from the query string and was interpolated into a path with
+    // no traversal filter. It is currently gated by the ReportHistory lookup above, so
+    // a `../..` id cannot be created through any route — but that coupling is
+    // invisible and one refactor away from being an arbitrary file read. Sanitise
+    // explicitly, and refuse anything that is not a bare identifier.
     const reportId = id.toUpperCase();
+    if (!/^[A-Z0-9_-]{1,128}$/.test(reportId)) {
+      return NextResponse.json({ message: "Invalid report id." }, { status: 400 });
+    }
     const pdfPath = path.join(
       process.cwd(),
       "public",
@@ -207,6 +244,12 @@ export async function GET(req: NextRequest) {
       "reports",
       `${reportId}.pdf`,
     );
+
+    // Defence in depth: confirm the resolved path really is inside the cache dir.
+    const cacheRoot = path.join(process.cwd(), "public", "temp", "reports");
+    if (!path.resolve(pdfPath).startsWith(path.resolve(cacheRoot) + path.sep)) {
+      return NextResponse.json({ message: "Invalid report id." }, { status: 400 });
+    }
 
     if (fs.existsSync(pdfPath)) {
       const pdfBuffer = await fs.promises.readFile(pdfPath);
@@ -232,6 +275,7 @@ export async function GET(req: NextRequest) {
           reviewerName: cleanReviewer,
           sebiRegNo: report.sebiRegNo || "",
           approvedAt: report.approvedAt || new Date(),
+          orgName: org?.name ?? undefined,
         },
       );
 
@@ -257,9 +301,9 @@ export async function GET(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: /api/download failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

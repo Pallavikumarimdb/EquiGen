@@ -4,7 +4,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { financialEvalEngine, FinancialEvaluationInput } from "@/lib/eval/financial-eval-engine";
+import {
+  financialEvalEngine,
+  resolveExchangeClaim,
+  FinancialEvaluationInput,
+} from "@/lib/eval/financial-eval-engine";
 
 describe("FinancialEvaluationEngine", () => {
   it("certifies authentic institutional research note with live inputs", () => {
@@ -158,5 +162,134 @@ describe("FinancialEvaluationEngine", () => {
     expect(fallbackCheck?.status).toBe("FAIL");
     expect(placeholderCheck?.status).toBe("WARN");
     expect(report.verdict).toBe("FAILED_UNRELIABLE");
+  });
+});
+
+/** Builds a market-data block with an explicit fetch timestamp. */
+function marketData(fetchedAt: string | null) {
+  return {
+    currentPrice: 3800,
+    marketCapCr: 1375600,
+    sharesOutstandingCr: 362,
+    isLiveData: true,
+    dataSource: "bse_exchange_api",
+    fetchedAt,
+  };
+}
+
+/** Assumptions that keep every non-freshness check passing. */
+const cleanAssumptions = {
+  baseRevenue: 240893,
+  revenueGrowthRate: "11.5%",
+  ebitdaMargin: "26.2%",
+  wacc: "11.2%",
+  terminalGrowth: "4.5%",
+  netDebtCr: -88500,
+  sharesCr: 362,
+  isDerivedFromExtractedData: "True",
+  financialSource: "bse_exchange_api",
+};
+
+describe("AUTH_02 — market data freshness", () => {
+  /**
+   * This check previously could not fail:
+   *   const isFresh = freshnessHours === null || freshnessHours <= 24;
+   *   status: isFresh ? "PASS" : "WARN"
+   * An absent timestamp scored an instant PASS, and because the orchestrator
+   * backfilled `fetchedAt ?? new Date()`, the 24h branch was never reached either.
+   */
+  it("FAILS when no fetch timestamp was recorded", () => {
+    const report = financialEvalEngine.evaluate({
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      marketData: marketData(null),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+
+    const check = report.checks.find((c) => c.id === "AUTH_02");
+    expect(check?.status).toBe("FAIL");
+    expect(check?.severity).toBe("CRITICAL");
+    expect(check?.actual).toBe("timestamp not recorded");
+    expect(report.provenance.dataFetchedAt).toBeNull();
+    expect(report.provenance.dataFreshnessHours).toBeNull();
+  });
+
+  it("FAILS when the timestamp is unparseable", () => {
+    const report = financialEvalEngine.evaluate({
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      marketData: marketData("sometime last quarter"),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+
+    expect(report.checks.find((c) => c.id === "AUTH_02")?.status).toBe("FAIL");
+  });
+
+  it("PASSES for data fetched inside the current trading session", () => {
+    const report = financialEvalEngine.evaluate({
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      marketData: marketData(new Date().toISOString()),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+
+    const check = report.checks.find((c) => c.id === "AUTH_02");
+    expect(check?.status).toBe("PASS");
+    expect(report.provenance.dataFreshnessHours).not.toBeNull();
+  });
+
+  it("FAILS for data several trading sessions old, even under 24 wall-clock hours", () => {
+    // Tuesday 15:00 IST fetched, read Wednesday 09:00 IST: 20 wall-clock hours, but
+    // Tuesday's close happened after the fetch, so the datum is already stale.
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+    const report = financialEvalEngine.evaluate({
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      marketData: marketData(twoDaysAgo.toISOString()),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+
+    const check = report.checks.find((c) => c.id === "AUTH_02");
+    // Whatever the wall-clock figure, a multi-session gap must never PASS.
+    if ((report.provenance.dataFreshnessHours ?? 0) < 24) {
+      expect(check?.status).toBe("FAIL");
+    }
+    expect(check?.message).toMatch(/STALE|current trading session/i);
+  });
+
+  it("reports the IST as-of date so artifacts need not print the render time", () => {
+    const fetchedAt = "2026-03-12T06:00:00.000Z"; // 11:30 IST on 2026-03-12
+    const report = financialEvalEngine.evaluate({
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      marketData: marketData(fetchedAt),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+
+    expect(report.provenance.dataFetchedAt).toBe(fetchedAt);
+    expect(report.provenance.dataAsOfIstDate).toBe("2026-03-12");
+  });
+});
+
+describe("provenance.verifiedExchange — never guess a venue", () => {
+  it.each([
+    ["TCS.BO", "BSE"],
+    ["TCS.NS", "NSE"],
+    ["RELIANCE", "unverified"],
+    ["", "unverified"],
+  ])("ticker %s resolves to %s", (ticker, expected) => {
+    expect(resolveExchangeClaim(ticker)).toBe(expected);
+  });
+
+  it("does not claim NSE for a bare scrip, which the old suffix ternary did", () => {
+    const report = financialEvalEngine.evaluate({
+      ticker: "RELIANCE",
+      companyName: "Reliance Industries",
+      marketData: marketData(new Date().toISOString()),
+      modelingData: { assumptions: cleanAssumptions },
+    });
+    expect(report.provenance.verifiedExchange).toBe("unverified");
   });
 });

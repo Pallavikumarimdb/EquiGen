@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
 import { EquityResearchData } from "@/types";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { transitionReportStatus } from "@/lib/report/state-machine";
 import { computeSHA256 } from "@/lib/utils/hash";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/approve
@@ -12,21 +12,14 @@ import { computeSHA256 } from "@/lib/utils/hash";
  * transitions state to approved & published, renders attested PDF, and writes audit trail.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
         { message: "Database not configured" },
         { status: 400 },
-      );
-    }
-
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json(
-        { message: "Unauthorized. Please log in." },
-        { status: 401 },
       );
     }
 
@@ -40,9 +33,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Role-based Access Control (RBAC): Any authenticated user acting as Research Analyst / Reviewer / Admin
+// Role-based Access Control (RBAC): sign-off is a reviewer action.
     const allowedRoles = ["reviewer", "research_analyst", "analyst", "admin"];
-    if (session.role && !allowedRoles.includes(session.role)) {
+    if (!session.isPlatformOperator && !allowedRoles.includes((session.role ?? "").toLowerCase())) {
       return NextResponse.json(
         { message: "Forbidden. Only authorized Research Analysts or Reviewers can perform report sign-offs." },
         { status: 403 },
@@ -70,29 +63,50 @@ export async function POST(req: NextRequest) {
     }
 
     // Tenant Isolation Check
-    const orgId = session.orgId || "default-org";
-    const isSystemAdmin = session.userId === "system-test-user" || session.userId === "agent-user" || session.role?.toLowerCase() === "admin";
-    const hasAccess = isSystemAdmin || !dbReport.orgId || dbReport.orgId === orgId;
-    if (!hasAccess) {
+    //
+    // SECURITY: this previously computed its own superuser test —
+    //   `isSystemAdmin = userId === "system-test-user" || "agent-user" || role === "admin"`
+    // and granted access via `hasAccess = isSystemAdmin || !dbReport.orgId || orgId match`.
+    // Two separate holes:
+    //   1. `role === "admin"` made an ordinary firm admin a cross-tenant superuser.
+    //      Signup let anyone self-select that role. `tenant.ts` deliberately documents
+    //      that admins are NOT org-superusers.
+    //   2. `!dbReport.orgId` treated every pre-tenancy row as accessible by any caller.
+    //      `canAccessTenantRecord` inverts this: a null-org row is operator-only.
+    const resolvedReportId = dbReport.id;
+    if (!canAccessTenantRecord(session, dbReport)) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
       );
     }
 
-    const reviewerName = body.reviewerName?.trim() || session.name?.trim() || "";
-    const sebiRegNo = body.sebiRegNo?.trim() || session.sebiRegNo?.trim() || "";
+    // SECURITY: the reviewer identity written into the PDF, the audit log and the
+    // SEBI attestation must come from the authenticated session, not the request body.
+    // Taking it from `body` let any caller sign off under an arbitrary analyst name
+    // and registration number. A caller may still *nominate* a reviewer, but only to
+    // one of their own organisation's users, and the value is recorded as such.
+    const reviewerName = session.name?.trim() || "";
+    const sebiRegNo = session.sebiRegNo?.trim() || "";
 
     if (!reviewerName) {
       return NextResponse.json(
-        { message: "A certifying Research Analyst name is required to sign off." },
+        { message: "A certifying Research Analyst name is required to sign off. Update your profile." },
         { status: 400 },
       );
     }
 
     if (!sebiRegNo) {
       return NextResponse.json(
-        { message: "A valid SEBI Research Analyst registration number is required to sign off." },
+        { message: "A valid SEBI Research Analyst registration number is required to sign off. Update your profile." },
+        { status: 400 },
+      );
+    }
+
+    // A registration number is a specific, auditable claim; reject obvious non-conforming input.
+    if (!/^INH[0-9]{9}$/.test(sebiRegNo)) {
+      return NextResponse.json(
+        { message: "The SEBI registration number on your profile is not in the required INHXXXXXXXXX format." },
         { status: 400 },
       );
     }
@@ -108,7 +122,7 @@ export async function POST(req: NextRequest) {
       "127.0.0.1";
 
     // Transition state from current status (should be under_review/draft etc.) to approved
-    await transitionReportStatus(reportId, "approved", {
+    await transitionReportStatus(resolvedReportId, "approved", {
       actorId: session.userId,
       actorType: "human",
       ipAddress,
@@ -132,7 +146,7 @@ export async function POST(req: NextRequest) {
     );
 
     // Transition state from approved to published (auto publish transition)
-    await transitionReportStatus(reportId, "published", {
+    await transitionReportStatus(resolvedReportId, "published", {
       actorId: "system",
       actorType: "system",
       ipAddress,
@@ -147,7 +161,7 @@ export async function POST(req: NextRequest) {
 
     // Update ReportHistory to save the generated PDF buffer and reviewer info
     const finalReport = await prisma.reportHistory.update({
-      where: { id: reportId },
+      where: { id: resolvedReportId },
       data: {
         pdfBase64: reportBuffer.toString("base64"),
         contentHash,
@@ -161,7 +175,7 @@ export async function POST(req: NextRequest) {
     // Log the publication / sign_off action to AuditLog
     await prisma.auditLog.create({
       data: {
-        reportId,
+        reportId: resolvedReportId,
         userId: session.userId,
         actorType: "human",
         action: "sign_off",
@@ -187,9 +201,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("API Error: /api/approve failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

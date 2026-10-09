@@ -4,9 +4,13 @@
  * Quantitative Subagent that:
  * 1. Takes extracted historical financials (Income Statement, Balance Sheet, Cash Flow)
  * 2. Dynamically derives parameters (WACC via CAPM, CAGR, EBITDA margin, Net Debt, Shares)
- * 3. Writes Python code for DCF valuation without hardcoded static assumptions
- * 4. Executes code inside PythonExecutor sandbox
+ * 3. Computes the DCF with the single TypeScript engine (`computeDCFValuation`)
+ * 4. Also runs the generated script in the PythonExecutor sandbox for auditability
  * 5. Stores output & updates SubagentRun
+ *
+ * The Python sandbox is an audit artifact, NOT a second valuation engine. It previously
+ * supplied the reported target price whenever Python was installed, so the published
+ * valuation silently depended on the host environment. See the Step 2 comment below.
  *
  * RELIABILITY FIX:
  * - When no extracted financials are provided (BSE/NSE returned 0 filings), the agent
@@ -21,6 +25,59 @@ import { pythonExecutor, computeDCFValuation } from "@/lib/sandbox/python-execut
 import { fetchYahooFinancials, toModelingInputRecord } from "@/lib/ai/tools/yahoo-financials-tool";
 import { fetchBseCompanyFinancials } from "@/lib/ai/tools/bse-financial-data-tool";
 import { BuildFinancialModelMilestone, ModelingOutput } from "@/types/plan4";
+
+/**
+ * India 10Y government security yield assumption.
+ *
+ * Static rather than fetched live. Tracked so a future live G-Sec integration has an
+ * obvious single place to replace, and so the number is attributable in the report.
+ */
+const RISK_FREE_RATE_INDIA_10Y = 0.07;
+const EQUITY_RISK_PREMIUM_INDIA = 0.055;
+
+/** Pre-tax credit spread over the risk-free rate, by rating grade. */
+const CREDIT_SPREAD_BY_RATING: ReadonlyArray<readonly [RegExp, number]> = [
+  [/^AAA/i, 0.005],
+  [/^AA\+/i, 0.008],
+  [/^AA\b/i, 0.012],
+  [/^AA-/i, 0.015],
+  [/^A\+/i, 0.020],
+  [/^A\b/i, 0.028],
+  [/^A-/i, 0.035],
+  [/^BBB\+/i, 0.045],
+  [/^BBB\b/i, 0.060],
+  [/^BBB-/i, 0.080],
+];
+
+/** Spread applied when no public rating is available. */
+const UNRATED_SPREAD = 0.045;
+
+/**
+ * Sanitised equity beta used for CAPM.
+ *
+ * Out-of-range or missing betas fall back to 1.0 (the market beta) rather than to a
+ * flattering value. Exported so the reported cost of equity can be re-derived from the
+ * report itself.
+ */
+export function sanitisedBeta(beta: unknown): number {
+  const raw = Number(beta ?? 1.0);
+  return !isNaN(raw) && raw > 0.2 && raw < 3.0 ? raw : 1.0;
+}
+
+/**
+ * Maps a credit rating string to a pre-tax credit spread.
+ *
+ * `credit-rating-tool.ts` deliberately returns an empty profile rather than inventing
+ * a rating, so an absent rating is common and handled explicitly rather than being
+ * silently priced as AAA.
+ */
+function creditSpreadForRating(rating: unknown): number {
+  if (typeof rating !== "string" || rating.trim() === "") return UNRATED_SPREAD;
+  for (const [pattern, spread] of CREDIT_SPREAD_BY_RATING) {
+    if (pattern.test(rating.trim())) return spread;
+  }
+  return UNRATED_SPREAD;
+}
 
 export interface ModelingAgentInput {
   planId: string;
@@ -92,38 +149,30 @@ export class ModelingAgent {
       console.warn(`[ModelingAgent] ⚠️ DISCLAIMER: ${dataQuality.disclaimer}`);
     }
 
-    // Step 2: Generate Python DCF script using derived parameters
-    const pythonCode = this.generatePythonModelScript(ticker, modelType, projectionYears, params);
-
-    // Step 3: Execute in sandbox environment
-    const sandboxResult = await pythonExecutor.execute(pythonCode, {
-      runId,
-      timeoutMs: 45000,
-      inputs: {
-        ticker,
-        revenue:      params.baseRevenue,
-        ebitdaMargin: params.ebitdaMargin,
-        revenueGrowth: params.revenueGrowth,
-        wacc:         params.wacc,
-        taxRate:      params.taxRate,
-        capexPct:     params.capexPct,
-        terminalGrowth: params.terminalGrowth,
-        netDebt:      params.netDebt,
-        sharesCr:     params.sharesCr,
-        projectionYears,
-      },
-    });
-
-    // Step 4: Compute valuation model output
-    let modelOutput: ModelingOutput;
-
-    if (sandboxResult.data && typeof sandboxResult.data.baseTargetPrice === "number") {
-      // Python sandbox ran successfully — use its full output
-      modelOutput = sandboxResult.data as unknown as ModelingOutput;
-    } else {
-      // Python unavailable — use the TS financial engine with ALL derived parameters
-      console.log(`[ModelingAgent] Python sandbox unavailable — using TS DCF engine with derived params.`);
-      const dcfRes = computeDCFValuation({
+    // Step 2: Compute the valuation.
+    //
+    // There was previously a *second* DCF engine here: a Python script executed in the
+    // sandbox whose output was preferred whenever Python was available, and the
+    // TypeScript engine only ran when Python failed. The two produced different
+    // numbers for identical inputs — different FCFF (the Python path used
+    // `ebitda * 0.85 * (1 - tax) - revenue * capex`, ignoring the working-capital
+    // schedule) and different bull/bear (fixed `x1.25 / x0.78` multipliers versus
+    // Monte Carlo percentiles). Which "the" valuation was therefore decided by
+    // whether a Python interpreter happened to be installed.
+    //
+    // The TypeScript engine is now the single source of truth. The sandbox is still
+    // exercised so the generated script and its inputs remain auditable, but its
+    // numbers are never presented as the valuation.
+    //
+    // The engine rejects drivers that cannot produce a meaningful valuation
+    // (wacc <= terminal growth, unknown share count, unusable revenue) instead of
+    // returning a placeholder price. That is a data-integrity signal, not a crash:
+    // the milestone completes with a zeroed valuation and a stated reason, so the
+    // pipeline-eval "Target Price Gate" check fails closed on the real cause.
+    let dcfRes: ReturnType<typeof computeDCFValuation> | null = null;
+    let valuationError: string | null = null;
+    try {
+      dcfRes = computeDCFValuation({
         baseRevenue:           params.baseRevenue,
         revenueGrowthRate:     params.revenueGrowth,
         ebitdaMargin:          params.ebitdaMargin,
@@ -135,7 +184,61 @@ export class ModelingAgent {
         sharesOutstandingCr:   params.sharesCr,
         projectionYears,
       });
+    } catch (valuationErr) {
+      valuationError =
+        valuationErr instanceof Error ? valuationErr.message : String(valuationErr);
+      console.warn(`[ModelingAgent] ⚠️ DCF refused to produce a target price — ${valuationError}`);
+    }
+
+    // Step 3: Record the generated script + inputs for audit ("show your work").
+    // A failure here must not fail the valuation.
+    const pythonCode = this.generatePythonModelScript(ticker, modelType, projectionYears, params);
+    try {
+      await pythonExecutor.execute(pythonCode, {
+        runId,
+        timeoutMs: 45000,
+        inputs: {
+          ticker,
+          revenue:      params.baseRevenue,
+          ebitdaMargin: params.ebitdaMargin,
+          revenueGrowth: params.revenueGrowth,
+          wacc:         params.wacc,
+          taxRate:      params.taxRate,
+          capexPct:     params.capexPct,
+          terminalGrowth: params.terminalGrowth,
+          netDebt:      params.netDebt,
+          sharesCr:     params.sharesCr,
+          projectionYears,
+        },
+      });
+    } catch (sandboxErr) {
+      console.warn("[ModelingAgent] Sandbox audit script did not run (valuation unaffected):", sandboxErr);
+    }
+
+    let modelOutput: ModelingOutput;
+
+    if (dcfRes) {
       modelOutput = dcfRes as unknown as ModelingOutput;
+    } else {
+      // The engine refused these drivers. Emit an explicit "no valuation" output
+      // rather than a plausible-looking number, and carry the reason through so the
+      // report can state *why* there is no target price.
+      modelOutput = {
+        modelType: "dcf",
+        baseTargetPrice: 0, // sentinel: 0 means "not available"
+        bullCasePrice: 0,
+        bearCasePrice: 0,
+        assumptions: {
+          baseRevenue: params.baseRevenue,
+          wacc: `${(params.wacc * 100).toFixed(1)}%`,
+          terminalGrowth: `${(params.terminalGrowth * 100).toFixed(1)}%`,
+          netDebtCr: params.netDebt,
+          valuationStatus: "NOT_COMPUTED",
+          valuationError: valuationError ?? "Valuation inputs were insufficient.",
+        },
+        projections: [],
+        chartUrls: [],
+      } as unknown as ModelingOutput;
     }
 
     // If sector fallback was used, null out the target price so it is never
@@ -156,9 +259,17 @@ export class ModelingAgent {
       isDerivedFromExtractedData: dataQuality.isDerivedFromRealData ? "True" : "False",
       financialSource: dataQuality.financialSource,
       ...(dataQuality.disclaimer ? { disclaimer: dataQuality.disclaimer } : {}),
+      // Make the discount-rate derivation auditable rather than a bare percentage.
+      costOfEquity: `${((RISK_FREE_RATE_INDIA_10Y + sanitisedBeta(params.beta) * EQUITY_RISK_PREMIUM_INDIA) * 100).toFixed(1)}%`,
+      waccDerivation:
+        "Ke = rf + beta x ERP; Kd = rf + rating spread; WACC = Ke x E/(D+E) + Kd x (1-t) x D/(D+E). " +
+        "rf is a static India 10Y assumption, not a live G-Sec fetch.",
+      ...(valuationError ? { valuationError } : {}),
     };
 
-    const priceLog = `Base: ₹${Math.round(modelOutput.baseTargetPrice)}/sh | Bull: ₹${Math.round(modelOutput.bullCasePrice)}/sh | Bear: ₹${Math.round(modelOutput.bearCasePrice)}/sh`;
+    const priceLog = modelOutput.baseTargetPrice
+      ? `Base: ₹${Math.round(modelOutput.baseTargetPrice)}/sh | Bull: ₹${Math.round(modelOutput.bullCasePrice)}/sh | Bear: ₹${Math.round(modelOutput.bearCasePrice)}/sh`
+      : `No target price computed — ${valuationError ?? "insufficient inputs"}`;
     console.log(`[ModelingAgent] ✓ DCF COMPLETE → ${priceLog}`);
     console.log(`[ModelingAgent] ────────────────────────────────────────\n`);
 
@@ -372,12 +483,48 @@ export class ModelingAgent {
     }
     if (isNaN(ebitdaMargin) || ebitdaMargin <= 0 || ebitdaMargin > 0.6) ebitdaMargin = 0.18;
 
-    // 3. CAPM WACC: Rf (7.0% India 10Y G-Sec) + Beta * ERP (5.5%)
-    const rawBeta = Number(financials.beta ?? 1.0);
-    const beta = !isNaN(rawBeta) && rawBeta > 0.2 && rawBeta < 3.0 ? rawBeta : 1.0;
-    const rf = 0.07;
-    const erp = 0.055;
-    const wacc = Math.min(0.18, Math.max(0.08, rf + beta * erp));
+    // 3. Discount rate.
+    //
+    // The previous line was `wacc = rf + beta * erp`, labelled "WACC". That formula is
+    // the CAPM **cost of equity**; calling it WACC overstated the discount rate for any
+    // company carrying debt, because it omitted the cost-of-debt term and the
+    // capital-structure weights entirely. The two are now built separately and
+    // combined properly:
+    //
+    //   Ke  = rf + beta x ERP                       (cost of equity)
+    //   Kd  = rf + rating-based credit spread       (pre-tax cost of debt)
+    //   WACC = Ke x E/(D+E) + Kd x (1-t) x D/(D+E)
+    //
+    // The risk-free rate and ERP are still static constants rather than a live India
+    // 10Y G-Sec fetch, and the capital structure is the company's actual net debt
+    // rather than a target D/E. Both are recorded in the assumptions so a reader can
+    // see which inputs were assumptions.
+    const beta = sanitisedBeta(financials.beta);
+    const rf = RISK_FREE_RATE_INDIA_10Y;
+    const erp = EQUITY_RISK_PREMIUM_INDIA;
+    const costOfEquity = rf + beta * erp;
+
+    const rawDebt = Number(financials.totalDebt ?? financials.debt ?? 0);
+    const rawCash = Number(financials.cash ?? 0);
+    const grossDebt = !isNaN(rawDebt) && rawDebt > 0 ? rawDebt : 0;
+    const cashForStructure = !isNaN(rawCash) && rawCash > 0 ? rawCash : 0;
+
+    // Credit spread by rating grade; unrated companies fall back to a documented
+    // investment-grade-equivalent spread rather than pretending to be AAA.
+    const spread = creditSpreadForRating(financials.creditRating);
+    const costOfDebt = rf + spread;
+
+    // Weights use net debt on the debt side, floored at zero so a net-cash company
+    // is not assigned negative leverage.
+    const leverageBase = Math.max(0, grossDebt - cashForStructure);
+    const totalCapital = leverageBase + baseRevenue; // equity proxied by market-scale revenue
+    const debtWeight = totalCapital > 0 ? leverageBase / totalCapital : 0;
+    const equityWeight = 1 - debtWeight;
+    const taxForWacc = 0.25;
+    const wacc = Math.min(
+      0.30,
+      Math.max(0.08, equityWeight * costOfEquity + debtWeight * costOfDebt * (1 - taxForWacc)),
+    );
 
     // 4. Revenue Growth Rate
     let revenueGrowth = Number(financials.revenueGrowth ?? financials.revenueGrowthYoY ?? financials.salesGrowth ?? 0.12);
@@ -386,7 +533,13 @@ export class ModelingAgent {
     // 5. Net Debt & Outstanding Shares
     const debt = Number(financials.totalDebt ?? financials.debt ?? 0);
     const cash = Number(financials.cash ?? 0);
-    const netDebt = !isNaN(debt) && !isNaN(cash) ? Math.max(0, debt - cash) : 0;
+    // Net debt may legitimately be NEGATIVE (net cash). It was previously clamped to
+    // `Math.max(0, ...)`, which threw away the cash pile for every cash-rich company
+    // — IT majors typically hold more cash than debt — and valued them as though they
+    // had neither. A negative net debt increases equity value by exactly that amount,
+    // so it must be carried through. The DCF engine splits it into baseDebt/baseCash.
+    const netDebt =
+      !isNaN(debt) && !isNaN(cash) ? debt - cash : 0;
 
     let shares = Number(financials.outstandingShares ?? financials.shares ?? financials.sharesCr ?? 0);
     // Real calculation: derive shares from Market Cap / CMP if not explicitly provided
@@ -397,7 +550,10 @@ export class ModelingAgent {
         shares = Math.round((mcap / cmp) * 100) / 100;
       }
     }
-    const sharesCr = !isNaN(shares) && shares > 0 ? shares : 50;
+    // A fabricated share count is not a fallback: it silently scales every per-share
+    // number, including the target price. Leave it at 0 so the DCF engine rejects the
+    // valuation outright and nothing is published.
+    const sharesCr = !isNaN(shares) && shares > 0 ? shares : 0;
 
     // Real Capex as % of Revenue
     let capexPct = 0.05;

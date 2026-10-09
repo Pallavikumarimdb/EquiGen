@@ -77,21 +77,25 @@ export function CopilotDrawer({
     setLoading(true);
 
     try {
-      // Read any configured BYOK from localStorage if present
+      // Provider/model preference only.
+      //
+      // SECURITY: this previously read `equigen_<provider>_api_key` from localStorage
+      // and posted it to the server. Keys are no longer written there, and the server
+      // resolves the organisation's BYOK itself, so nothing secret is read from browser
+      // storage.
       let userProvider: string | undefined;
-      let userApiKey: string | undefined;
       let userModelName: string | undefined;
       try {
         if (typeof window !== "undefined") {
           userProvider = localStorage.getItem("equigen_ai_provider") || undefined;
-          if (userProvider) {
-            userApiKey = localStorage.getItem(`equigen_${userProvider}_api_key`) || undefined;
-            if (userProvider === "groq") {
-              userModelName = localStorage.getItem("equigen_groq_model") || undefined;
-            }
+          if (userProvider === "groq") {
+            userModelName = localStorage.getItem("equigen_groq_model") || undefined;
           }
         }
       } catch {}
+
+      // Intentionally never read an API key from browser storage.
+      const userApiKey: undefined = undefined;
 
       // Route to centralized chat endpoint /api/agent/chat
       const res = await fetch("/api/agent/chat", {

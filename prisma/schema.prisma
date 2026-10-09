@@ -26,6 +26,8 @@ model Organization {
   documents      Document[]
   sessions       ResearchSession[]
   notifications  Notification[]
+  subscription   Subscription?
+  billingEvents  BillingEvent[]
 }
 
 model User {
@@ -423,5 +425,49 @@ model SteeringEvent {
   payload   Json?
   createdAt DateTime     @default(now())
   plan      ResearchPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+}
+
+// ─── Billing (Dodo Payments subscriptions) ───────────────────────────────────
+
+/** One row per organization. Orgs without a row are treated as the free plan. */
+model Subscription {
+  id                     String       @id @default(uuid())
+  orgId                  String       @unique
+  org                    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /** "free" | "pro" | "desk" — see src/lib/billing/plans.ts */
+  planId                 String       @default("free")
+  /** "created" | "active" | "pending" | "past_due" | "on_hold" | "paused" | "cancelled" | "failed" | "expired" | "none" */
+  status                 String       @default("created")
+  /** "dodo" — the payment processor. Kept explicit so a future migration is auditable. */
+  provider               String       @default("dodo")
+  /** Checkout session created for the in-flight purchase. */
+  providerSessionId      String?      @unique
+  providerSubscriptionId String?      @unique
+  providerCustomerId     String?
+  providerProductId      String?
+  providerPaymentId      String?
+  /** Next scheduled charge — the end of the current paid period. */
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean      @default(false)
+  seats                  Int          @default(1)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@index([orgId])
+  @@index([providerSubscriptionId])
+}
+
+/** Append-only log of processed payment webhooks — the unique eventId makes handling idempotent. */
+model BillingEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  eventType   String
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  payload     Json
+  processedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
 }
 

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { modelingAgent } from "@/lib/ai/subagents/modeling-agent";
-import { requireApiSecret } from "@/lib/utils/auth";
 import { prisma } from "@/lib/db";
 import { BuildFinancialModelMilestone } from "@/types/plan4";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-modeling
@@ -11,8 +11,9 @@ import { BuildFinancialModelMilestone } from "@/types/plan4";
  * Body: { planId, ticker, companyName, extractedFinancials? }
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   const startTime = Date.now();
 
@@ -34,10 +35,21 @@ export async function POST(req: NextRequest) {
 
     const plan = await prisma.researchPlan.findUnique({
       where: { id: planId },
+      include: { session: { select: { orgId: true } } },
     }).catch(() => null);
 
     if (!plan) {
       return NextResponse.json({ message: "Research plan not found." }, { status: 404 });
+    }
+
+    // SECURITY: `planId` arrives in the request body. Without this check any
+    // authenticated user could supply another tenant's plan id and write subagentRun
+    // rows into their plan.
+    if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     const milestones = (plan.milestones as unknown as BuildFinancialModelMilestone[]) ?? [];
@@ -80,8 +92,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("[/api/agent/run-modeling POST] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

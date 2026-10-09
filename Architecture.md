@@ -233,11 +233,12 @@ Rather than splitting research across fragmented, persona-gated screens, EquiGen
    - Interactive SVG charting of stock prices against $\pm 1\sigma, \pm 2\sigma$ corridors.
    - Switchers for P/E vs EV/EBITDA, 3Y vs 5Y horizons, and Price (₹) vs Multiples (x).
 4. **Forensic Accounting & Quality Audit** ([ForensicAuditCard.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ForensicAuditCard.tsx)):
-   - Overall Quality Health Score (0-100) and Risk Classification (LOW / MODERATE / HIGH).
-   - Cash Flow Quality (CFO/PAT ratio and CFO-PAT divergence).
-   - Earnings Manipulation Risk (Beneish M-Score 8-variable model).
-   - Bankruptcy & Solvency Risk (Altman Z-Score safe/grey/distress zones).
-   - Governance & Capital Allocation Audit (Promoter pledging, contingent liabilities vs net worth, audit qualification flags).
+    - Overall Quality Health Score (0-100) and Risk Classification (LOW / MODERATE / HIGH / **NOT ASSESSED**).
+    - Cash Flow Quality (CFO/PAT ratio and CFO-PAT divergence).
+    - Accrual Quality — **single-factor accrual indicator**, explicitly *not* the 8-variable Beneish M-Score. The full model needs receivables, depreciation, SG&A and prior-year comparatives for all eight variables (DSRI, GMI, AQI, SGI, DEPI, SGAI, LVGI, TATA); Indian exchange disclosures available to this system do not carry them. The output is labelled `single_factor_accrual_indicator` with `isBeneishMScore: false` so a consumer cannot mistake it.
+    - Solvency Structure — the **Altman Z-Score factor form** (Z = 1.2·X1 + 1.4·X2 + 3.3·X3 + 0.6·X4 + 0.999·X5), computed only when all five factors are disclosed. Retained earnings and total liabilities are required; they are never estimated. When any factor is missing the metric reports `not_assessed` and names the missing items.
+    - Governance & Capital Allocation Audit (Promoter pledging, institutional holding, audit qualification flags).
+    - **Coverage disclosure**: every metric that could not be computed is listed with its reason, and a company with no verifiable inputs reports `NOT ASSESSED` rather than a clean score. Absence of evidence is never rendered as a pass.
 5. **Regulatory Certification & SEBI RA Sign-Off** ([SignoffModal.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/SignoffModal.tsx)):
    - Reviewer identity stamping, SEBI registration number validation (`INH...`), and cryptographic audit trail.
 

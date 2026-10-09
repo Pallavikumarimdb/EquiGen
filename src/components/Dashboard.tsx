@@ -207,7 +207,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         const res = await fetch("/api/auth/me");
         if (res.ok) {
           const data = await res.json();
-          setUser(data.user);
+          setUser(data.plan ? { ...data.user, plan: data.plan } : data.user);
           if (data.user?.name) setReviewerName(data.user.name);
           if (data.user?.sebiRegNo) setSebiRegNo(data.user.sebiRegNo);
         }

@@ -31,12 +31,38 @@ export interface SandboxExecutionResult {
   executionTimeMs: number;
 }
 
+/**
+ * Static denylist for submitted Python.
+ *
+ * IMPORTANT: a regular expression over source text is NOT a sandbox. This list is
+ * defence in depth, not a security boundary. It blocks the obvious cases, but
+ * obfuscation (string concatenation, `__class__` chains, `chr()`/`bytes` assembly) can
+ * defeat any source-level pattern match. The real boundary is that `/api/sandbox/execute`
+ * is opt-in, role-gated and rate-limited (see that route), and that submitted code runs
+ * as the app process rather than in an isolated container.
+ *
+ * Keep this list, but never treat a clean match as proof the code is safe.
+ */
 const DANGEROUS_PATTERNS = [
-  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  // Direct imports of anything that touches the OS, network, processes or introspection.
+  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform|resource|gc|atexit|webbrowser|xml|json\.decoder)\b/i,
   /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
-  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\()/i,
-  /\b(__subclasses__|__bases__|__mro__|__globals__|__code__|__builtins__)\b/i,
+  // Dynamic execution and attribute mutation.
+  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\(|input\s*\(|breakpoint\s*\()/i,
+  // Dunder traversal to reach the interpreter's object graph.
+  /\b(__subclasses__|__bases__|__base__|__mro__|__globals__|__code__|__builtins__|__class__|__reduce__|__getattribute__|__dict__|__init_subclass__)\b/i,
+  // Indirect reachability: attribute access by computed string, or chr/bytes assembly
+  // used to rebuild a blocked name at runtime.
+  /\[\s*['"][^'"]+['"]\s*\]\s*\(/i,
+  /\bchr\s*\(|\bbytes\s*\(|\bdecode\s*\(\s*['"]rot|\bcodecs\b/i,
+  // Shell and filesystem redirection.
+  /(\|\s*(ba)?sh\b|>\s*\/|\bsubprocess\b|\bos\.system\b|\bpty\.spawn)/i,
+  // `from x import *` star-imports to reach a module surface indirectly.
+  /\bfrom\s+\S+\s+import\s+\*/i,
 ];
+
+/** Maximum size of submitted source. A model-generated DCF script is well under this. */
+export const MAX_SANDBOX_CODE_BYTES = 64 * 1024;
 
 export class PythonExecutor {
   /**
@@ -217,6 +243,33 @@ export interface DCFCalculationParams {
   projectionYears?: number;   // 3 to 10
   netDebt?: number;           // total debt - cash
   sharesOutstandingCr?: number; // shares count in Cr
+  /**
+   * Seed for the Monte Carlo shocks. The same seed reproduces the same p10/p90 and
+   * therefore the same bull/bear prices. Defaults to a fixed constant so a valuation
+   * is deterministic unless a caller explicitly asks for a different run.
+   */
+  monteCarloSeed?: number;
+}
+
+const MONTE_CARLO_SIMULATIONS = 1000;
+const DEFAULT_MONTE_CARLO_SEED = 20260312;
+
+/**
+ * mulberry32 PRNG — a small, well-distributed 32-bit generator.
+ *
+ * Replaces `Math.random()`, which made every valuation irreproducible: the same
+ * inputs produced different target prices, bull and bear cases on each run, so a
+ * report could never be re-derived or audited after the fact.
+ */
+function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return function next(): number {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export function computeDCFValuation(params: DCFCalculationParams) {
@@ -234,9 +287,13 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     projectionYears = 5,
     netDebt = 0,
     sharesOutstandingCr = 50,
+    monteCarloSeed = DEFAULT_MONTE_CARLO_SEED,
   } = params;
 
-  // Run full integrated 3-statement model
+  // Run full integrated 3-statement model.
+  // This throws InvalidValuationInputError for drivers that cannot produce a
+  // meaningful valuation (wacc <= terminalGrowth, non-positive shares, bad revenue),
+  // so no placeholder price is ever emitted.
   const drivers: ThreeStatementDrivers = {
     baseRevenue,
     sharesOutstandingCr,
@@ -250,6 +307,10 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     wacc,
     terminalGrowth,
     projectionYears,
+    // Net debt is split into the balance-sheet debt and cash the engine expects.
+    // The engine derives its own `netDebt = baseDebt - baseCash`, which equals the
+    // value passed in, and subtracts it exactly once. The wrapper below therefore
+    // reads the engine's own `equityValue` instead of recomputing it.
     baseDebt: netDebt > 0 ? netDebt : 0,
     baseCash: netDebt < 0 ? Math.abs(netDebt) : 0,
   };
@@ -269,34 +330,39 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   }));
 
   const enterpriseValue = modelResult.enterpriseValue;
-  const equityValue = enterpriseValue - netDebt;
-  const targetPrice = Math.max(1, Math.round((equityValue / sharesOutstandingCr) * 100) / 100);
+  // Read the engine's own equity value and target price rather than recomputing
+  // them. The engine already subtracted net debt exactly once; doing it again here
+  // duplicated the derivation and risked the two paths drifting apart.
+  const equityValue = modelResult.equityValue;
+  const targetPrice = modelResult.targetPrice;
 
   // Sensitivity Matrix: WACC (rows) vs Terminal Growth (cols)
   const waccGrid = [wacc - 0.02, wacc - 0.01, wacc, wacc + 0.01, wacc + 0.02];
   const tgrGrid = [terminalGrowth - 0.01, terminalGrowth - 0.005, terminalGrowth, terminalGrowth + 0.005, terminalGrowth + 0.01];
 
-  const sensitivityMatrix: number[][] = [];
+  // Each cell re-runs the SAME 3-statement engine with the stressed WACC and
+  // terminal growth, so the matrix is guaranteed consistent with the headline
+  // valuation. The previous implementation re-derived FCFF inline as
+  // `revenue * margin * 0.85 * (1 - tax) - revenue * capex`, ignoring the DSO/DIO/DPO
+  // working-capital schedule and the capex/depreciation build. That made the centre
+  // cell read 1502.34 against a headline target of 1819.81 for the same inputs: the
+  // displayed matrix was describing a different company.
+  const sensitivityMatrix: Array<Array<number | null>> = [];
   for (const rWacc of waccGrid) {
-    const row: number[] = [];
+    const row: Array<number | null> = [];
     for (const cTgr of tgrGrid) {
       if (rWacc <= cTgr) {
-        row.push(0);
+        // The Gordon Growth terminal value is undefined when WACC <= terminal growth.
+        // Report null rather than 0, which would read as "this company is worthless".
+        row.push(null);
         continue;
       }
-      let sumPv = 0;
-      let rev = baseRevenue;
-      for (let yr = 1; yr <= projectionYears; yr++) {
-        rev *= 1 + revenueGrowthRate;
-        const fcff = rev * ebitdaMargin * 0.85 * (1 - taxRate) - rev * capexAsPercentRevenue;
-        sumPv += fcff / Math.pow(1 + rWacc, yr);
+      try {
+        const stressed = runThreeStatementModel({ ...drivers, wacc: rWacc, terminalGrowth: cTgr });
+        row.push(stressed.targetPrice);
+      } catch {
+        row.push(null);
       }
-      const lastF = rev * ebitdaMargin * 0.85 * (1 - taxRate) - rev * capexAsPercentRevenue;
-      const tv = (lastF * (1 + cTgr)) / (rWacc - cTgr);
-      const pvTv = tv / Math.pow(1 + rWacc, projectionYears);
-      const eqVal = sumPv + pvTv - netDebt;
-      const tp = Math.round((eqVal / sharesOutstandingCr) * 100) / 100;
-      row.push(tp);
     }
     sensitivityMatrix.push(row);
   }
@@ -304,10 +370,11 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   // Institutional Quantitative Monte Carlo Simulation (1,000 iterations)
   // Calibrated using standard Box-Muller Gaussian normal shocks for revenue growth and operating margin
   const mcSims: number[] = [];
-  
+
+  const rand = createSeededRandom(monteCarloSeed);
   function gaussianRandom(mean = 0, stdev = 1): number {
-    const u1 = Math.max(1e-7, Math.random());
-    const u2 = Math.random();
+    const u1 = Math.max(1e-7, rand());
+    const u2 = rand();
     const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
     return mean + z0 * stdev;
   }
@@ -315,33 +382,45 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   const growthStdev = Math.max(0.015, revenueGrowthRate * 0.20);
   const marginStdev = Math.max(0.01, ebitdaMargin * 0.15);
 
-  for (let i = 0; i < 1000; i++) {
+  for (let i = 0; i < MONTE_CARLO_SIMULATIONS; i++) {
     const simGrowth = Math.max(-0.20, Math.min(0.40, gaussianRandom(revenueGrowthRate, growthStdev)));
     const simMargin = Math.max(0.03, Math.min(0.60, gaussianRandom(ebitdaMargin, marginStdev)));
 
-    let simSumPv = 0;
-    let simRev = baseRevenue;
-    for (let yr = 1; yr <= projectionYears; yr++) {
-      simRev = simRev * (1 + simGrowth);
-      const simNopat = simRev * simMargin * (1 - taxRate);
-      const simCapex = simRev * capexAsPercentRevenue;
-      const simFcff = simNopat - simCapex;
-      simSumPv += simFcff / Math.pow(1 + wacc, yr);
+    // Re-run the same 3-statement engine with the shocked operating drivers rather
+    // than re-deriving FCFF inline, so every simulated price is produced by the same
+    // code path as the headline target price.
+    let simTp: number;
+    try {
+      simTp = runThreeStatementModel({
+        ...drivers,
+        revenueGrowthRate: simGrowth,
+        ebitdaMargin: simMargin,
+      }).targetPrice;
+    } catch {
+      continue; // stressed inputs were invalid; exclude rather than record a fake price
     }
-    const simLastFcff = simRev * simMargin * (1 - taxRate) - simRev * capexAsPercentRevenue;
-    const simTv = (simLastFcff * (1 + terminalGrowth)) / Math.max(0.01, wacc - terminalGrowth);
-    const simPvTv = simTv / Math.pow(1 + wacc, projectionYears);
-    const simEq = simSumPv + simPvTv - netDebt;
-    const simTp = Math.max(0.1, Math.round((simEq / sharesOutstandingCr) * 100) / 100);
     mcSims.push(simTp);
   }
   mcSims.sort((a, b) => a - b);
-  const p10Price = mcSims[Math.floor(mcSims.length * 0.10)];
-  const p90Price = mcSims[Math.floor(mcSims.length * 0.90)];
+
+  // Percentiles by quantile index, not magic offsets. `mcSims[100]` happened to be
+  // the p10 only for exactly 1,000 sorted samples, and silently described a
+  // different percentile for any other simulation count.
+  const percentile = (p: number): number => {
+    if (mcSims.length === 0) return 0;
+    const idx = Math.min(
+      mcSims.length - 1,
+      Math.max(0, Math.ceil(p * mcSims.length) - 1),
+    );
+    return mcSims[idx];
+  };
+
+  const p10Price = percentile(0.10);
+  const p90Price = percentile(0.90);
 
   // Ground Bull & Bear cases dynamically in Monte Carlo empirical distributions
-  const bearCasePrice = Math.max(0.1, Math.round(p10Price * 100) / 100);
-  const bullCasePrice = Math.max(0.1, Math.round(p90Price * 100) / 100);
+  const bearCasePrice = Math.round(p10Price * 100) / 100;
+  const bullCasePrice = Math.round(p90Price * 100) / 100;
 
   return {
     modelType: "dcf",
@@ -370,11 +449,14 @@ export function computeDCFValuation(params: DCFCalculationParams) {
       matrix: sensitivityMatrix,
     },
     monteCarlo: {
-      simulations: 1000,
-      meanTargetPrice: Math.round(mcSims.reduce((a, b) => a + b, 0) / mcSims.length),
-      medianTargetPrice: mcSims[500],
-      p10TargetPrice: mcSims[100],
-      p90TargetPrice: mcSims[900],
+      simulations: MONTE_CARLO_SIMULATIONS,
+      seed: monteCarloSeed,
+      meanTargetPrice: mcSims.length
+        ? Math.round(mcSims.reduce((a, b) => a + b, 0) / mcSims.length)
+        : 0,
+      medianTargetPrice: percentile(0.5),
+      p10TargetPrice: p10Price,
+      p90TargetPrice: p90Price,
     },
     chartUrls: [],
   };

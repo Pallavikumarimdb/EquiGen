@@ -49,13 +49,67 @@ export function extractTextFromHtml(html: string): string {
     .trim();
 }
 
+/**
+ * Hosts the scraper is permitted to contact.
+ *
+ * SECURITY: `fetchUrl` performed `fetch(url)` with no scheme or host validation. It is
+ * currently only called with a screener.in URL built from a sanitised ticker, so the
+ * SSRF primitive is latent rather than reachable — but validating at the fetch
+ * boundary means a future caller cannot turn this into a request against
+ * 169.254.169.254 (cloud metadata), localhost, or internal RFC1918 services.
+ *
+ * Adding a host here is the explicit act of saying "this host may be scraped".
+ */
+const ALLOWED_FETCH_HOSTS: ReadonlySet<string> = new Set([
+  "www.screener.in",
+  "screener.in",
+]);
+
+/**
+ * Rejects URLs that are not plain HTTP(S) to an allowed host.
+ *
+ * Redirects are the other half of this problem: `fetch` follows them by default, so an
+ * allowed host could bounce the request to an internal address. `redirect: "manual"`
+ * is set at the call site so a redirect cannot escape this check.
+ */
+function assertScrapableUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Invalid URL.");
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Blocked URL scheme: ${parsed.protocol}`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!ALLOWED_FETCH_HOSTS.has(host)) {
+    throw new Error(`Blocked host: ${host}`);
+  }
+
+  // Defence in depth: reject IP literals outright, so an allowlist mistake cannot
+  // resolve to a private address.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) {
+    throw new Error("Blocked host: IP literal.");
+  }
+
+  return parsed;
+}
+
 export class WebScraperClient {
   /**
    * Fetches target URL with rotated headers and politeness delay.
+   *
+   * Only hosts in `ALLOWED_FETCH_HOSTS` over HTTP(S) are fetched; redirects are not
+   * followed, so an allowed host cannot redirect to an internal address.
    */
   async fetchUrl(url: string, options: ScrapeOptions = {}): Promise<ScrapeResult> {
     const { runId, sourceType = "web", timeoutMs = 15000, retries = 2 } = options;
     const fetchedAt = new Date().toISOString();
+
+    assertScrapableUrl(url);
 
     let _lastError: Error | null = null;
 
@@ -73,6 +127,9 @@ export class WebScraperClient {
             "Accept-Language": "en-US,en;q=0.9",
           },
           signal: AbortSignal.timeout(timeoutMs),
+          // Do not follow redirects: an allowed host must not be able to bounce the
+          // request to an internal address past the host allowlist above.
+          redirect: "manual",
         });
 
         if (!res.ok) {

@@ -1,24 +1,40 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyJWT } from "@/lib/utils/jwt";
+// EDGE-SAFE IMPORT. This must not come from "@/lib/utils/tenant": that module imports
+// Prisma, and the Edge runtime cannot execute `pg`. Doing so fails the build with
+// "The edge runtime does not support Node.js 'crypto' module" and
+// "Can't resolve 'pg-native'".
+import { hasValidApiSecret } from "@/lib/utils/api-secret";
+
+/** Static asset extensions, checked as a path SUFFIX rather than a substring. */
+const STATIC_ASSET_RE = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$/i;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  console.log(`[Middleware] pathname: ${pathname}`);
 
   // 1. Exclude public assets, static content, and public APIs (like sign-in / sign-up / sign-out / demo-guest)
+  //    Payment webhooks are also public — the signature header is the auth.
+  //
+  //    Static detection used to be `pathname.includes(".")`, which excluded ANY
+  //    dotted path from authentication (e.g. `/v1.5/report`). It is now a suffix
+  //    test against known asset extensions.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth/signin") ||
     pathname.startsWith("/api/auth/signup") ||
     pathname.startsWith("/api/auth/signout") ||
     pathname.startsWith("/api/auth/demo") ||
-    pathname.includes(".") // matches static files like favicon.ico, images, etc.
+    pathname === "/api/billing/webhook" ||
+    STATIC_ASSET_RE.test(pathname)
   ) {
     return NextResponse.next();
   }
 
   const isAuthPage = pathname.startsWith("/signin") || pathname.startsWith("/signup");
+  const isLandingPage = pathname === "/";
+  const isLegalPage =
+    pathname.startsWith("/terms") || pathname.startsWith("/privacy");
 
   // 2. Retrieve token from cookies
   const token = request.cookies.get("session_token")?.value;
@@ -29,10 +45,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // 3. Handle login/signup redirection if already authenticated
-  if (isAuthPage) {
-    if (session) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
+  if (isAuthPage && session) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // 3b. The landing page, auth screens, and legal pages are reachable without a
+  // session. "/" itself decides what to render (marketing page vs. dashboard).
+  if (!session && (isLandingPage || isAuthPage || isLegalPage)) {
     return NextResponse.next();
   }
 
@@ -54,17 +73,20 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  // 5. Internal developer / headless agent secret bypass (ONLY when NO user cookie session exists)
-  const apiSecret = request.headers.get("x-api-secret");
-  const configuredSecret = process.env.API_SECRET;
-  const isDevOrTest = process.env.NODE_ENV !== "production";
-  const isValidSecret =
-    (configuredSecret && apiSecret === configuredSecret) ||
-    (isDevOrTest && apiSecret === "equigen-internal");
-
-  if (apiSecret && isValidSecret) {
+  // 5. Internal service credential (headless agent / CI callers).
+  //    The secret is validated by `hasValidApiSecret`, which reads it from the
+  //    environment and compares in constant time. It previously accepted a hardcoded
+  //    service-credential literal in any non-production environment, so an unset
+  //    NODE_ENV in a deployed environment would have been a full authentication
+  //    bypass. There is now no literal anywhere in the codebase.
+  //
+  //    Only reached when NO user cookie session exists — a real user session always wins.
+  if (hasValidApiSecret(request)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-user-id", "agent-user");
+    // The operator identity is bound to one organisation for its own writes. Its
+    // cross-tenant READ access comes from `isPlatformOperator` in the tenant guard,
+    // not from `default-org` acting as a wildcard — see src/lib/utils/tenant.ts.
     requestHeaders.set("x-org-id", "default-org");
     requestHeaders.set("x-user-role", "ADMIN");
     requestHeaders.set("x-user-name", "EquiGen Agent");
@@ -78,8 +100,8 @@ export async function middleware(request: NextRequest) {
       { status: 401 }
     );
   }
-  // Redirect web requests to login page
-  return NextResponse.redirect(new URL("/signin", request.url));
+  // Redirect web requests to the public landing page, which routes into sign in / sign up
+  return NextResponse.redirect(new URL("/", request.url));
 }
 
 export const config = {
@@ -87,11 +109,12 @@ export const config = {
     /*
      * Match all request paths except for:
      * - api/auth/signin, api/auth/signup, and api/auth/demo (public auth endpoints)
+     * - api/billing/webhook (public payment webhook, authenticated by signature)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - static files with extensions (.css, .js, .png, .jpg, .svg, etc.)
      */
-    "/((?!api/auth/signin|api/auth/signup|api/auth/signout|api/auth/demo|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$).*)",
+    "/((?!api/auth/signin|api/auth/signup|api/auth/signout|api/auth/demo|api/billing/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$).*)",
   ],
 };

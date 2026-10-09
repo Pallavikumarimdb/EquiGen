@@ -15,8 +15,11 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanOrgName = orgName.trim();
     const cleanName = name.trim();
+    // Normalise the org name before lookup. Previously only `.trim()` was applied, so
+    // "Default Organization " missed the existence check and created a second org —
+    // a trivial way to sidestep the tenant-isolation guard below.
+    const cleanOrgName = orgName.trim().replace(/\s+/g, " ");
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,12 +38,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate role
-    const allowedRoles = ["analyst", "reviewer", "admin"];
+    // Validate role.
+    //
+    // SECURITY: `role` came straight from the request body and `admin` was honoured
+    // for any org with zero users. Several routes treat `role === "admin"` as a
+    // cross-tenant superuser (see /api/approve), so self-selecting `admin` on a
+    // freshly created org was privilege escalation. A public signup may only ever
+    // create an `analyst` or a `reviewer`; `admin` is granted solely to the first
+    // user of an org the caller is creating themselves.
+    const allowedRoles = ["analyst", "reviewer"];
     const requestedRole = (role as string).toLowerCase();
     if (!allowedRoles.includes(requestedRole)) {
       return NextResponse.json(
-        { message: "Invalid role specified." },
+        { message: "Invalid role specified. Valid roles: analyst, reviewer." },
         { status: 400 }
       );
     }
@@ -74,20 +84,25 @@ export async function POST(req: NextRequest) {
     let assignedRole = requestedRole;
 
     if (org) {
-      // If the organization exists and has existing users, block arbitrary strangers from hijacking it
-      if (org._count.users > 0 && org.id !== "default-org") {
+      // An org that already has users must not be joined by a stranger.
+      //
+      // SECURITY: the check previously carried an `org.id !== "default-org"` exemption,
+      // so anyone who signed up naming the default organisation joined the tenant that
+      // several routes treat as a wildcard. There is no exemption now.
+      if (org._count.users > 0) {
         return NextResponse.json(
           { message: `Organization "${cleanOrgName}" already exists. Please request an invite from your organization administrator or enter a unique organization name.` },
           { status: 409 }
         );
       }
     } else {
-      // New organization creation: creator becomes admin of the new organization
+      // New organization creation: creator becomes admin of the new organization.
+      // This is the ONLY path that grants `admin`, and it is scoped to an org the
+      // caller has just created — i.e. an admin of their own tenant.
       org = await prisma.organization.create({
         data: { name: cleanOrgName },
         include: { _count: { select: { users: true } } },
       });
-      // First user creating an org gets admin privileges
       assignedRole = "admin";
     }
 
@@ -101,7 +116,7 @@ export async function POST(req: NextRequest) {
         email: cleanEmail,
         passwordHash,
         role: assignedRole,
-        sebiRegNo: requestedRole === "reviewer" || sebiRegNo ? sebiRegNo?.trim() || null : null,
+        sebiRegNo: requestedRole === "reviewer" ? sebiRegNo?.trim() || null : null,
         orgId: org.id,
       },
     });
@@ -155,9 +170,9 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (error: unknown) {
     console.error("Signup API error:", error);
-    const message = error instanceof Error ? error.message : String(error);
+    // Never echo the raw error: Prisma errors carry schema/table detail.
     return NextResponse.json(
-      { message: "Internal server error.", error: message },
+      { message: "Internal server error." },
       { status: 500 }
     );
   }

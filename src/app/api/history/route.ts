@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import {
+  canAccessTenantRecord,
+  isTenantFailure,
+  requireTenantSession,
+  tenantForbidden,
+} from "@/lib/utils/tenant";
 import { computeSHA256 } from "@/lib/utils/hash";
 
 const ALLOWED_STATUSES = new Set([
@@ -13,67 +18,47 @@ const ALLOWED_STATUSES = new Set([
 ]);
 
 export async function GET(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
+
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json([]);
     }
 
-    const session = getAuthSession(req);
-    const userId = session?.userId;
-    const orgId = session?.orgId;
-    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    const userId = session.userId;
+    const orgId = session.orgId;
 
     let reportWhere: Prisma.ReportHistoryWhereInput;
     let planWhere: Prisma.ResearchPlanWhereInput;
     let jobWhere: Prisma.ExtractionJobWhereInput;
 
-    if (orgId && orgId !== "default-org") {
-      // Organization-level isolation: members of the same organization see org assets + their own
-      reportWhere = {
-        OR: [
-          { orgId },
-          ...(userId ? [{ createdById: userId }] : []),
-        ],
-      };
-      planWhere = {
-        session: {
-          OR: [
-            { orgId },
-            ...(userId ? [{ createdBy: userId }] : []),
-          ],
-        },
-      };
-      jobWhere = {
-        OR: [
-          { orgId },
-          ...(userId ? [{ createdById: userId }] : []),
-        ],
-      };
-    } else if (userId && !isSystemAdmin) {
-      // Individual user in default-org or personal mode: strictly isolate to their own created items
-      reportWhere = { createdById: userId };
-      planWhere = { session: { createdBy: userId } };
-      jobWhere = { createdById: userId };
-    } else if (isSystemAdmin) {
-      // Internal system admin / test view: see all default-org and unassigned items
-      reportWhere = {
-        OR: [{ orgId: "default-org" }, { orgId: null }],
-      };
-      planWhere = {
-        session: {
-          OR: [{ orgId: "default-org" }, { orgId: null }],
-        },
-      };
-      jobWhere = {
-        OR: [{ orgId: "default-org" }, { orgId: null }],
-      };
+    if (session.isPlatformOperator) {
+      // Platform operator (internal service credential): cross-tenant view, needed for
+      // support and CI. This is the ONLY path that may read beyond one organisation.
+      reportWhere = {};
+      planWhere = { session: {} };
+      jobWhere = {};
     } else {
-      // Unauthenticated / fallback
-      reportWhere = { id: "__impossible__" };
-      planWhere = { id: "__impossible__" };
-      jobWhere = { id: "__impossible__" };
+      // Organisation isolation for every human session, INCLUDING default-org.
+      //
+      // Previously `default-org` was treated as a super-tenant: any caller whose org
+      // resolved to default-org matched `OR: [{ orgId: "default-org" }, { orgId: null }]`
+      // and therefore saw every pre-tenancy and demo report. A member of the default
+      // organisation is now pinned to that organisation exactly like any other, and
+      // legacy `orgId: null` rows are visible only to a platform operator.
+      reportWhere = {
+        OR: [{ orgId }, ...(userId ? [{ createdById: userId }] : [])],
+      };
+      planWhere = {
+        session: {
+          OR: [{ orgId }, ...(userId ? [{ createdBy: userId }] : [])],
+        },
+      };
+      jobWhere = {
+        OR: [{ orgId }, ...(userId ? [{ createdById: userId }] : [])],
+      };
     }
 
     const reports = await prisma.reportHistory.findMany({
@@ -202,8 +187,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
@@ -212,9 +198,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
-    const userId = session?.userId || null;
+    const orgId = session.orgId;
+    const userId = session.userId;
 
     const body = await req.json();
     const {
@@ -226,7 +211,6 @@ export async function POST(req: NextRequest) {
       status,
       reviewerName,
       sebiRegNo,
-      approvedAt,
       modelUsedForFinancials,
     } = body;
 
@@ -251,9 +235,42 @@ export async function POST(req: NextRequest) {
       where: { id },
     });
 
-    if (existing && existing.orgId !== orgId) {
+    if (existing && !canAccessTenantRecord(session, existing)) {
+      return tenantForbidden();
+    }
+
+    // SECURITY: this route's `update` branch wrote `status`, `reviewerName`,
+    // `sebiRegNo` and `approvedAt` directly, entirely bypassing
+    // `transitionReportStatus`. `ALLOWED_STATUSES` included "approved" and
+    // "published", so any authenticated user could POST their own report with
+    // `status: "published"` plus an arbitrary reviewer name and registration number
+    // and skip every gate: no transition validation, no quality gate, no authenticity
+    // gate, no SEBI presence check. It was the alternative path around /api/approve.
+    //
+    // A caller may no longer assert these fields here. Status changes go through the
+    // state machine (/api/approve), and the sign-off identity comes from the session.
+    if (status && status !== "draft" && status !== existing?.status) {
       return NextResponse.json(
-        { message: "Forbidden. You do not own this report." },
+        {
+          message:
+            "Report status cannot be set through this endpoint. " +
+            "Use the approval flow so the state machine, quality gate and authenticity " +
+            "audit are enforced.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const reviewerNameFromCaller = reviewerName;
+    if (reviewerNameFromCaller && reviewerNameFromCaller !== session.name) {
+      return NextResponse.json(
+        { message: "Reviewer name must match the authenticated user." },
+        { status: 403 },
+      );
+    }
+    if (sebiRegNo && sebiRegNo !== (session.sebiRegNo ?? "")) {
+      return NextResponse.json(
+        { message: "SEBI registration number must match the authenticated user." },
         { status: 403 },
       );
     }
@@ -277,10 +294,8 @@ export async function POST(req: NextRequest) {
         fileName,
         reportData,
         pdfBase64,
-        status: status || undefined,
-        reviewerName: reviewerName || undefined,
-        sebiRegNo: sebiRegNo || undefined,
-        approvedAt: approvedAt ? new Date(approvedAt) : undefined,
+        // Status, reviewerName, sebiRegNo and approvedAt are intentionally NOT
+        // writable here — they are set only by the approval flow.
         modelUsedForFinancials: modelUsedForFinancials || undefined,
         contentHash,
         versionNo,
@@ -294,10 +309,10 @@ export async function POST(req: NextRequest) {
         fileName,
         reportData,
         pdfBase64,
-        status: status || "draft",
-        reviewerName: reviewerName || null,
-        sebiRegNo: sebiRegNo || null,
-        approvedAt: approvedAt ? new Date(approvedAt) : null,
+        status: "draft",
+        reviewerName: null,
+        sebiRegNo: null,
+        approvedAt: null,
         modelUsedForFinancials: modelUsedForFinancials || null,
         contentHash,
         versionNo: 1,
@@ -332,10 +347,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: Request) {
-  const authError = requireApiSecret(
-    req as Parameters<typeof requireApiSecret>[0],
-  );
-  if (authError) return authError;
+  const guard = await requireTenantSession(req as unknown as NextRequest);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
@@ -344,10 +358,11 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const session = getAuthSession(req as unknown as NextRequest);
-    const orgId = session?.orgId || "default-org";
-    const userId = session?.userId;
-    const isSystemAdmin = userId === "system-test-user" || userId === "agent-user" || session?.role?.toLowerCase() === "admin";
+    const orgId = session.orgId;
+    const userId = session.userId;
+    // `default-org` is no longer a super-tenant: it is treated exactly like any other
+    // organisation, so the legacy `{ orgId: null }` escape hatch is gone.
+    const isSystemAdmin = session.isPlatformOperator;
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -368,7 +383,6 @@ export async function DELETE(req: Request) {
           OR: [
             { orgId },
             ...(userId ? [{ createdById: userId }] : []),
-            ...(orgId === "default-org" ? [{ orgId: null }] : []),
           ],
         };
 
@@ -394,7 +408,6 @@ export async function DELETE(req: Request) {
             OR: [
               { orgId },
               ...(userId ? [{ createdBy: userId }] : []),
-              ...(orgId === "default-org" ? [{ orgId: null }] : []),
             ],
           },
         };
@@ -429,7 +442,6 @@ export async function DELETE(req: Request) {
           OR: [
             { orgId },
             ...(userId ? [{ createdById: userId }] : []),
-            ...(orgId === "default-org" ? [{ orgId: null }] : []),
           ],
         };
 

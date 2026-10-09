@@ -134,7 +134,7 @@ export const EquityResearchDataSchema = z.object({
   businessOverview: z.string().nullable().optional(),
   futureGrowth: z.string().nullable().optional(),
 
-  // Geojit-specific fields
+  // Exchange identifiers & listing metadata
   nseCode: z.string().nullable().optional(),
   bseCode: z.string().nullable().optional(),
   bloombergCode: z.string().nullable().optional(),

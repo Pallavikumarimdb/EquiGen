@@ -1,5 +1,6 @@
 import { ReportHistory } from "@prisma/client";
 import { prisma } from "../db";
+import { evaluateDistributionGate } from "../eval/distribution-gate";
 
 export type ReportStatus =
   | "draft"
@@ -50,6 +51,32 @@ function validateQualityGate(
       );
     }
   }
+}
+
+/**
+ * Authenticity gate — approving or publishing a report whose figures failed (or
+ * could not be shown to pass) the financial authenticity audit requires an explicit,
+ * audited reviewer override.
+ *
+ * This is separate from the degraded-data gate above: `dataQuality` reflects chunk
+ * extraction health, whereas the audit verdict reflects whether the reported numbers
+ * are internally consistent, sourced from live data, and free of synthetic constants.
+ */
+function validateAuthenticityGate(
+  report: { reportData?: unknown; status: string },
+  targetStatus: ReportStatus,
+  reviewerIdentity: string,
+  metadata?: Record<string, unknown>,
+): void {
+  if (targetStatus !== "approved" && targetStatus !== "published") return;
+
+  const gate = evaluateDistributionGate(report.reportData, {
+    overrideWithJustification: metadata?.qualityAck === true,
+    overriddenBy: reviewerIdentity,
+  });
+  if (gate.allowed) return;
+
+  throw new Error(gate.reason);
 }
 
 /**
@@ -110,6 +137,14 @@ export async function transitionReportStatus(
   // Degraded-quality gate — approving/publishing flagged reports requires explicit ack
   validateQualityGate(report, targetStatus, options.metadata);
 
+  // Authenticity gate — approving/publishing a report that failed (or cannot prove)
+  // the financial authenticity audit requires an explicit, audited override.
+  const reviewerIdentity =
+    (typeof options.metadata?.reviewerName === "string" && options.metadata.reviewerName) ||
+    report.reviewerName ||
+    options.actorId;
+  validateAuthenticityGate(report, targetStatus, reviewerIdentity, options.metadata);
+
   // Permission/validation checks
   if (targetStatus === "approved") {
     const regNo = sebiRegNo || report.sebiRegNo;
@@ -152,6 +187,34 @@ export async function transitionReportStatus(
       },
     },
   });
+
+  // When approval/publish succeeded *over* a failing authenticity audit, record the
+  // override separately so it can never be mistaken for a clean pass.
+  if (targetStatus === "approved" || targetStatus === "published") {
+    const auditGate = evaluateDistributionGate(report.reportData, {
+      overrideWithJustification: true,
+      overriddenBy: reviewerIdentity,
+    });
+    if (auditGate.overridden) {
+      await prisma.auditLog.create({
+        data: {
+          reportId,
+          userId: options.actorId,
+          actorType: options.actorType,
+          action: "quality_override",
+          fromState: currentStatus,
+          toState: targetStatus,
+          metadata: {
+            gate: "financial_authenticity",
+            auditState: auditGate.state,
+            reason: auditGate.reason,
+            acknowledgedBy: reviewerIdentity,
+            ip: options.ipAddress || null,
+          },
+        },
+      });
+    }
+  }
 
   return updatedReport;
 }

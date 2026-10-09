@@ -188,14 +188,15 @@ export default function UserSettingsPage() {
 
     const val = keyInputs[provider]?.trim() || "";
 
-    // Save to local storage for immediate browser usage
-    try {
-      if (provider === "groq") localStorage.setItem("equigen_groq_api_key", val);
-      if (provider === "openai") localStorage.setItem("equigen_openai_api_key", val);
-      if (provider === "openrouter") localStorage.setItem("equigen_openrouter_api_key", val);
-    } catch {
-      // ignore
-    }
+    // SECURITY: the key was previously ALSO written to localStorage under
+    // `equigen_<provider>_api_key`. That copy is readable by any JavaScript running on
+    // the origin -- any future XSS, any compromised third-party script, any browser
+    // extension -- and it persisted indefinitely. It was also redundant: the server
+    // already resolves the organisation's key via getDecryptedApiKey, which is how the
+    // chat and agent routes obtain it.
+    //
+    // The key is now stored server-side only. The input is cleared from component state
+    // on success so it does not linger in the DOM or in React memory.
 
     try {
       const res = await fetch("/api/settings/keys", {
@@ -206,6 +207,8 @@ export default function UserSettingsPage() {
 
       if (res.ok) {
         setKeysConfigured((prev) => ({ ...prev, [provider]: !!val }));
+        // Clear the plaintext from component state and the DOM input.
+        setKeyInputs((prev) => ({ ...prev, [provider]: "" }));
         setSaveSuccess(`${provider.toUpperCase()} API key saved securely.`);
         setTimeout(() => setSaveSuccess(null), 4000);
       } else {

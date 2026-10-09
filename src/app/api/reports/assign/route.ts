@@ -1,25 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/reports/assign
  * Assigns a generated research report to a SEBI Registered Reviewer within the organization.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json(
-        { message: "Unauthorized. Please log in." },
-        { status: 401 }
-      );
-    }
-
     const body = await req.json();
-    const { reportId, reviewerId, reviewerName } = body;
+    const { reportId, reviewerId } = body;
 
     if (!reportId || !reviewerId) {
       return NextResponse.json(
@@ -48,9 +41,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Tenant Isolation check
-    const orgId = session.orgId || "default-org";
-    const isSystemAdmin = session.userId === "system-test-user" || session.userId === "agent-user" || session.role?.toLowerCase() === "admin";
-    if (dbReport.orgId && dbReport.orgId !== orgId && !isSystemAdmin) {
+    //
+    // SECURITY: the guard was nested inside `if (dbReport.orgId ...)`, so a report
+    // with `orgId === null` skipped the check entirely. It also granted a bypass to
+    // `role === "admin"`, which signup previously let anyone self-select.
+    if (!canAccessTenantRecord(session, dbReport)) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 }
@@ -69,10 +64,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (reviewerUser.orgId !== orgId && !isSystemAdmin) {
+    if (reviewerUser.orgId !== session.orgId && !session.isPlatformOperator) {
       return NextResponse.json(
         { message: "Cannot assign report to a reviewer from another organization." },
         { status: 403 }
+      );
+    }
+
+    // A reviewer must actually hold a reviewing role.
+    if (!["reviewer", "admin", "research_analyst"].includes((reviewerUser.role ?? "").toLowerCase())) {
+      return NextResponse.json(
+        { message: "The selected user does not hold a reviewing role." },
+        { status: 400 }
       );
     }
 
@@ -80,14 +83,16 @@ export async function POST(req: NextRequest) {
       where: { id: dbReport.id },
       data: {
         assignedReviewerId: reviewerUser.id,
-        assignedReviewerName: reviewerName || reviewerUser.name,
+        // The reviewer's name comes from their account, not the request body, so an
+        // attacker cannot stamp an arbitrary name onto the assignment record.
+        assignedReviewerName: reviewerUser.name,
       },
     });
 
     // Write audit log trail
     await prisma.auditLog.create({
       data: {
-        reportId,
+        reportId: dbReport.id,
         userId: session.userId,
         actorType: "human",
         action: "assignment_changed",
@@ -107,8 +112,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("API Error: /api/reports/assign failed:", error);
-    const errMsg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

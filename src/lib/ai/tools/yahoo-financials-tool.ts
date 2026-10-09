@@ -23,6 +23,25 @@
 import { resolveCompanyTicker } from "./ticker-resolver";
 import { fetchBseCompanyFinancials } from "./bse-financial-data-tool";
 
+/**
+ * Balance-sheet lines taken verbatim from Yahoo's `balanceSheetHistory`, in ₹ Crores.
+ *
+ * These are the disclosed figures the forensic engine requires. Nothing here is
+ * derived, substituted or defaulted: a line Yahoo does not report is `null`.
+ */
+export interface BalanceSheetLines {
+  totalAssetsCr: number | null;
+  totalCurrentAssetsCr: number | null;
+  totalCurrentLiabilitiesCr: number | null;
+  tradeReceivablesCr: number | null;
+  totalLiabilitiesCr: number | null;
+  totalShareholdersEquityCr: number | null;
+  retainedEarningsCr: number | null;
+  reservesAndSurplusCr: number | null;
+  /** Fiscal period the figures belong to, e.g. "2025-12-31". */
+  asOfPeriod?: string | null;
+}
+
 export interface ExtractedFinancials {
   // Income Statement
   revenueCr: number | null;        // Total revenue in ₹ Crores (TTM)
@@ -46,6 +65,19 @@ export interface ExtractedFinancials {
   currentRatio?: number | null;     // Current assets / current liabilities
   quickRatio?: number | null;       // Quick ratio
 
+  /**
+   * Disclosed balance-sheet lines, in ₹ Crores.
+   *
+   * These exist because the forensic engine needs them: the Altman Z factor form
+   * requires working capital, retained earnings and total liabilities, and the
+   * accrual indicator requires total assets. They were previously reconstructed
+   * from the debt figure and a ratio, which produced an authoritative-looking
+   * solvency score out of invented inputs.
+   *
+   * Every field is null when Yahoo does not disclose it. None are derived.
+   */
+  balanceSheetLines?: BalanceSheetLines | null;
+
   // Market Data
   currentPrice: number | null;
   marketCapCr: number | null;
@@ -68,10 +100,19 @@ export interface ExtractedFinancials {
   // Metadata
   ticker: string;
   currency: string;
-  fetchedAt: string;
+  fetchedAt: string | null;
   isLiveData: boolean;
   dataSource?: string;   // Which path succeeded: "quoteSummary" | "v7_quote" | "v8_chart" | "bse_api"
   fetchError?: string;
+
+  // Legacy field name fallbacks (kept for backward compatibility with older data shapes)
+  marketCap?: number | null;
+  peRatio?: number | null;
+  deRatio?: number | null;
+  outstandingShares?: number | null;
+  revenue?: number | null;
+  ebitda?: number | null;
+  source?: string;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -108,6 +149,37 @@ function toCrores(val: number | null | undefined, currency = "INR"): number | nu
 function safe(val: unknown): number | null {
   const n = Number(val);
   return isNaN(n) || !isFinite(n) ? null : n;
+}
+
+/**
+ * Extracts disclosed balance-sheet lines, in ₹ Crores.
+ *
+ * Yahoo returns absolute INR, converted here by the same divisor used everywhere
+ * else. A line Yahoo omits stays `null` — the forensic engine needs these to be
+ * truthful about what it cannot compute, so substituting a proxy here would
+ * reintroduce exactly the problem it reports on.
+ */
+export function parseBalanceSheetLines(statement: Record<string, unknown>): BalanceSheetLines {
+  const cr = (field: string): number | null => {
+    const entry = statement?.[field];
+    const raw = entry && typeof entry === "object" ? (entry as { raw?: unknown }).raw : entry;
+    return toCrores(safe(raw), "INR");
+  };
+
+  const endDate = statement?.endDate;
+  return {
+    totalAssetsCr: cr("totalAssets"),
+    totalCurrentAssetsCr: cr("totalCurrentAssets"),
+    totalCurrentLiabilitiesCr: cr("totalCurrentLiabilities"),
+    tradeReceivablesCr: cr("accountsReceivable") ?? cr("receivables"),
+    totalLiabilitiesCr: cr("totalLiab") ?? cr("totalLiabilitiesNetMinorityInterest"),
+    totalShareholdersEquityCr: cr("totalStockholderEquity") ?? cr("totalEquityGrossMinorityInterest"),
+    retainedEarningsCr: cr("retainedEarnings"),
+    reservesAndSurplusCr: cr("reserves"),
+    asOfPeriod: typeof endDate === "object" && endDate !== null
+      ? String((endDate as { fmt?: string }).fmt ?? "")
+      : null,
+  };
 }
 
 /**
@@ -365,6 +437,7 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
     netIncomeCr: null, epsCurrent: null, epsGrowth: null,
     totalDebtCr: null, cashCr: null, netDebtCr: null, bookValuePerShare: null,
     debtToEquity: null, roe: null,
+    balanceSheetLines: null,
     currentPrice: null, marketCapCr: null, enterpriseValueCr: null, sharesOutstandingCr: null,
     fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null, highLow52W: null,
     trailingPE: null, forwardPE: null, evEbitda: null, priceToBook: null, dividendYield: null,
@@ -375,7 +448,14 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
   try {
     const crumbData = await fetchYahooCrumb();
 
-    const modules = ["summaryDetail", "defaultKeyStatistics", "financialData", "incomeStatementHistory"].join(",");
+    const modules = [
+  "summaryDetail",
+  "defaultKeyStatistics",
+  "financialData",
+  "incomeStatementHistory",
+  // Required for the forensic engine's solvency structure and accrual indicator.
+  "balanceSheetHistory",
+].join(",");
     const crumbParam = crumbData ? `&crumb=${encodeURIComponent(crumbData.crumb)}` : "";
     const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=${encodeURIComponent(modules)}${crumbParam}`;
 
@@ -405,6 +485,9 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const stats   = result.defaultKeyStatistics ?? {};
         const fin     = result.financialData ?? {};
         const hist    = result.incomeStatementHistory?.incomeStatementHistory ?? [];
+        const bsHist  = result.balanceSheetHistory?.balanceSheetStatements ?? [];
+        const bs      = bsHist[0] ?? {};
+        const balanceSheetLines = parseBalanceSheetLines(bs);
 
         const currency = (fin.financialCurrency ?? summary.currency ?? "INR") as string;
 
@@ -481,6 +564,7 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           operatingCashflowCr: toCrores(safe(fin.operatingCashflow?.raw), currency),
           currentRatio:        safe(fin.currentRatio?.raw),
           quickRatio:          safe(fin.quickRatio?.raw),
+          balanceSheetLines:   currency === "INR" ? balanceSheetLines : null,
           currentPrice:        priceRaw,
           marketCapCr:         toCrores(mktCapRaw, currency),
           enterpriseValueCr:   toCrores(evRaw, currency),

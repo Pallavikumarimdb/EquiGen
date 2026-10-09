@@ -2,12 +2,30 @@ import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
-const rawDatabaseUrl =
-  process.env.DATABASE_URL ||
-  "postgresql://postgres:postgres@localhost:5432/equigen_db";
-
-// Replace legacy sslmode=require to verify-full to satisfy Node.js pg-connection-string v3 & standard libpq
-const databaseUrl = rawDatabaseUrl.replace("sslmode=require", "sslmode=verify-full");
+/**
+ * Database connection string.
+ *
+ * SECURITY: this previously fell back to a hardcoded credential-bearing DSN
+ * (`postgresql://postgres:postgres@localhost:5432/equigen_db`). A deployment that
+ * forgot DATABASE_URL would silently connect to a local database instead of failing
+ * loudly — which reads as "the app is broken" rather than "you forgot configuration",
+ * and in a container with a mounted local Postgres could point at the wrong data.
+ *
+ * There is no default now. Resolution stays lazy so `next build` (which imports this
+ * module without a runtime environment) still succeeds.
+ */
+function databaseUrl(): string {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) {
+    throw new Error(
+      "[db] DATABASE_URL is not set. The application will not guess a database. " +
+        "Set it in your environment (see .env.example).",
+    );
+  }
+  // Replace legacy sslmode=require to verify-full to satisfy Node.js
+  // pg-connection-string v3 & standard libpq.
+  return raw.replace("sslmode=require", "sslmode=verify-full");
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
@@ -19,7 +37,7 @@ if (globalForPrisma.pgPool) {
   pool = globalForPrisma.pgPool;
 } else {
   pool = new Pool({
-    connectionString: databaseUrl,
+    connectionString: databaseUrl(),
     max: 10,
     idleTimeoutMillis: 60000,
     connectionTimeoutMillis: 45000,

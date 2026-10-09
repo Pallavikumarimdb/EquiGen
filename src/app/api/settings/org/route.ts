@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getAuthSession } from "@/lib/utils/auth";
 import { hashPassword } from "@/lib/utils/password";
+import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json({ message: "Unauthorized. Please log in." }, { status: 401 });
-    }
-
     // 1. Fetch organization details
     const org = await prisma.organization.findUnique({
       where: { id: session.orgId },
@@ -41,12 +39,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
-    const session = getAuthSession(req);
-    if (!session) {
-      return NextResponse.json({ message: "Unauthorized. Please log in." }, { status: 401 });
-    }
-
     // RBAC: Enforce Admin permission for updating org settings or team management
     if (session.role !== "admin") {
       return NextResponse.json({ message: "Forbidden. Organization Administrator access required." }, { status: 403 });
@@ -147,8 +143,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Invalid action." }, { status: 400 });
   } catch (error: unknown) {
     console.error("POST /api/settings/org error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error.";
-    return NextResponse.json({ message: "Internal server error.", error: message }, { status: 500 });
+    return NextResponse.json({ message: "Internal server error." }, { status: 500 });
   }
 }
 export const dynamic = "force-dynamic";

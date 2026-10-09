@@ -593,21 +593,26 @@ export function AgentChatView({
         }
       }
 
-      // Read any configured BYOK from localStorage if present
+      // Provider/model preference only.
+      //
+      // SECURITY: this previously also read `equigen_<provider>_api_key` from
+      // localStorage and sent it to the server on every request. The settings page no
+      // longer writes keys there, and the server resolves the organisation's BYOK
+      // through `getDecryptedApiKey`, so no key needs to reach the browser at all.
+      // Non-secret preferences remain.
       let userProvider: string | undefined;
-      let userApiKey: string | undefined;
       let userModelName: string | undefined;
       try {
         if (typeof window !== "undefined") {
           userProvider = localStorage.getItem("equigen_ai_provider") || undefined;
-          if (userProvider) {
-            userApiKey = localStorage.getItem(`equigen_${userProvider}_api_key`) || undefined;
-            if (userProvider === "groq") {
-              userModelName = localStorage.getItem("equigen_groq_model") || undefined;
-            }
+          if (userProvider === "groq") {
+            userModelName = localStorage.getItem("equigen_groq_model") || undefined;
           }
         }
       } catch {}
+
+      // Intentionally never read an API key from browser storage.
+      const userApiKey: undefined = undefined;
 
       // Prepare the placeholder message for streaming tokens
       const agentMsgId = "msg_" + Math.random().toString(36).substring(2, 9);

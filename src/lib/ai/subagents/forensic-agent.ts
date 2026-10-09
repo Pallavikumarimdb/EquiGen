@@ -53,7 +53,24 @@ export class ForensicAgent {
     const fin = input.financials;
     const bse = input.bseData;
 
-    // 2. Prepare structured inputs for forensic calculations
+    // 2. Prepare structured inputs for forensic calculations.
+    //
+    // Every value below is passed through ONLY if the source actually disclosed it.
+    //
+    // This previously fabricated two of the five Altman factors:
+    //   currentAssetsCr:       Math.round(totalDebt * 0.8 * currentRatio)
+    //   currentLiabilitiesCr:  Math.round(totalDebt * 0.8)
+    // i.e. it derived a company's entire working-capital position from its debt
+    // figure and a ratio. The resulting Z-Score looked authoritative and was
+    // arithmetic on invented inputs. Where a line item is unavailable it is now
+    // left null, and the forensic engine reports the metric as not assessed.
+    const bs = (fin as { balanceSheetLines?: Record<string, number | null> } | null)
+      ?.balanceSheetLines ?? null;
+    const num = (v: unknown): number | null => {
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const forensicInput: ForensicInputFinancials = {
       ticker: input.ticker,
       companyName: input.companyName,
@@ -64,24 +81,47 @@ export class ForensicAgent {
       totalDebtCr: fin?.totalDebtCr ?? null,
       totalCashCr: fin?.cashCr ?? null,
       marketCapCr: fin?.marketCapCr ?? null,
-      bookValueCr: fin?.bookValuePerShare && fin?.sharesOutstandingCr
-        ? Math.round(fin.bookValuePerShare * fin.sharesOutstandingCr)
-        : null,
+      bookValueCr:
+        fin?.bookValuePerShare && fin?.sharesOutstandingCr
+          ? Math.round(fin.bookValuePerShare * fin.sharesOutstandingCr)
+          : num(bs?.totalShareholdersEquityCr),
       sharesOutstandingCr: fin?.sharesOutstandingCr ?? null,
-      currentAssetsCr: fin?.currentRatio && fin?.totalDebtCr
-        ? Math.round(fin.totalDebtCr * 0.8 * fin.currentRatio)
-        : null,
-      currentLiabilitiesCr: fin?.totalDebtCr ? Math.round(fin.totalDebtCr * 0.8) : null,
-      promoterPledgePct: bse?.shareholding?.promoterPledge ?? 0,
-      promoterHoldingPct: bse?.shareholding?.promoters ?? null,
-      institutionalHoldingPct: bse?.shareholding?.fii && bse?.shareholding?.dii
-        ? Math.round((bse.shareholding.fii + bse.shareholding.dii) * 10) / 10
-        : null,
-      historicalYears: bse?.historicalSeries?.map((h: { period: string; revenueCr?: number; patCr?: number }) => ({
-        period: h.period,
-        revenueCr: h.revenueCr,
-        patCr: h.patCr,
-      })) ?? [],
+      // Disclosed balance-sheet lines only. Absent stays null rather than being
+      // estimated from the debt figure.
+      currentAssetsCr: num(bs?.totalCurrentAssetsCr),
+      currentLiabilitiesCr: num(bs?.totalCurrentLiabilitiesCr),
+      totalAssetsCr: num(bs?.totalAssetsCr),
+      retainedEarningsCr: num(bs?.retainedEarningsCr),
+      tradeReceivablesCr: num(bs?.tradeReceivablesCr),
+      // `?? 0` implied "no pledge disclosed" and silently awarded a clean result.
+      promoterPledgePct: num(bse?.shareholding?.promoterPledge),
+      promoterHoldingPct: num(bse?.shareholding?.promoters),
+      institutionalHoldingPct:
+        num(bse?.shareholding?.fii) !== null && num(bse?.shareholding?.dii) !== null
+          ? Math.round(((num(bse.shareholding.fii) ?? 0) + (num(bse.shareholding.dii) ?? 0)) * 10) / 10
+          : null,
+      // Previously never populated, so `auditorQuality` was hardcoded to "Clean" for
+      // every company — a clean audit opinion the system had never read.
+      auditorOpinionText: typeof bse?.auditorOpinion === "string" ? bse.auditorOpinion : null,
+      historicalYears: bse?.historicalSeries?.map(
+        (h: {
+          period: string;
+          revenueCr?: number;
+          patCr?: number;
+          cfoCr?: number;
+          receivablesCr?: number;
+          totalAssetsCr?: number;
+        }) => ({
+          period: h.period,
+          revenueCr: h.revenueCr ?? null,
+          patCr: h.patCr ?? null,
+          cfoCr: h.cfoCr ?? null,
+          // Populating receivables is what makes the receivable-divergence check
+          // reachable; it previously could never fire.
+          receivablesCr: h.receivablesCr ?? null,
+          totalAssetsCr: h.totalAssetsCr ?? null,
+        }),
+      ) ?? [],
     };
 
     // 3. Compute quantitative metrics
@@ -101,13 +141,18 @@ export class ForensicAgent {
 
     // 5. Emit completion event
     trajectoryBus.emitEvent(input.planId, "planner_thought", {
-      reasoning: `Forensic audit complete. Quality Score: ${analysis.overallHealthScore}/100 (${analysis.riskLevel} Risk).`,
+      reasoning:
+        `Forensic audit complete. Quality Score: ${analysis.overallHealthScore}/100 ` +
+        `(${analysis.riskLevel} Risk). Coverage: ${analysis.coverage?.assessed.length ?? 0} assessed, ` +
+        `${analysis.coverage?.notAssessed.length ?? 0} not assessed.`,
     });
 
     console.log(
       `[ForensicAgent] ✓ Completed in ${durationMs}ms. Score: ${analysis.overallHealthScore}/100 ` +
-      `| Risk: ${analysis.riskLevel} | CFO/PAT: ${analysis.cfoToPatRatio.ratio ?? "N/A"}x ` +
-      `| Altman Z: ${analysis.altmanZScore.score ?? "N/A"} | Red Flags: ${analysis.governanceFlags.flags.length}`
+      `| Risk: ${analysis.riskLevel} | CFO/PAT: ${analysis.cfoToPatRatio.ratio ?? "not assessed"} ` +
+      `| Solvency Z-form: ${analysis.altmanZScore.score ?? "not assessed"} ` +
+      `| Coverage: ${analysis.coverage?.assessed.length ?? 0}/${(analysis.coverage?.assessed.length ?? 0) + (analysis.coverage?.notAssessed.length ?? 0)} ` +
+      `| Red Flags: ${analysis.governanceFlags.flags.length}`
     );
 
     return {

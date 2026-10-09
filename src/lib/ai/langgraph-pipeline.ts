@@ -476,7 +476,7 @@ async function extractCompanyGeneralNode(
   if (contextText && contextText.length > 16000) {
     contextText = contextText.slice(0, 16000);
   }
-  const systemPrompt = `You are an expert SEBI-registered equity research analyst. Write in the house style of Geojit's "Retail Equity Research" reports.
+  const systemPrompt = `You are an expert SEBI-registered equity research analyst. Write in the EquiGen house style: a four-page initiation-of-coverage note with a headline takeaway up top, a "what has changed" panel, a five-year financial summary table, valuation bands, and a bull/base/bear scenario block.
 Read the provided document text and extract the following:
 1. companyName (exact full official name)
 2. ticker (ticker symbol)

@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { triggerBackgroundJob } from "@/lib/queue/worker";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { currentSchemaVersion } from "@/lib/ai/versions";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
 
@@ -28,13 +28,14 @@ const ExtractPayloadSchema = z.object({
  * On rate-limit, returns status 429 with retryAfterSeconds so the client can auto-resume.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   let activeJobId = "";
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
     const userId = session?.userId || null;
 
     const body = await req.json();
@@ -83,6 +84,18 @@ export async function POST(req: NextRequest) {
     const existingJob = jobId
       ? await prisma.extractionJob.findUnique({ where: { id: activeJobId } })
       : null;
+
+    // SECURITY: `existingJob` was fetched without an org predicate, and the upsert's
+    // `update` branch REASSIGNED `orgId` and `createdById` to the caller. Submitting
+    // another tenant's jobId therefore transferred ownership of that job -- including
+    // its stored `rawText`, the full uploaded filing -- into the attacker's org.
+    if (existingJob && !canAccessTenantRecord(session, existingJob)) {
+      return NextResponse.json(
+        { message: "A job with this id already exists." },
+        { status: 409 },
+      );
+    }
+
     const effectiveCompanyName = existingJob?.companyName ?? companyName;
     const effectiveFileName = existingJob?.fileName ?? fileName;
     const effectiveRawText = existingJob?.rawText ?? rawText;
@@ -150,10 +163,10 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: /api/extract failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
     return NextResponse.json(
-      { message: errMsg, jobId: activeJobId },
+      { message: "Internal Server Error.", jobId: activeJobId },
       { status: 500 },
     );
   }

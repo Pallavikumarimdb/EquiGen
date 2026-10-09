@@ -152,7 +152,7 @@ export const AIExtractionSchema = z.object({
   businessOverview: z.string().nullable(),
   headlineTakeaway: z.string().nullable().optional(),
 
-  // Geojit Specific Fields
+  // Exchange identifiers & listing metadata
   nseCode: z.string().nullable().optional(),
   bseCode: z.string().nullable().optional(),
   bloombergCode: z.string().nullable().optional(),

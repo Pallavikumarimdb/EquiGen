@@ -191,5 +191,11 @@ export function normalizeEquityResearchData(raw: any): EquityResearchData {
     sourceType: raw.sourceType || (sections.length > 0 ? "autonomous" : undefined),
     forensicAnalysis: raw.forensicAnalysis || null,
     financialAudit: raw.financialAudit || null,
+    // Provenance timing, preserved explicitly rather than relying on the `...raw`
+    // spread. The published report prints these instead of the render time, so
+    // dropping them here would silently reintroduce a false freshness claim.
+    dataFetchedAt: raw.dataFetchedAt ?? null,
+    dataAsOf: raw.dataAsOf ?? null,
+    dataSources: raw.dataSources ?? null,
   };
 }

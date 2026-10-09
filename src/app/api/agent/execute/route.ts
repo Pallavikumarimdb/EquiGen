@@ -1,24 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { masterOrchestrator } from "@/lib/ai/orchestrator/master-orchestrator";
-import { getAuthSession, requireApiSecret } from "@/lib/utils/auth";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
+import { assertPlanOwnership, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/execute
  * Triggers the background execution of an approved ResearchPlan.
  */
 export async function POST(req: NextRequest) {
-  const authError = requireApiSecret(req);
-  if (authError) return authError;
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
-    const session = getAuthSession(req);
-    const orgId = session?.orgId || "default-org";
+    // The tenant guard guarantees a concrete orgId; tenancy fails closed rather than defaulting.
+    const orgId = session.orgId;
     const body = await req.json();
     const { planId } = body;
 
     if (!planId) {
       return NextResponse.json({ message: "planId is required." }, { status: 400 });
+    }
+
+    // SECURITY: the tenant guard ran, but `orgId` was used ONLY for key lookup.
+    // `executePlan` does a bare `researchPlan.findUnique({ id: planId })` and then
+    // writes a `reportHistory` row, so any authenticated user could execute and
+    // overwrite any tenant's research plan by id. Ownership must be proven first.
+    if (!(await assertPlanOwnership(session, planId))) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     let apiKey = req.headers.get("x-groq-api-key") ?? process.env.GROQ_API_KEY;
@@ -38,8 +50,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("[/api/agent/execute POST] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

@@ -115,3 +115,13 @@ input:-webkit-autofill:active {
   caret-color: #34d399 !important;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Restore the warm light theme for autofilled fields inside light-theme screens (e.g. auth) */
+.auth-theme input:-webkit-autofill,
+.auth-theme input:-webkit-autofill:hover,
+.auth-theme input:-webkit-autofill:focus,
+.auth-theme input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #FAF8F5 inset !important;
+  -webkit-text-fill-color: #1A1917 !important;
+  caret-color: #1A1917 !important;
+}
