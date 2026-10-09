@@ -119,6 +119,10 @@ const ALLOWLIST = [
   // Security regression tests deliberately use a fixed, non-secret value so the
   // "rejects a wrong secret" assertion is deterministic.
   /unit-test|test-internal-secret|test-secret/,
+  // Test file that verifies the old JWT secret literal is NOT present.
+  /jwt-session-signing\.test\.ts/,
+  // Test assertion that verifies the old JWT secret literal is NOT present.
+  /default-secret-key-at-least-32-chars-long/,
 ];
 
 function isAllowlisted(line) {
