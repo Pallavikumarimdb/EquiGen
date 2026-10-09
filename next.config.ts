@@ -1,36 +1,42 @@
 import type { NextConfig } from "next";
 
+const isProduction = process.env.NODE_ENV === "production";
+
 /**
  * Content Security Policy.
  *
- * The app renders LLM-generated research content. The report HTML is written to
- * `public/temp/reports/` and served statically, and is also handed to Puppeteer via
- * `page.setContent()` for PDF generation. Neither path may execute script, so the
- * policy forbids it outright.
+ * The app renders LLM-generated research content. The report HTML is handed to
+ * Puppeteer via `page.setContent()` for PDF generation, and generated report
+ * artifacts are served from /temp/reports. Neither may execute script.
  *
- * `style-src` must include `'unsafe-inline'` because the report template emits inline
- * `style=` attributes for chart and table layout. `img-src` allows `data:` because
- * charts are generated as inline SVG data URIs.
+ * `'unsafe-eval'` is required ONLY in development. Next.js dev uses eval/Function for
+ * source-map evaluation and React Fast Refresh; omitting it produces
+ * "Uncaught EvalError: call to eval() blocked by CSP" and breaks hydration
+ * entirely. It is never included in a production build.
  *
- * `frame-ancestors 'none'` is the clickjacking control; it supersedes X-Frame-Options
- * and is set in both places because older browsers still honour only the header.
+ * `'unsafe-inline'` is still required in production because Next injects inline
+ * bootstrap JSON for App Router hydration. Removing it needs per-request nonces,
+ * which is a larger change; it is documented in SECURITY.md as a known relaxation
+ * rather than left implicit. `frame-ancestors 'none'` is the clickjacking control and
+ * is set in both places because older browsers honour only X-Frame-Options.
  */
 const CSP = [
   "default-src 'self'",
-  // Scripts: Next injects inline bootstrap JSON, so 'unsafe-inline' is required for the
-  // app shell. Report artifacts are additionally served with a stricter policy below.
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
   // Next injects styles at runtime; inline styles are unavoidable here.
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  // No outbound fetches from the browser: no CDN, no external analytics, no remote images.
+  // No outbound fetches from the browser: no CDN, no external analytics, no remote
+  // images. `blob:` is needed by the drag-and-drop upload preview.
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
+  // Upgrade-insecure-requests causes noise in local http:// development and can
+  // rewrite asset URLs unexpectedly; production TLS is enforced by HSTS instead.
+  ...(isProduction ? ["upgrade-insecure-requests"] : []),
 ].join("; ");
 
 /** Stricter policy for generated report artifacts: no scripts at all. */

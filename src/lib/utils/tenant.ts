@@ -24,10 +24,18 @@
  *     read across tenants, and only for legacy rows that predate tenancy.
  */
 
-import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyJWT } from "./jwt";
 import { prisma } from "@/lib/db";
+import { hasValidApiSecret, PLATFORM_OPERATOR_USER_IDS } from "./api-secret";
+
+/**
+ * RUNTIME: Node only.
+ *
+ * This module imports Prisma for session revocation. It MUST NOT be imported by
+ * `src/middleware.ts`, which runs on the Edge runtime and cannot execute `pg`. Use
+ * `@/lib/utils/api-secret` for `hasValidApiSecret` instead — see that module's header.
+ */
 
 export interface TenantSession {
   userId: string;
@@ -45,52 +53,15 @@ export interface TenantSession {
 }
 
 /** The userId the middleware assigns to API_SECRET-authenticated service calls. */
-const PLATFORM_OPERATOR_USER_IDS = new Set(["agent-user", "system-test-user"]);
 
 /**
  * Whether the request presented a valid API_SECRET.
  *
- * The development fallback secret is read from `INTERNAL_API_SECRET` rather than
- * hardcoded, so it cannot leak through a shared constant, and it is refused
- * outright in production.
+ * Re-exported from the Edge-safe module so route handlers can keep importing it from
+ * here, while `middleware.ts` imports it directly from `api-secret.ts` and therefore
+ * never pulls Prisma into the Edge bundle.
  */
-/**
- * Constant-time string comparison.
- *
- * Uses `timingSafeEqual` so a caller cannot recover the secret one byte at a time from
- * response timing. The billing webhook already used this idiom (`dodo.ts`); this was
- * the one place comparing a secret with `===`.
- */
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  // timingSafeEqual throws on a length mismatch, which would itself leak length.
-  if (bufA.length !== bufB.length) {
-    // Still burn a comparison so the failure path is not obviously faster.
-    try {
-      crypto.timingSafeEqual(bufA, bufA);
-    } catch {
-      /* unreachable */
-    }
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
-}
-
-export function hasValidApiSecret(req: NextRequest): boolean {
-  const provided = req.headers.get("x-api-secret");
-  if (!provided) return false;
-
-  const configured = process.env.API_SECRET;
-  if (configured && safeEqual(provided, configured)) return true;
-
-  if (process.env.NODE_ENV !== "production") {
-    const internal = process.env.INTERNAL_API_SECRET;
-    if (internal && safeEqual(provided, internal)) return true;
-  }
-
-  return false;
-}
+export { hasValidApiSecret, safeEqual } from "./api-secret";
 
 export interface TenantGuardFailure {
   response: NextResponse;

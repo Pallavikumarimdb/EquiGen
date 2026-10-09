@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyJWT } from "@/lib/utils/jwt";
-import { hasValidApiSecret } from "@/lib/utils/tenant";
+// EDGE-SAFE IMPORT. This must not come from "@/lib/utils/tenant": that module imports
+// Prisma, and the Edge runtime cannot execute `pg`. Doing so fails the build with
+// "The edge runtime does not support Node.js 'crypto' module" and
+// "Can't resolve 'pg-native'".
+import { hasValidApiSecret } from "@/lib/utils/api-secret";
 
 /** Static asset extensions, checked as a path SUFFIX rather than a substring. */
 const STATIC_ASSET_RE = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|map)$/i;

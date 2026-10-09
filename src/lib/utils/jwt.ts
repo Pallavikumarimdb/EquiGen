@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 
 /**
@@ -32,6 +31,10 @@ function resolveJwtSecret(): Uint8Array {
     // variable was unset. A random per-process key cannot be guessed and cannot be
     // reproduced from the repository. The trade-off is stated rather than hidden: all
     // sessions are invalidated on restart, which only affects local development.
+    //
+    // Uses the Web Crypto GLOBAL, not `node:crypto`: this module is imported by
+    // `src/middleware.ts`, which runs on the Edge runtime where importing a Node
+    // built-in fails. `crypto.getRandomValues` is available in both runtimes.
     console.warn(
       "[jwt] WARNING: JWT_SECRET is not configured. Generating an ephemeral development key. " +
         "Sessions will not survive a restart. Set JWT_SECRET to a stable value for any " +
