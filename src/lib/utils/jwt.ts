@@ -1,14 +1,15 @@
+import crypto from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 
 /**
  * JWT signing secret.
  *
- * SECURITY: this previously fell back to the hardcoded literal
- * `"default-secret-key-at-least-32-chars-long"`. With `JWT_SECRET` unset — a very
- * common misconfiguration — every session cookie in the deployment was signed with a
- * publicly known key, so anyone could mint a cookie for any `userId`/`orgId`/`role`
- * and pass `requireTenantSession` as any tenant, including a cross-tenant superuser.
- * The secret is committed in git history, so rotating it is mandatory after deploy.
+ * SECURITY: this previously fell back to a hardcoded 32-character literal outside
+ * production. With `JWT_SECRET` unset — a very common misconfiguration — every session
+ * cookie in the deployment was signed with a key that is in git history, so anyone
+ * could mint a cookie for any `userId`/`orgId`/`role` and pass `requireTenantSession` as
+ * any tenant, including a cross-tenant superuser. The old key is in git history, so a
+ * stable JWT_SECRET must be chosen and rotated rather than inherited.
  *
  * In production a missing or too-short secret now fails closed at first use rather
  * than silently signing with a guessable key.
@@ -24,14 +25,19 @@ function resolveJwtSecret(): Uint8Array {
           "session tokens with a guessable key. Generate one with: openssl rand -base64 48",
       );
     }
-    // Non-production: keep the dev convenience, but make it loud and obvious.
+    // Non-production: generate an EPHEMERAL per-process key.
+    //
+    // This previously fell back to a fixed literal that is in git history, so anyone
+    // could forge a session cookie for any user/org/role in any environment where the
+    // variable was unset. A random per-process key cannot be guessed and cannot be
+    // reproduced from the repository. The trade-off is stated rather than hidden: all
+    // sessions are invalidated on restart, which only affects local development.
     console.warn(
-      "[jwt] WARNING: JWT_SECRET is not configured. Using a hardcoded development key. " +
-        "Any token signed with it must never be trusted.",
+      "[jwt] WARNING: JWT_SECRET is not configured. Generating an ephemeral development key. " +
+        "Sessions will not survive a restart. Set JWT_SECRET to a stable value for any " +
+        "shared environment.",
     );
-    return new TextEncoder().encode(
-      "default-secret-key-at-least-32-chars-long",
-    );
+    return crypto.getRandomValues(new Uint8Array(32));
   }
 
   return new TextEncoder().encode(configured);

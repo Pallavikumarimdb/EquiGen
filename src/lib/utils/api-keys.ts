@@ -4,10 +4,10 @@ import { prisma } from "@/lib/db";
 /**
  * Server-side master key for AES-256-GCM encryption of tenant provider keys.
  *
- * SECURITY: this previously fell back to the literal `"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"`
- * outside production. That key is in git history, so ANYONE holding a database dump
- * could decrypt every tenant's stored Groq/OpenAI/OpenRouter/Anthropic/DeepSeek key.
- * The production-only guard was also conditional on NODE_ENV, so a staging/preview
+ * SECURITY: this previously fell back to a hardcoded 32-byte constant outside
+ * production. That constant is in git history, so ANYONE holding a database dump could
+ * decrypt every tenant's stored Groq/OpenAI/OpenRouter/Anthropic/DeepSeek key. The
+ * production-only guard was also conditional on NODE_ENV, so a staging/preview
  * deployment — or a container with NODE_ENV unset — silently encrypted real keys with
  * a public constant.
  *

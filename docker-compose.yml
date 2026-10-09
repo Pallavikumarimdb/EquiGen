@@ -4,11 +4,14 @@ services:
     container_name: equigen-db
     restart: always
     environment:
+      # Local development only. Override POSTGRES_PASSWORD in .env for anything shared.
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: equigen
     ports:
-      - "5432:5432"
+      # Bound to loopback, not 0.0.0.0. The previous "5432:5432" published Postgres on
+      # every interface with the password `password`.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -24,10 +27,26 @@ services:
       - HOSTNAME=0.0.0.0
       - GROQ_API_KEY=${GROQ_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
+      # SECURITY: the app now refuses to boot without these three — there are no
+      # hardcoded fallbacks. They were previously not forwarded at all, so a container
+      # start either crashed on the missing JWT secret or silently encrypted tenant
+      # provider keys with a public constant.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      - API_SECRET=${API_SECRET:-}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # Sandbox execution is off unless explicitly enabled (it runs Python as the app
+      # process). Left unset here deliberately.
+      - ENABLE_SANDBOX_EXECUTION=${ENABLE_SANDBOX_EXECUTION:-false}
+      - ENABLE_DEMO_LOGIN=${ENABLE_DEMO_LOGIN:-false}
     depends_on:
       - db
     volumes:
-      # Persistent storage for generated PDFs and charts
+      # Persistent storage for generated PDFs and charts.
+      #
+      # NOTE: the report HTML debug copy is no longer written under public/temp (that
+      # directory is served statically by Next.js). Generated PDFs served by
+      # /api/download still live here, so the mount is retained.
       - reports_data:/app/public/temp
     restart: always
 

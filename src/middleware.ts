@@ -71,9 +71,10 @@ export async function middleware(request: NextRequest) {
 
   // 5. Internal service credential (headless agent / CI callers).
   //    The secret is validated by `hasValidApiSecret`, which reads it from the
-  //    environment. It previously accepted a hardcoded "equigen-internal" literal
-  //    in any non-production environment, so an unset NODE_ENV in a deployed
-  //    environment would have been a full authentication bypass.
+  //    environment and compares in constant time. It previously accepted a hardcoded
+  //    service-credential literal in any non-production environment, so an unset
+  //    NODE_ENV in a deployed environment would have been a full authentication
+  //    bypass. There is now no literal anywhere in the codebase.
   //
   //    Only reached when NO user cookie session exists — a real user session always wins.
   if (hasValidApiSecret(request)) {

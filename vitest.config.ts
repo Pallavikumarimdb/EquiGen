@@ -28,6 +28,24 @@ export default defineConfig({
     testTimeout: 10000,
     // Pool: fork for test isolation (avoids global state bleed between tool tests)
     pool: "forks",
+    // `src/lib/db.ts` now refuses to construct a connection pool without DATABASE_URL
+    // rather than defaulting to a hardcoded local DSN. Unit tests mock `@/lib/db`
+    // where they touch it, but a few import modules that transitively import the real
+    // module and only assert non-database behaviour. Those need a syntactically valid
+    // placeholder; no connection is attempted because the pool is lazy and the tests
+    // never query it.
+    env: {
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgresql://postgres:postgres@localhost:5432/equigen_test",
+      // Likewise required by src/lib/utils/api-keys.ts; never used by unit tests, which
+      // mock that module.
+      ENCRYPTION_KEY:
+        process.env.ENCRYPTION_KEY ?? "0".repeat(64),
+      JWT_SECRET:
+        process.env.JWT_SECRET ??
+        "unit-test-jwt-secret-at-least-32-characters-long",
+    },
   },
   resolve: {
     alias: {

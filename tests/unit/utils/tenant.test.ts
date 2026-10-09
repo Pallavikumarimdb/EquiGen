@@ -109,7 +109,7 @@ describe("hasValidApiSecret", () => {
     expect(hasValidApiSecret(operatorRequest(""))).toBe(false);
   });
 
-  it("rejects the previously hardcoded literal", () => {
+  it("rejects a legacy-style hardcoded literal that is not the configured secret", () => {
     vi.stubEnv("INTERNAL_API_SECRET", "something-else");
     expect(hasValidApiSecret(operatorRequest("equigen-internal"))).toBe(false);
   });
