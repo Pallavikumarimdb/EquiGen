@@ -8,6 +8,7 @@ import {
   resolveFirmIdentity,
   type ResolvedFirmIdentity,
 } from "@/lib/brand";
+import { isSafeUrl } from "@/lib/utils/url";
 import {
   resolveProvenance,
   provenanceBadgeClass,
@@ -1371,7 +1372,7 @@ ${watermark}
   <div class="top-logo">
     <span>Retail Equity Research</span>
     <span style="font-size: 7pt; color: #475569; font-weight: 600;">${escape(dataFreshnessLine)}</span>
-    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
+    ${firm.website && isSafeUrl(firm.website) ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
   ${draftBanner}
 
@@ -1599,7 +1600,7 @@ ${watermark}
   <div class="top-logo">
     <span>Retail Equity Research</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Estimates &amp; Trends</span>
-    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
+    ${firm.website && isSafeUrl(firm.website) ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Top section split: Left side 5-Year summary table, Right side Estimates & text -->
@@ -1709,7 +1710,7 @@ ${watermark}
   <div class="top-logo">
     <span>Consolidated Financials</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
-    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
+    ${firm.website && isSafeUrl(firm.website) ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Row 1: P&L Statement and Balance Sheet side-by-side -->
@@ -1742,7 +1743,7 @@ ${watermark}
   <div class="top-logo">
     <span>Consolidated Financials</span>
     <span style="background: #07877B; color: #fff; padding: 1px 6px; border-radius: 2px; font-weight: bold; font-size: 7.5pt; text-transform: uppercase;">Detailed Financials</span>
-    ${firm.website ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
+    ${firm.website && isSafeUrl(firm.website) ? `<a href="${escape(firm.website)}">${escape(firm.website)}</a>` : ""}
   </div>
 
   <!-- Side-by-side: Recommendation History Chart (left) and Table (right) -->
