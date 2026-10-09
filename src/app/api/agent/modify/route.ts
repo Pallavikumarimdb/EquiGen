@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { EquityResearchData } from "@/types";
 import { runThreeStatementModel, ThreeStatementDrivers } from "@/lib/financial-modeling/three-statement-engine";
 import { executeCentralizedAIChat } from "@/lib/ai/central-client";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 interface ModifyRequestBody {
   reportId?: string;
@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
 
   try {
     const userId = session.userId || "analyst";
-    const orgId = session.orgId || "default-org";
 
     const body: ModifyRequestBody = await req.json();
     const { reportId, prompt, currentReport, requestedModifications } = body;
@@ -448,18 +447,40 @@ If no explicit modification is requested, return {"changes": []}. Do not output 
       try {
         const existingReport = await prisma.reportHistory.findUnique({
           where: { id: reportId },
-          select: { id: true, orgId: true },
+          select: { id: true, orgId: true, status: true },
         });
 
-        if (
-          existingReport &&
-          existingReport.orgId &&
-          existingReport.orgId !== orgId &&
-          orgId !== "default-org"
-        ) {
+        // SECURITY: the previous check required `existingReport.orgId` to be non-null
+        // in order to DENY, so every legacy null-org report was writable by anyone,
+        // and it exempted `default-org` outright. Since `reportData` here comes
+        // entirely from the request body (`body.currentReport`), that was an arbitrary
+        // content write into another tenant's report.
+        if (existingReport && !canAccessTenantRecord(session, existingReport)) {
           return NextResponse.json(
             { message: "Forbidden: Access denied to update this report." },
             { status: 403 },
+          );
+        }
+
+        // Only rewrite a report that actually exists; silently skipping the update for
+        // an unknown id would report success for a write that never happened.
+        if (!existingReport) {
+          return NextResponse.json(
+            { message: "Report not found." },
+            { status: 404 },
+          );
+        }
+
+        // Modifying an already-published report must go through re-approval, otherwise
+        // a published artifact could be edited without invalidating its content hash
+        // or its reviewer attestation.
+        if (existingReport.status === "published" || existingReport.status === "approved") {
+          return NextResponse.json(
+            {
+              message:
+                "This report has already been signed off. Move it back to under_review before editing.",
+            },
+            { status: 409 },
           );
         }
 

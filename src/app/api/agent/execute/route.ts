@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { masterOrchestrator } from "@/lib/ai/orchestrator/master-orchestrator";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { assertPlanOwnership, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/execute
@@ -20,6 +20,17 @@ export async function POST(req: NextRequest) {
 
     if (!planId) {
       return NextResponse.json({ message: "planId is required." }, { status: 400 });
+    }
+
+    // SECURITY: the tenant guard ran, but `orgId` was used ONLY for key lookup.
+    // `executePlan` does a bare `researchPlan.findUnique({ id: planId })` and then
+    // writes a `reportHistory` row, so any authenticated user could execute and
+    // overwrite any tenant's research plan by id. Ownership must be proven first.
+    if (!(await assertPlanOwnership(session, planId))) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     let apiKey = req.headers.get("x-groq-api-key") ?? process.env.GROQ_API_KEY;

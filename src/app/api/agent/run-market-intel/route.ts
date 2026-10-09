@@ -3,7 +3,7 @@ import { marketIntelAgent } from "@/lib/ai/subagents/market-intel-agent";
 import { prisma } from "@/lib/db";
 import { PeerBenchmarkMilestone } from "@/types/plan4";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-market-intel
@@ -14,6 +14,7 @@ import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 export async function POST(req: NextRequest) {
   const guard = await requireTenantSession(req);
   if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   const startTime = Date.now();
 
@@ -39,6 +40,16 @@ export async function POST(req: NextRequest) {
 
     if (!plan) {
       return NextResponse.json({ message: "Research plan not found." }, { status: 404 });
+    }
+
+    // SECURITY: `planId` arrives in the request body. Without this check any
+    // authenticated user could supply another tenant's plan id, spend that org's
+    // decrypted API key budget, and write subagentRun rows into their plan.
+    if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     const milestones = (plan.milestones as unknown as PeerBenchmarkMilestone[]) ?? [];

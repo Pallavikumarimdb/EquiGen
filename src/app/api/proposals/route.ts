@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { applyFieldUpdates } from "@/lib/report/proposal-apply";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import {
+  canAccessTenantRecord,
+  hasRole,
+  isTenantFailure,
+  requireTenantSession,
+  roleForbidden,
+} from "@/lib/utils/tenant";
 
 /**
  * GET /api/proposals?reportId=...
@@ -29,7 +35,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const orgId = session?.orgId || "default-org";
 
     // Enforce tenant check: verify the report belongs to this org
     const report = await prisma.reportHistory.findUnique({
@@ -41,9 +46,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
+    if (!canAccessTenantRecord(session, report)) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
@@ -71,7 +74,6 @@ export async function POST(req: NextRequest) {
   const session = guard;
 
   try {
-    const orgId = session?.orgId || "default-org";
 
     const body = await req.json();
     const { reportId, field, oldValue, newValue, reasoning, origin } = body;
@@ -95,9 +97,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
+    if (!canAccessTenantRecord(session, report)) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
@@ -147,7 +147,6 @@ export async function PATCH(req: NextRequest) {
   const session = guard;
 
   try {
-    const orgId = session?.orgId || "default-org";
     const userId = session?.userId || null;
     const userName = session?.name || "analyst";
 
@@ -188,12 +187,26 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const isSystemAdmin = session?.userId === "system-test-user" || session?.userId === "agent-user" || session?.role?.toLowerCase() === "admin";
-    const hasAccess = isSystemAdmin || !report.orgId || report.orgId === orgId;
-    if (!hasAccess) {
+    if (!canAccessTenantRecord(session, report)) {
       return NextResponse.json(
         { message: "Forbidden. Access denied." },
         { status: 403 },
+      );
+    }
+
+    // SECURITY: approving a proposal mutates the report body (target price, rating,
+    // financial fields) via `applyFieldUpdates`. There was no role gate at all, so an
+    // `analyst` could approve their own proposed change and the audit trail recorded a
+    // reviewer who was never authorised to review. Approving requires a reviewer/admin.
+    if (status === "approved" && !hasRole(session, "reviewer", "admin", "research_analyst")) {
+      return roleForbidden("reviewer");
+    }
+
+    // A proposal must not be re-decided; only a pending one can be resolved.
+    if (existing.status !== "pending") {
+      return NextResponse.json(
+        { message: `Proposal is already ${existing.status}.` },
+        { status: 409 },
       );
     }
 

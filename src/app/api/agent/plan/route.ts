@@ -4,7 +4,7 @@ import { ResearchGoal, ResearchPlanRecord } from "@/types/plan4";
 import { prisma } from "@/lib/db";
 import { resolveCompanyTicker } from "@/lib/ai/tools/ticker-resolver";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/plan
@@ -81,9 +81,25 @@ export async function POST(req: NextRequest) {
         },
         select: { orgId: true },
       });
+    } else if (!canAccessTenantRecord(authSession, session)) {
+      // SECURITY: `sessionId` is caller-supplied and was never checked for ownership.
+      // Supplying another tenant's session id attached the new plan to their session
+      // and then used *their* org's decrypted API key.
+      return NextResponse.json(
+        { message: "Forbidden. That research session belongs to another organization." },
+        { status: 403 }
+      );
     }
 
-    const dbKey = await getDecryptedApiKey(session.orgId ?? "default-org", "groq").catch(() => null);
+    // The guard guarantees a concrete orgId; never fall back to a shared tenant for
+    // key resolution, or an unknown session would spend another org's budget.
+    if (!session.orgId) {
+      return NextResponse.json(
+        { message: "Research session has no organization. Access denied." },
+        { status: 403 }
+      );
+    }
+    const dbKey = await getDecryptedApiKey(session.orgId, "groq").catch(() => null);
     const apiKey = dbKey || process.env.GROQ_API_KEY || "";
 
     const goal: ResearchGoal = {
@@ -119,10 +135,23 @@ export async function GET(req: NextRequest) {
 
     if (rawPlanId) {
       const cleanPlanId = rawPlanId.replace(/^rep_/, "");
-      let plan = await masterPlannerAgent.getPlan(cleanPlanId) || await masterPlannerAgent.getPlan(rawPlanId);
 
-      // Also look up in ReportHistory (covers standalone manual uploads, completed autonomous reports, etc.)
-      const report = await prisma.reportHistory.findFirst({
+      // SECURITY: this branch never consulted `tenantSession`. `getPlan` is an
+      // unscoped `findUnique` and the `reportHistory` lookup selects `reportData`, so
+      // any authenticated user could read any tenant's full report body, sections,
+      // status and file name by guessing an id. Ownership is proven before any read.
+      const planOwner = await prisma.researchPlan.findUnique({
+        where: { id: cleanPlanId },
+        select: { session: { select: { orgId: true } } },
+      }).catch(() => null);
+      const rawPlanOwner = planOwner
+        ? planOwner
+        : await prisma.researchPlan.findUnique({
+            where: { id: rawPlanId },
+            select: { session: { select: { orgId: true } } },
+          }).catch(() => null);
+
+      const ownedReport = await prisma.reportHistory.findFirst({
         where: {
           OR: [
             { id: rawPlanId },
@@ -130,15 +159,37 @@ export async function GET(req: NextRequest) {
             { id: `rep_${cleanPlanId}` },
           ],
         },
-        select: {
-          id: true,
-          companyName: true,
-          fileName: true,
-          status: true,
-          reportData: true,
-          createdAt: true,
-        },
+        select: { id: true, orgId: true },
       }).catch(() => null);
+
+      const ownsPlan = rawPlanOwner
+        ? canAccessTenantRecord(tenantSession, { orgId: rawPlanOwner.session?.orgId ?? null })
+        : false;
+      const ownsReport = canAccessTenantRecord(tenantSession, ownedReport);
+
+      if (!ownsPlan && !ownsReport) {
+        return NextResponse.json(
+          { message: "Forbidden. Access denied." },
+          { status: 403 }
+        );
+      }
+
+      let plan = await masterPlannerAgent.getPlan(cleanPlanId) || await masterPlannerAgent.getPlan(rawPlanId);
+
+      // Also look up in ReportHistory (covers standalone manual uploads, completed autonomous reports, etc.)
+      const report = ownedReport
+        ? await prisma.reportHistory.findUnique({
+            where: { id: ownedReport.id },
+            select: {
+              id: true,
+              companyName: true,
+              fileName: true,
+              status: true,
+              reportData: true,
+              createdAt: true,
+            },
+          }).catch(() => null)
+        : null;
 
       // If plan wasn't directly found, check if the report links to a planId
       let linkedPlanId: string | undefined;
@@ -266,13 +317,16 @@ export async function GET(req: NextRequest) {
     }
 
     const authSession = tenantSession;
-    const userId = authSession.userId;
 
-    const whereClause = userId && userId !== "system-test-user"
-      ? { session: { createdBy: userId } }
-      : {};
+    // SECURITY: the list was scoped by `createdBy` alone — no org predicate — so a user
+    // could see plans belonging to users of other tenants. It also returned EVERY plan
+    // for `userId === "system-test-user"`, which bypassed `isPlatformOperator` entirely
+    // (that identity is supposed to be reachable only with a valid API_SECRET).
+    // Scope to the caller's organisation AND restrict operators to operator mode.
+    const whereClause = authSession.isPlatformOperator
+      ? {}
+      : { session: { orgId: authSession.orgId } };
 
-    // List research plans scoped to user
     const plans = await prisma.researchPlan.findMany({
       where: whereClause,
       orderBy: { createdAt: "desc" },
@@ -282,8 +336,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, plans });
   } catch (error: unknown) {
     console.error("[/api/agent/plan GET] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

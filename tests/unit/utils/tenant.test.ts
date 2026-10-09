@@ -19,6 +19,23 @@ import {
 } from "@/lib/utils/tenant";
 import { signJWT } from "@/lib/utils/jwt";
 
+/**
+ * `requireTenantSession` now verifies that the presented token still has a live
+ * `userSession` row, so a signed-out cookie cannot be replayed for its remaining
+ * lifetime. The store is mocked here and seeded by `signedRequest`.
+ */
+const userSessionStore = new Map<string, { userId: string; expiresAt: Date }>();
+
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    userSession: {
+      findUnique: vi.fn(({ where }: { where: { token: string } }) =>
+        Promise.resolve(userSessionStore.get(where.token) ?? null),
+      ),
+    },
+  },
+}));
+
 const SECRET = "unit-test-internal-secret";
 
 function url(path = "/api/history") {
@@ -29,9 +46,14 @@ async function signedRequest(opts: {
   orgId?: string | null;
   role?: string;
   withCookie?: boolean;
+  /** Simulate a session revoked at sign-out (row deleted). */
+  revoked?: boolean;
+  /** Simulate an expired session row. */
+  expired?: boolean;
 }): Promise<NextRequest> {
   const req = new NextRequest(url());
   if (opts.withCookie !== false && opts.orgId) {
+    const expiresAt = new Date(Date.now() + 60_000);
     const token = await signJWT(
       {
         userId: "u-1",
@@ -41,9 +63,17 @@ async function signedRequest(opts: {
         orgId: opts.orgId,
         sebiRegNo: null,
       },
-      new Date(Date.now() + 60_000),
+      expiresAt,
     );
     req.cookies.set("session_token", token);
+
+    // Mirror what the sign-in routes persist, unless the test wants a dead session.
+    if (!opts.revoked) {
+      userSessionStore.set(token, {
+        userId: "u-1",
+        expiresAt: opts.expired ? new Date(Date.now() - 1_000) : expiresAt,
+      });
+    }
   }
   return req;
 }
@@ -59,6 +89,7 @@ function operatorRequest(secret = SECRET): NextRequest {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  userSessionStore.clear();
 });
 
 describe("hasValidApiSecret", () => {
@@ -133,6 +164,31 @@ describe("requireTenantSession", () => {
 
     const result = await requireTenantSession(req);
     expect(isTenantFailure(result)).toBe(true);
+  });
+
+  it("refuses a validly-signed cookie whose session was revoked at sign-out", async () => {
+    // SECURITY: sign-out deletes the `userSession` row, but nothing read it back, so a
+    // stolen or logged-out cookie stayed valid for its full 7-day lifetime.
+    const req = await signedRequest({ orgId: "acme", revoked: true });
+
+    const result = await requireTenantSession(req);
+    expect(isTenantFailure(result)).toBe(true);
+    expect((result as { response: { status: number } }).response.status).toBe(401);
+  });
+
+  it("refuses a session whose stored row has expired", async () => {
+    const req = await signedRequest({ orgId: "acme", expired: true });
+
+    const result = await requireTenantSession(req);
+    expect(isTenantFailure(result)).toBe(true);
+    expect((result as { response: { status: number } }).response.status).toBe(401);
+  });
+
+  it("accepts the same cookie while its session row is live", async () => {
+    const req = await signedRequest({ orgId: "acme" });
+
+    const s = (await requireTenantSession(req)) as TenantSession;
+    expect(s.orgId).toBe("acme");
   });
 
   it("grants platform-operator identity for a valid service credential", async () => {

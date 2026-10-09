@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { modelingAgent } from "@/lib/ai/subagents/modeling-agent";
 import { prisma } from "@/lib/db";
 import { BuildFinancialModelMilestone } from "@/types/plan4";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-modeling
@@ -13,6 +13,7 @@ import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 export async function POST(req: NextRequest) {
   const guard = await requireTenantSession(req);
   if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   const startTime = Date.now();
 
@@ -34,10 +35,21 @@ export async function POST(req: NextRequest) {
 
     const plan = await prisma.researchPlan.findUnique({
       where: { id: planId },
+      include: { session: { select: { orgId: true } } },
     }).catch(() => null);
 
     if (!plan) {
       return NextResponse.json({ message: "Research plan not found." }, { status: 404 });
+    }
+
+    // SECURITY: `planId` arrives in the request body. Without this check any
+    // authenticated user could supply another tenant's plan id and write subagentRun
+    // rows into their plan.
+    if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     const milestones = (plan.milestones as unknown as BuildFinancialModelMilestone[]) ?? [];

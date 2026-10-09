@@ -26,6 +26,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyJWT } from "./jwt";
+import { prisma } from "@/lib/db";
 
 export interface TenantSession {
   userId: string;
@@ -95,6 +96,39 @@ export async function requireTenantSession(
   if (token) {
     const payload = await verifyJWT(token);
     if (payload?.userId && payload.orgId) {
+      // Session revocation.
+      //
+      // SECURITY: sign-out deletes the `userSession` row, but nothing ever read that
+      // table back, so a signed-out or stolen cookie stayed valid for its full 7-day
+      // lifetime. A token is honoured only while its `userSession` row exists and has
+      // not expired.
+      //
+      // Platform-operator calls carry no userSession row and are authenticated by
+      // API_SECRET instead, so they never reach this branch.
+      const sessionRow = await prisma.userSession
+        .findUnique({ where: { token }, select: { expiresAt: true, userId: true } })
+        .catch(() => null);
+
+      // Fail closed: an unreadable session table must not mean "session valid".
+      if (!sessionRow || sessionRow.expiresAt.getTime() <= Date.now()) {
+        return {
+          response: NextResponse.json(
+            { message: "Session expired or revoked. Please sign in again." },
+            { status: 401 },
+          ),
+        };
+      }
+
+      // Guard against a validly-signed token whose subject no longer matches its row.
+      if (sessionRow.userId !== payload.userId) {
+        return {
+          response: NextResponse.json(
+            { message: "Unauthorized. Session does not match this user." },
+            { status: 401 },
+          ),
+        };
+      }
+
       const session: TenantSession = {
         userId: payload.userId,
         orgId: payload.orgId,
@@ -183,6 +217,47 @@ export function assertTenantAccess(
 /** Standard 403 body for a cross-tenant read. */
 export function tenantForbidden(): NextResponse {
   return NextResponse.json({ message: "Forbidden. Access denied." }, { status: 403 });
+}
+
+/**
+ * Whether the session holds one of the given roles.
+ *
+ * `admin` is deliberately NOT accepted by the routes that need authorisation rather
+ * than tenancy. A firm admin manages their own firm; only the API_SECRET platform
+ * operator crosses tenants.
+ */
+export function hasRole(session: TenantSession, ...roles: string[]): boolean {
+  if (session.isPlatformOperator) return true;
+  const role = (session.role ?? "").toLowerCase();
+  return roles.some((r) => r.toLowerCase() === role);
+}
+
+/** Standard 403 body for an action the caller's role may not perform. */
+export function roleForbidden(required: string): NextResponse {
+  return NextResponse.json(
+    { message: `Forbidden. This action requires the "${required}" role.` },
+    { status: 403 },
+  );
+}
+
+/**
+ * Asserts that a research plan (or its parent session) belongs to the caller's tenant.
+ *
+ * The five `/api/agent/run-*` routes and several others accepted a caller-supplied
+ * `planId`, loaded the plan with a bare `findUnique`, and then read the victim tenant's
+ * decrypted API key. Ownership must be proven from the row, never from the request.
+ */
+export async function assertPlanOwnership(
+  session: TenantSession,
+  planId: string,
+): Promise<boolean> {
+  if (!planId) return false;
+  const plan = await prisma.researchPlan.findUnique({
+    where: { id: planId },
+    select: { session: { select: { orgId: true } } },
+  });
+  if (!plan) return false;
+  return canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null });
 }
 
 /**

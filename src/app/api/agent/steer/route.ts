@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { trajectoryBus } from "@/lib/ai/trajectory-emitter";
 import { SteeringEventType } from "@/types/plan4";
 import { prisma } from "@/lib/db";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/steer
@@ -12,13 +12,13 @@ import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 export async function POST(req: NextRequest) {
   const guard = await requireTenantSession(req);
   if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   try {
     const body = await req.json();
-    const { planId, eventType, actorId = "analyst", payload } = body as {
+    const { planId, eventType, payload } = body as {
       planId: string;
       eventType: SteeringEventType;
-      actorId?: string;
       payload?: Record<string, unknown>;
     };
 
@@ -39,6 +39,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { message: `Invalid eventType '${eventType}'. Allowed: ${validEvents.join(", ")}` },
         { status: 400 }
+      );
+    }
+
+    // SECURITY: `planId` was taken from the body with no ownership check, and
+    // `actorId` was attacker-controlled, so `steeringEvent.actorId` in the audit
+    // trail was forgeable. Provenance of an audit record must come from the session.
+    const actorId = session.userId;
+
+    // A steering event may target a research plan OR an extraction job; ownership of
+    // whichever exists must be proven before any status write or event is recorded.
+    const [ownedPlan, ownedJob] = await Promise.all([
+      prisma.researchPlan.findUnique({
+        where: { id: planId },
+        select: { session: { select: { orgId: true } } },
+      }).catch(() => null),
+      prisma.extractionJob
+        .findUnique({ where: { id: planId }, select: { orgId: true } })
+        .catch(() => null),
+    ]);
+
+    const planOwned = ownedPlan
+      ? canAccessTenantRecord(session, { orgId: ownedPlan.session?.orgId ?? null })
+      : false;
+    const jobOwned = ownedJob ? canAccessTenantRecord(session, ownedJob) : false;
+
+    if (!planOwned && !jobOwned) {
+      return NextResponse.json(
+        { message: "Forbidden. No research plan or job you own has this id." },
+        { status: 403 }
       );
     }
 
@@ -96,7 +125,24 @@ export async function POST(req: NextRequest) {
       const db = prisma as any;
       if (db.researchPlan) {
         const planExists = await db.researchPlan.findUnique({ where: { id: planId } });
-        if (planExists) {
+        if (planExists && planOwned) {
+          // Status writes are gated on the current state so a published or cancelled
+          // plan cannot be silently revived. `reportHistory` goes through the state
+          // machine; researchPlan did not, so the transitions are asserted here.
+          const ALLOWED: Record<string, string[]> = {
+            cancel: ["running", "pending", "paused", "approved"],
+            pause: ["running"],
+            resume: ["paused"],
+          };
+          const allowedFrom = ALLOWED[eventType];
+          if (allowedFrom && !allowedFrom.includes(planExists.status)) {
+            return NextResponse.json(
+              {
+                message: `Cannot ${eventType} a plan in status '${planExists.status}'.`,
+              },
+              { status: 409 }
+            );
+          }
           if (eventType === "cancel") {
             await db.researchPlan.update({ where: { id: planId }, data: { status: "cancelled" } });
           } else if (eventType === "pause") {
@@ -109,7 +155,7 @@ export async function POST(req: NextRequest) {
 
       if (db.extractionJob) {
         const jobExists = await db.extractionJob.findUnique({ where: { id: planId } });
-        if (jobExists) {
+        if (jobExists && jobOwned) {
           if (eventType === "cancel") {
             await db.extractionJob.update({
               where: { id: planId },

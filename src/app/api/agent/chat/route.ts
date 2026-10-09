@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { agentOrchestrator } from "@/lib/ai/agent-orchestrator";
 import { executeCentralizedAIChat, executeCentralizedAIChatStream } from "@/lib/ai/central-client";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/chat
@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
   const session = guard;
 
   try {
-    const orgId = session.orgId || "default-org";
 
     const body = await req.json();
     const {
@@ -57,8 +56,21 @@ export async function POST(req: NextRequest) {
       }).catch(() => null);
 
       if (dbSession) {
-        const hasAccess = !dbSession.orgId || dbSession.orgId === orgId || orgId === "default-org";
-        if (hasAccess) {
+        // SECURITY: `orgId === "default-org"` was treated as a wildcard, and any
+        // `default-org` member could therefore drive the agent against ANY tenant's
+        // session. `/api/auth/demo` used to mint exactly that membership
+        // unauthenticated, chaining into cross-tenant report mutation: the agent
+        // reads the linked report, writes conversation messages, and auto-applies
+        // pending correction proposals on approval intent.
+        // `canAccessTenantRecord` also denies null-org legacy rows to ordinary users.
+        const hasAccess = canAccessTenantRecord(session, dbSession);
+        if (!hasAccess) {
+          return NextResponse.json(
+            { message: "Forbidden. This research session belongs to another organization." },
+            { status: 403 },
+          );
+        }
+        {
           try {
             const result = await agentOrchestrator.handleAgentTurn(sessionId, cleanPrompt, {
               provider: (validatedProvider as "groq" | "openai") || "groq",

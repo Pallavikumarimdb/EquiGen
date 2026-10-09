@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { synthesisAgent, SynthesisInput } from "@/lib/ai/subagents/synthesis-agent";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { assertPlanOwnership, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-synthesis
@@ -22,6 +22,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { message: "planId, ticker, and companyName are required fields." },
         { status: 400 }
+      );
+    }
+
+    // SECURITY: this route performed no plan lookup at all — `planId` went straight
+    // into the synthesis agent, so any authenticated user could write a subagentRun
+    // into another tenant's plan. Ownership must be proven from the row.
+    if (!(await assertPlanOwnership(session, planId))) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
       );
     }
 

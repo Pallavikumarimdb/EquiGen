@@ -10,6 +10,12 @@ import { prisma } from "@/lib/db";
 import { signJWT } from "@/lib/utils/jwt";
 import { EquityResearchData } from "@/types";
 
+/**
+ * `requireTenantSession` verifies the presented cookie against a live `userSession`
+ * row so a signed-out cookie cannot be replayed; `testHeaders` seeds one.
+ */
+const userSessionStore = new Map<string, { userId: string; expiresAt: Date }>();
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     reportHistory: {
@@ -18,6 +24,11 @@ vi.mock("@/lib/db", () => ({
     },
     auditLog: {
       create: vi.fn(),
+    },
+    userSession: {
+      findUnique: vi.fn(({ where }: { where: { token: string } }) =>
+        Promise.resolve(userSessionStore.get(where.token) ?? null),
+      ),
     },
   },
 }));
@@ -210,6 +221,7 @@ describe("POST /api/agent/modify", () => {
    * Requests therefore carry a real JWT, not spoofed identity headers.
    */
   const testHeaders = async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
     const token = await signJWT(
       {
         userId: "analyst-1",
@@ -219,8 +231,9 @@ describe("POST /api/agent/modify", () => {
         orgId: "org-test",
         sebiRegNo: null,
       },
-      new Date(Date.now() + 60_000),
+      expiresAt,
     );
+    userSessionStore.set(token, { userId: "analyst-1", expiresAt });
     return {
       "Content-Type": "application/json",
       Cookie: `session_token=${token}`,

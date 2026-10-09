@@ -70,6 +70,13 @@ export async function POST(req: NextRequest) {
             { id: rawId },
             { id: cleanId },
           ],
+          // SECURITY: `tenantFilter` was applied to the extractionJob and reportHistory
+          // branches but omitted here, so any authenticated user could cancel any
+          // tenant's in-flight research plan. The plan's tenant is reached through
+          // its session, so the predicate belongs on the relation.
+          ...(session.isPlatformOperator
+            ? {}
+            : { session: { orgId } }),
           status: { in: ["running", "pending", "paused"] },
         },
         data: {

@@ -3,7 +3,7 @@ import { documentAgent } from "@/lib/ai/subagents/document-agent";
 import { prisma } from "@/lib/db";
 import { FetchDocumentsMilestone } from "@/types/plan4";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * POST /api/agent/run-document
@@ -14,6 +14,7 @@ import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 export async function POST(req: NextRequest) {
   const guard = await requireTenantSession(req);
   if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
 
   const startTime = Date.now();
 
@@ -41,6 +42,17 @@ export async function POST(req: NextRequest) {
 
     if (!plan) {
       return NextResponse.json({ message: "Research plan not found." }, { status: 404 });
+    }
+
+    // SECURITY: `planId` arrives in the request body. Without this check any
+    // authenticated user could supply another tenant's plan id and have this route
+    // (a) read that org's decrypted Groq API key and spend its budget, (b) write a
+    // `subagentRun` row into the victim plan, and (c) flip its status to `running`.
+    if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+      return NextResponse.json(
+        { message: "Forbidden. This research plan belongs to another organization." },
+        { status: 403 }
+      );
     }
 
     if (plan.status !== "approved" && plan.status !== "running") {

@@ -14,10 +14,21 @@ import { prisma } from "@/lib/db";
 import { pipelineEval } from "@/lib/eval/pipeline-eval";
 import { signJWT } from "@/lib/utils/jwt";
 
+/**
+ * `requireTenantSession` verifies the presented cookie against a live `userSession`
+ * row so a signed-out cookie cannot be replayed; `sessionRequest` seeds one.
+ */
+const userSessionStore = new Map<string, { userId: string; expiresAt: Date }>();
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     reportHistory: {
       findFirst: vi.fn(),
+    },
+    userSession: {
+      findUnique: vi.fn(({ where }: { where: { token: string } }) =>
+        Promise.resolve(userSessionStore.get(where.token) ?? null),
+      ),
     },
   },
 }));
@@ -30,6 +41,7 @@ vi.mock("@/lib/eval/pipeline-eval", () => ({
 
 /** A request carrying a signed session cookie for the given tenant. */
 async function sessionRequest(orgId: string, query = ""): Promise<NextRequest> {
+  const expiresAt = new Date(Date.now() + 60_000);
   const token = await signJWT(
     {
       userId: `user-${orgId}`,
@@ -39,10 +51,11 @@ async function sessionRequest(orgId: string, query = ""): Promise<NextRequest> {
       orgId,
       sebiRegNo: null,
     },
-    new Date(Date.now() + 60_000),
+    expiresAt,
   );
   const req = new NextRequest(`http://localhost:3000/api/eval/run${query}`);
   req.cookies.set("session_token", token);
+  userSessionStore.set(token, { userId: `user-${orgId}`, expiresAt });
   return req;
 }
 
@@ -56,6 +69,7 @@ function operatorRequest(query = ""): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  userSessionStore.clear();
   // The internal service secret is no longer a hardcoded literal; it must be configured.
   vi.stubEnv("INTERNAL_API_SECRET", "test-internal-secret");
 });
