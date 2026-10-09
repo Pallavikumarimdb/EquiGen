@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
@@ -80,10 +80,10 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: /api/extract/resume failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
     return NextResponse.json(
-      { message: errMsg, jobId: activeJobId },
+      { message: "Internal Server Error.", jobId: activeJobId },
       { status: 500 },
     );
   }

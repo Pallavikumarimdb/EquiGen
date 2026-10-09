@@ -36,8 +36,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("API Error: /api/extract/batch failed:", error);
-    const errMsg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

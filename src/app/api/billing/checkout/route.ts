@@ -151,8 +151,11 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     if (error instanceof DodoPaymentsError) {
+      console.error("POST /api/billing/checkout provider error:", error.message, error.code);
+      // SECURITY: `error.message` and `error.code` are the provider's own strings and
+      // disclose its internal error taxonomy. Only `publicMessage` is surfaced.
       return NextResponse.json(
-        { message: error.message, code: error.code },
+        { message: error.publicMessage },
         { status: error.status === 503 ? 503 : 502 },
       );
     }

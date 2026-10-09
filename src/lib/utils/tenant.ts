@@ -24,6 +24,7 @@
  *     read across tenants, and only for legacy rows that predate tenancy.
  */
 
+import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyJWT } from "./jwt";
 import { prisma } from "@/lib/db";
@@ -53,16 +54,39 @@ const PLATFORM_OPERATOR_USER_IDS = new Set(["agent-user", "system-test-user"]);
  * hardcoded, so it cannot leak through a shared constant, and it is refused
  * outright in production.
  */
+/**
+ * Constant-time string comparison.
+ *
+ * Uses `timingSafeEqual` so a caller cannot recover the secret one byte at a time from
+ * response timing. The billing webhook already used this idiom (`dodo.ts`); this was
+ * the one place comparing a secret with `===`.
+ */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  // timingSafeEqual throws on a length mismatch, which would itself leak length.
+  if (bufA.length !== bufB.length) {
+    // Still burn a comparison so the failure path is not obviously faster.
+    try {
+      crypto.timingSafeEqual(bufA, bufA);
+    } catch {
+      /* unreachable */
+    }
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export function hasValidApiSecret(req: NextRequest): boolean {
   const provided = req.headers.get("x-api-secret");
   if (!provided) return false;
 
   const configured = process.env.API_SECRET;
-  if (configured && provided === configured) return true;
+  if (configured && safeEqual(provided, configured)) return true;
 
   if (process.env.NODE_ENV !== "production") {
     const internal = process.env.INTERNAL_API_SECRET;
-    if (internal && provided === internal) return true;
+    if (internal && safeEqual(provided, internal)) return true;
   }
 
   return false;

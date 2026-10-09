@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { parserService } from "@/lib/parsers";
 import { processPdfDocument } from "@/lib/parsers/document-processor";
 import { checkReportQuota } from "@/lib/billing/entitlements";
@@ -118,9 +118,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...parseResult, targeting }, { status: 200 });
   } catch (error: unknown) {
     console.error("API Error: /api/upload failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

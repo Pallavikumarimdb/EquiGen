@@ -108,10 +108,8 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (error: unknown) {
     console.error("Signin API error:", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(
-      { message: "Internal server error.", error: message },
-      { status: 500 }
-    );
+    // SECURITY: the raw error was returned to the caller. Prisma errors on a failed
+    // lookup can carry connection-string fragments and column/constraint names.
+    return NextResponse.json({ message: "Internal server error." }, { status: 500 });
   }
 }

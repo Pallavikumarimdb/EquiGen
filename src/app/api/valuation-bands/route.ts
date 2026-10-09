@@ -71,8 +71,11 @@ export async function GET(req: NextRequest) {
       );
     }
     console.error("[ValuationBandsAPI] Error:", error);
+    // SECURITY: `details: String(error)` exposed the full Prisma/pg error to the
+    // caller, including query metadata. The `InsufficientPriceHistoryError` branch
+    // above is a deliberate, typed exception and stays informative.
     return NextResponse.json(
-      { error: "Failed to compute valuation multiples bands", details: String(error) },
+      { error: "Failed to compute valuation multiples bands" },
       { status: 500 }
     );
   }

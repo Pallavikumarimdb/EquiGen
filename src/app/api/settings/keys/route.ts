@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDecryptedApiKey, saveEncryptedApiKey } from "@/lib/utils/api-keys";
 import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: POST /api/settings/keys failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

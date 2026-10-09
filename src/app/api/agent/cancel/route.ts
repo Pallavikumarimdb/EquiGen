@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { trajectoryBus } from "@/lib/ai/trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
@@ -138,8 +138,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("[/api/agent/cancel] Error cancelling agent process:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

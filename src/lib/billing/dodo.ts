@@ -18,11 +18,21 @@ const API_BASES = {
 
 export type DodoEnvironment = keyof typeof API_BASES;
 
+/**
+ * Error raised for a failed Dodo Payments API call.
+ *
+ * SECURITY: `message` and `code` are propagated straight from the provider and were
+ * being returned to the client verbatim, disclosing the payment provider's internal
+ * error taxonomy. A `publicMessage` is therefore declared separately at each throw
+ * site and is the only text safe to surface; `message` is for logs.
+ */
 export class DodoPaymentsError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** Client-safe description. Defaults to a generic message. */
+    readonly publicMessage: string = "The payment provider rejected this request. Please try again.",
   ) {
     super(message);
     this.name = "DodoPaymentsError";
@@ -107,6 +117,11 @@ async function dodoFetch<T>(
         : `Dodo Payments request failed (${response.status}).`,
       response.status,
       typeof data.code === "string" ? data.code : undefined,
+      // The provider's own message may name internal objects or account details, so
+      // only a generic, actionable text is safe to show a user.
+      response.status === 401 || response.status === 403
+        ? "The payment provider rejected our credentials. Please contact support."
+        : "The payment provider could not process this request. Please try again.",
     );
   }
 

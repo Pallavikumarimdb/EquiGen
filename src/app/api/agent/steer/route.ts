@@ -179,8 +179,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("[/api/agent/steer POST] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

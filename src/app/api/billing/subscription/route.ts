@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
           await resumeSubscription(existing.providerSubscriptionId);
         } catch (error: unknown) {
           if (error instanceof DodoPaymentsError) {
-            return NextResponse.json({ message: error.message }, { status: 502 });
+            console.error("[/api/billing/subscription] provider error:", error.message);
+          return NextResponse.json({ message: error.publicMessage }, { status: 502 });
           }
           throw error;
         }
@@ -115,7 +116,8 @@ export async function POST(req: NextRequest) {
         await cancelSubscriptionAtPeriodEnd(existing.providerSubscriptionId);
       } catch (error: unknown) {
         if (error instanceof DodoPaymentsError) {
-          return NextResponse.json({ message: error.message }, { status: 502 });
+          console.error("[/api/billing/subscription] provider error:", error.message);
+          return NextResponse.json({ message: error.publicMessage }, { status: 502 });
         }
         throw error;
       }

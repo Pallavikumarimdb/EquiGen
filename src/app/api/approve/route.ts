@@ -201,9 +201,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("API Error: /api/approve failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

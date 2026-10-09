@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgSubscription } from "@/lib/billing/entitlements";
 import { getPlan } from "@/lib/billing/plans";
@@ -160,7 +160,8 @@ export async function PATCH(req: NextRequest) {
     return response;
   } catch (error: unknown) {
     console.error("PATCH /api/auth/me error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error.";
-    return NextResponse.json({ message }, { status: 500 });
+    // SECURITY: the raw Prisma error was returned to the caller, disclosing column
+    // and constraint names.
+    return NextResponse.json({ message: "Internal server error." }, { status: 500 });
   }
 }

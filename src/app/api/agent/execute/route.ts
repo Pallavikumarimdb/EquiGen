@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { masterOrchestrator } from "@/lib/ai/orchestrator/master-orchestrator";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { assertPlanOwnership, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
@@ -50,8 +50,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("[/api/agent/execute POST] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

@@ -143,8 +143,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Invalid action." }, { status: 400 });
   } catch (error: unknown) {
     console.error("POST /api/settings/org error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error.";
-    return NextResponse.json({ message: "Internal server error.", error: message }, { status: 500 });
+    return NextResponse.json({ message: "Internal server error." }, { status: 500 });
   }
 }
 export const dynamic = "force-dynamic";

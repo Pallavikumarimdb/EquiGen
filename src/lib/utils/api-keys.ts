@@ -1,25 +1,48 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
 
-// Get server-side master key from environment — REQUIRED for AES-256-GCM key encryption.
-// Generate with: openssl rand -hex 16
-if (!process.env.ENCRYPTION_KEY) {
-  if (process.env.NODE_ENV === "production") {
-    // Refuse to run with a publicly-known key — stored provider keys would be decryptable
-    // by anyone who reads the repository.
+/**
+ * Server-side master key for AES-256-GCM encryption of tenant provider keys.
+ *
+ * SECURITY: this previously fell back to the literal `"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"`
+ * outside production. That key is in git history, so ANYONE holding a database dump
+ * could decrypt every tenant's stored Groq/OpenAI/OpenRouter/Anthropic/DeepSeek key.
+ * The production-only guard was also conditional on NODE_ENV, so a staging/preview
+ * deployment — or a container with NODE_ENV unset — silently encrypted real keys with
+ * a public constant.
+ *
+ * There is now no fallback at all: the module refuses to load without the variable.
+ * Resolution is lazy rather than at import time so `next build` (which imports this
+ * module without a runtime environment) still succeeds.
+ *
+ * OPERATOR ACTION: rotate ENCRYPTION_KEY before deploying if any non-production
+ * instance ever stored real keys. Existing ciphertext cannot be read with a new key.
+ */
+let cachedMasterKey: Buffer | null = null;
+
+function masterKey(): Buffer {
+  if (cachedMasterKey) return cachedMasterKey;
+
+  const configured = process.env.ENCRYPTION_KEY;
+  if (!configured) {
     throw new Error(
-      "[api-keys] ENCRYPTION_KEY must be set in production. " +
+      "[api-keys] ENCRYPTION_KEY is not set. Every tenant's stored provider key is " +
+        "encrypted with it, so it must be configured rather than defaulted. " +
         "Generate one with `openssl rand -hex 16` and set it in your .env.",
     );
   }
-  console.warn(
-    "[api-keys] WARNING: ENCRYPTION_KEY is not set. " +
-      "Using a hardcoded DEVELOPMENT-ONLY key — set ENCRYPTION_KEY in your .env before deploying. " +
-      "Keys encrypted with the dev key cannot be decrypted after a real key is configured.",
-  );
+
+  const key = Buffer.from(configured, "hex");
+  if (key.length !== 32) {
+    throw new Error(
+      `[api-keys] ENCRYPTION_KEY must be 64 hex characters (32 bytes) for AES-256; got ${key.length} bytes. ` +
+        "Generate one with `openssl rand -hex 16`.",
+    );
+  }
+
+  cachedMasterKey = key;
+  return key;
 }
-const MASTER_KEY =
-  process.env.ENCRYPTION_KEY || "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"; // development-only, 32 bytes
 
 /**
  * Encrypts a raw text key using AES-256-GCM.
@@ -29,7 +52,7 @@ export function encryptKey(rawText: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(
     "aes-256-gcm",
-    Buffer.from(MASTER_KEY),
+    masterKey(),
     iv,
   );
 
@@ -55,7 +78,7 @@ export function decryptKey(encryptedString: string): string {
 
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
-    Buffer.from(MASTER_KEY),
+    masterKey(),
     iv,
   );
   decipher.setAuthTag(authTag);

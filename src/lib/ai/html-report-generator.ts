@@ -667,12 +667,27 @@ const RATING_COLOR: Record<string, string> = {
   SELL: "#b91c1c",
 };
 
+/**
+ * Escapes a value for interpolation into report HTML.
+ *
+ * SECURITY: quote characters were previously not escaped, and this function IS used
+ * inside attribute contexts — e.g. `<a href="${escape(firm.website)}">`. A value of
+ * `x" onmouseover="alert(1)` therefore broke out of the attribute and injected a new
+ * one. The rendered HTML is fed to Puppeteer's `page.setContent()` for PDF
+ * generation, so injected script would execute in the renderer's Chromium context,
+ * which has network access to the host.
+ *
+ * Escapes `& < > " '` — the first three cover text nodes, the last two cover
+ * quoted attribute values.
+ */
 function escape(s: unknown): string {
   if (s == null) return "";
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function postProcessNormalizedRows(
@@ -2628,7 +2643,7 @@ function buildAutonomousHtml(
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>${compName} (${ticker}) � Institutional Equity Research</title>
+<title>${escape(compName)} (${escape(ticker)}) � Institutional Equity Research</title>
 <style>
   @page {
     size: A4 portrait;
@@ -3050,8 +3065,8 @@ function buildAutonomousHtml(
   <!-- HERO VALUATION & MARKET SNAPSHOT CARD -->
   <div class="hero-card">
     <div>
-      <h1 class="hero-left-title">${compName}</h1>
-      <div class="hero-left-sub">NSE / BSE: <strong>${ticker}</strong> | Institutional Equity Research Coverage</div>
+      <h1 class="hero-left-title">${escape(compName)}</h1>
+      <div class="hero-left-sub">NSE / BSE: <strong>${escape(ticker)}</strong> | Institutional Equity Research Coverage</div>
       <div class="hero-val-cluster">
         <div class="rec-badge ${m.recommendation ? `rec-${m.recommendation.toLowerCase()}` : "rec-none"}">${
           m.recommendation ?? "NOT RATED"
@@ -3197,7 +3212,7 @@ function buildAutonomousHtml(
   </div>
 
   <div class="footer">
-    <span>${BRAND.productDescriptor} � ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 1 of 3</span>
   </div>
 </div>
@@ -3212,7 +3227,7 @@ function buildAutonomousHtml(
       <div class="sub-logo">Valuation Modeling, Scenario Analysis &amp; Peer Multiples</div>
     </div>
     <div class="header-right">
-      <div>${compName} (${ticker})</div>
+      <div>${escape(compName)} (${escape(ticker)})</div>
       <div>Data as of: ${headerAsOfStr} � Published: ${dateStr}</div>
     </div>
   </div>
@@ -3368,8 +3383,8 @@ function buildAutonomousHtml(
       </thead>
       <tbody>
         <tr class="highlight">
-          <td class="left">${compName}</td>
-          <td class="left">${ticker}</td>
+          <td class="left">${escape(compName)}</td>
+          <td class="left">${escape(ticker)}</td>
           <td>?${m.cmp}</td>
           <td>${m.marketCapCr === null ? "n/a" : `?${m.marketCapCr.toLocaleString("en-IN")}`}</td>
           <td>${m.peRatio === null ? "n/a" : `${m.peRatio}x`}</td>
@@ -3381,8 +3396,8 @@ function buildAutonomousHtml(
               .map(
                 (p) => `
           <tr>
-            <td class="left">${p.name}</td>
-            <td class="left">${p.ticker}</td>
+            <td class="left">${escape(p.name)}</td>
+            <td class="left">${escape(p.ticker)}</td>
             <td>${p.cmp === null ? "n/a" : `?${p.cmp}`}</td>
             <td>${p.marketCapCr === null ? "n/a" : `?${p.marketCapCr.toLocaleString("en-IN")}`}</td>
             <td>${p.pe === null ? "n/a" : `${p.pe}x`}</td>
@@ -3407,7 +3422,7 @@ function buildAutonomousHtml(
   </div>
 
   <div class="footer">
-    <span>${BRAND.productDescriptor} � ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 2 of 3</span>
   </div>
 </div>
@@ -3422,7 +3437,7 @@ function buildAutonomousHtml(
       <div class="sub-logo">Management Q&amp;A, Key Risks &amp; Statutory Compliance</div>
     </div>
     <div class="header-right">
-      <div>${compName} (${ticker})</div>
+      <div>${escape(compName)} (${escape(ticker)})</div>
       <div>${options.sebiRegNo ? `SEBI RA Reg: ${options.sebiRegNo}` : "SEBI Registration: Pending / Unregistered"}</div>
     </div>
   </div>
@@ -3456,12 +3471,12 @@ ${provenanceCaveat}
     <strong>STATUTORY SEBI RA (2014) COMPLIANCE ATTESTATION:</strong><br>
     This institutional equity research note was generated via the ${escape(BRAND.productName)} autonomous multi-agent equity research pipeline.
     <strong>Analyst Certification:</strong> The research subagents and certifying analyst (${fallbackAnalystName}${options.sebiRegNo ? `, Reg: ${options.sebiRegNo}` : ""}) confirm that all findings reflect structured synthesis of BSE/NSE corporate disclosures, audited statements, and quantitative valuation models.
-    <strong>Conflict of Interest:</strong> ${escape(firm.orgName)} and its analysts hold no financial interest exceeding 1% in ${compName}.
+    <strong>Conflict of Interest:</strong> ${escape(firm.orgName)} and its analysts hold no financial interest exceeding 1% in ${escape(compName)}.
     <strong>Standard Warning:</strong> Investments in securities market are subject to market risks. Read all related documents carefully before investing.
   </div>
 
   <div class="footer">
-    <span>${BRAND.productDescriptor} � ${compName} (${ticker})</span>
+    <span>${BRAND.productDescriptor} � ${escape(compName)} (${escape(ticker)})</span>
     <span>Page 3 of 3</span>
   </div>
 </div>

@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { masterPlannerAgent } from "@/lib/ai/planner/master-planner";
 import { ResearchGoal, ResearchPlanRecord } from "@/types/plan4";
 import { prisma } from "@/lib/db";
@@ -116,8 +116,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, plan });
   } catch (error: unknown) {
     console.error("[/api/agent/plan POST] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 
@@ -382,8 +381,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, deletedPlanId: planId, count });
   } catch (error: unknown) {
     console.error("[/api/agent/plan DELETE] Error:", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 

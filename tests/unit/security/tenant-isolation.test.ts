@@ -167,6 +167,51 @@ describe("session revocation", () => {
   });
 });
 
+describe("report HTML escaping", () => {
+  /**
+   * SECURITY: `escape()` handled `& < >` but NOT `"` or `'`, and it is used inside
+   * HTML attribute contexts such as `<a href="${escape(firm.website)}">`. A value of
+   * `x" onmouseover="alert(1)` broke out of the attribute and injected a new one.
+   * The rendered HTML is handed to Puppeteer's `page.setContent()` for PDF generation,
+   * so injected script would execute in a Chromium context with host network access.
+   */
+  it("escapes quotes so attribute values cannot be terminated early", async () => {
+    const { HtmlReportGenerator } = await import("@/lib/ai/html-report-generator");
+
+    const hostileName = 'Acme"><script>alert(1)</script>';
+    const html = HtmlReportGenerator.generateAutonomousHTML({
+      ticker: "ACME",
+      companyName: hostileName,
+      sections: [],
+      modelingData: { baseTargetPrice: 0, bullCasePrice: 0, bearCasePrice: 0 },
+      marketIntelData: null,
+      dataSources: null,
+    });
+
+    // The raw payload must not survive as live markup.
+    expect(html).not.toContain(hostileName);
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("escapes single quotes as well", async () => {
+    const { HtmlReportGenerator } = await import("@/lib/ai/html-report-generator");
+
+    const html = HtmlReportGenerator.generateAutonomousHTML({
+      ticker: "ACME",
+      companyName: "O'Brien & Sons <Ltd>",
+      sections: [],
+      modelingData: { baseTargetPrice: 0, bullCasePrice: 0, bearCasePrice: 0 },
+      marketIntelData: null,
+      dataSources: null,
+    });
+
+    expect(html).not.toMatch(/O'Brien/);
+    expect(html).toContain("O&#39;Brien");
+    expect(html).toContain("&amp;");
+  });
+});
+
 describe("rate limiting", () => {
   it("permits requests up to the limit and refuses beyond it", () => {
     expect(rateLimit("k", 3, 60_000).allowed).toBe(true);

@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
@@ -227,7 +227,16 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Try filesystem cache (cold start for drafts that were compiled externally)
+    //
+    // SECURITY: `id` came from the query string and was interpolated into a path with
+    // no traversal filter. It is currently gated by the ReportHistory lookup above, so
+    // a `../..` id cannot be created through any route — but that coupling is
+    // invisible and one refactor away from being an arbitrary file read. Sanitise
+    // explicitly, and refuse anything that is not a bare identifier.
     const reportId = id.toUpperCase();
+    if (!/^[A-Z0-9_-]{1,128}$/.test(reportId)) {
+      return NextResponse.json({ message: "Invalid report id." }, { status: 400 });
+    }
     const pdfPath = path.join(
       process.cwd(),
       "public",
@@ -235,6 +244,12 @@ export async function GET(req: NextRequest) {
       "reports",
       `${reportId}.pdf`,
     );
+
+    // Defence in depth: confirm the resolved path really is inside the cache dir.
+    const cacheRoot = path.join(process.cwd(), "public", "temp", "reports");
+    if (!path.resolve(pdfPath).startsWith(path.resolve(cacheRoot) + path.sep)) {
+      return NextResponse.json({ message: "Invalid report id." }, { status: 400 });
+    }
 
     if (fs.existsSync(pdfPath)) {
       const pdfBuffer = await fs.promises.readFile(pdfPath);
@@ -286,9 +301,9 @@ export async function GET(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("API Error: /api/download failed:", error);
-    const errMsg =
-      error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ message: errMsg }, { status: 500 });
+    // Log the raw cause for operators; return a generic message so Prisma/PDFKit
+    // internals (schema names, filesystem paths) are not disclosed to the client.
+    return NextResponse.json({ message: "Internal Server Error." }, { status: 500 });
   }
 }
 
