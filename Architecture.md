@@ -137,7 +137,7 @@ flowchart LR
 
 ## 📊 Mode 2: Integrated 3-Statement Engine & Live-Formula Excel Modeling
 
-EquiGen incorporates a professional-grade circular 3-statement financial engine ([three-statement-engine.ts](file:///d:/13.my-startups/EquiGen/src/lib/financial-modeling/three-statement-engine.ts)) that bridges qualitative research and rigorous quantitative valuation.
+EquiGen incorporates a professional-grade circular 3-statement financial engine ([three-statement-engine.ts]) that bridges qualitative research and rigorous quantitative valuation.
 
 ```mermaid
 flowchart TD
@@ -194,7 +194,7 @@ flowchart TD
 
 ## 📈 Mode 3: Historical Valuation Multiples Bands Engine (P/E & EV/EBITDA)
 
-EquiGen provides cyclical valuation context by charting current multiples against 3-year and 5-year statistical corridors ([valuation-bands-engine.ts](file:///d:/13.my-startups/EquiGen/src/lib/financial-modeling/valuation-bands-engine.ts)).
+EquiGen provides cyclical valuation context by charting current multiples against 3-year and 5-year statistical corridors ([valuation-bands-engine.ts]).
 
 ### 1. Statistical Standard Deviation Corridors
 For any NSE/BSE listed company, the engine fetches monthly price history and aligns it with TTM fundamental metrics (EPS and EBITDA per share), deriving historical multiples ($M_t$):
@@ -220,26 +220,26 @@ The engine analyzes historical touchpoints where the stock reached extreme bands
 
 ## 🏢 Mode 4: Unified Institutional Workspace & Presentation Layer
 
-Rather than splitting research across fragmented, persona-gated screens, EquiGen adopts a **Unified Institutional Workspace** ([UnifiedReportView.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/views/UnifiedReportView.tsx)):
+Rather than splitting research across fragmented, persona-gated screens, EquiGen adopts a **Unified Institutional Workspace** ([UnifiedReportView.tsx]):
 
 1. **Investment Committee (IC) Memo & Variant Perception**:
    - 1-click clipboard-exportable IC memorandum containing rating, target price, CMP, upside, downside protection, quality score, and scenario targets.
    - Explicit contrast between **Market Consensus Expectation** and **EquiGen Variant Perception (Contrarian View)**.
-2. **Interactive 3-Statement DCF Modeler** ([ScenarioModeler.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ScenarioModeler.tsx)):
+2. **Interactive 3-Statement DCF Modeler** ([ScenarioModeler.tsx]):
    - Unified KPI header strip with formatted Indian numbers (`formatCrores`).
    - Fast scenario presets: Consensus Base, Bull (+16% Rev), Bear (7% Rev), and Working Capital Stress (+30d DSO).
    - Sub-tabbed views: *Model Drivers & Working Capital*, *5Y Projected Statements*, and *Valuation Sensitivity Grid*.
-3. **Interactive Valuation Bands Chart** ([ValuationBandsChart.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ValuationBandsChart.tsx)):
+3. **Interactive Valuation Bands Chart** ([ValuationBandsChart.tsx]):
    - Interactive SVG charting of stock prices against $\pm 1\sigma, \pm 2\sigma$ corridors.
    - Switchers for P/E vs EV/EBITDA, 3Y vs 5Y horizons, and Price (₹) vs Multiples (x).
-4. **Forensic Accounting & Quality Audit** ([ForensicAuditCard.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/shared/ForensicAuditCard.tsx)):
+4. **Forensic Accounting & Quality Audit** ([ForensicAuditCard.tsx]):
     - Overall Quality Health Score (0-100) and Risk Classification (LOW / MODERATE / HIGH / **NOT ASSESSED**).
     - Cash Flow Quality (CFO/PAT ratio and CFO-PAT divergence).
     - Accrual Quality — **single-factor accrual indicator**, explicitly *not* the 8-variable Beneish M-Score. The full model needs receivables, depreciation, SG&A and prior-year comparatives for all eight variables (DSRI, GMI, AQI, SGI, DEPI, SGAI, LVGI, TATA); Indian exchange disclosures available to this system do not carry them. The output is labelled `single_factor_accrual_indicator` with `isBeneishMScore: false` so a consumer cannot mistake it.
     - Solvency Structure — the **Altman Z-Score factor form** (Z = 1.2·X1 + 1.4·X2 + 3.3·X3 + 0.6·X4 + 0.999·X5), computed only when all five factors are disclosed. Retained earnings and total liabilities are required; they are never estimated. When any factor is missing the metric reports `not_assessed` and names the missing items.
     - Governance & Capital Allocation Audit (Promoter pledging, institutional holding, audit qualification flags).
     - **Coverage disclosure**: every metric that could not be computed is listed with its reason, and a company with no verifiable inputs reports `NOT ASSESSED` rather than a clean score. Absence of evidence is never rendered as a pass.
-5. **Regulatory Certification & SEBI RA Sign-Off** ([SignoffModal.tsx](file:///d:/13.my-startups/EquiGen/src/components/dashboard/SignoffModal.tsx)):
+5. **Regulatory Certification & SEBI RA Sign-Off** ([SignoffModal.tsx]):
    - Reviewer identity stamping, SEBI registration number validation (`INH...`), and cryptographic audit trail.
 
 ---
