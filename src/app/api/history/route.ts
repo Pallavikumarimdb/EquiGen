@@ -211,7 +211,6 @@ export async function POST(req: NextRequest) {
       status,
       reviewerName,
       sebiRegNo,
-      approvedAt,
       modelUsedForFinancials,
     } = body;
 
@@ -240,6 +239,42 @@ export async function POST(req: NextRequest) {
       return tenantForbidden();
     }
 
+    // SECURITY: this route's `update` branch wrote `status`, `reviewerName`,
+    // `sebiRegNo` and `approvedAt` directly, entirely bypassing
+    // `transitionReportStatus`. `ALLOWED_STATUSES` included "approved" and
+    // "published", so any authenticated user could POST their own report with
+    // `status: "published"` plus an arbitrary reviewer name and registration number
+    // and skip every gate: no transition validation, no quality gate, no authenticity
+    // gate, no SEBI presence check. It was the alternative path around /api/approve.
+    //
+    // A caller may no longer assert these fields here. Status changes go through the
+    // state machine (/api/approve), and the sign-off identity comes from the session.
+    if (status && status !== "draft" && status !== existing?.status) {
+      return NextResponse.json(
+        {
+          message:
+            "Report status cannot be set through this endpoint. " +
+            "Use the approval flow so the state machine, quality gate and authenticity " +
+            "audit are enforced.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const reviewerNameFromCaller = reviewerName;
+    if (reviewerNameFromCaller && reviewerNameFromCaller !== session.name) {
+      return NextResponse.json(
+        { message: "Reviewer name must match the authenticated user." },
+        { status: 403 },
+      );
+    }
+    if (sebiRegNo && sebiRegNo !== (session.sebiRegNo ?? "")) {
+      return NextResponse.json(
+        { message: "SEBI registration number must match the authenticated user." },
+        { status: 403 },
+      );
+    }
+
     let versionNo = 1;
     if (existing) {
       const oldHash =
@@ -259,10 +294,8 @@ export async function POST(req: NextRequest) {
         fileName,
         reportData,
         pdfBase64,
-        status: status || undefined,
-        reviewerName: reviewerName || undefined,
-        sebiRegNo: sebiRegNo || undefined,
-        approvedAt: approvedAt ? new Date(approvedAt) : undefined,
+        // Status, reviewerName, sebiRegNo and approvedAt are intentionally NOT
+        // writable here — they are set only by the approval flow.
         modelUsedForFinancials: modelUsedForFinancials || undefined,
         contentHash,
         versionNo,
@@ -276,10 +309,10 @@ export async function POST(req: NextRequest) {
         fileName,
         reportData,
         pdfBase64,
-        status: status || "draft",
-        reviewerName: reviewerName || null,
-        sebiRegNo: sebiRegNo || null,
-        approvedAt: approvedAt ? new Date(approvedAt) : null,
+        status: "draft",
+        reviewerName: null,
+        sebiRegNo: null,
+        approvedAt: null,
         modelUsedForFinancials: modelUsedForFinancials || null,
         contentHash,
         versionNo: 1,

@@ -31,12 +31,38 @@ export interface SandboxExecutionResult {
   executionTimeMs: number;
 }
 
+/**
+ * Static denylist for submitted Python.
+ *
+ * IMPORTANT: a regular expression over source text is NOT a sandbox. This list is
+ * defence in depth, not a security boundary. It blocks the obvious cases, but
+ * obfuscation (string concatenation, `__class__` chains, `chr()`/`bytes` assembly) can
+ * defeat any source-level pattern match. The real boundary is that `/api/sandbox/execute`
+ * is opt-in, role-gated and rate-limited (see that route), and that submitted code runs
+ * as the app process rather than in an isolated container.
+ *
+ * Keep this list, but never treat a clean match as proof the code is safe.
+ */
 const DANGEROUS_PATTERNS = [
-  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
+  // Direct imports of anything that touches the OS, network, processes or introspection.
+  /\bimport\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform|resource|gc|atexit|webbrowser|xml|json\.decoder)\b/i,
   /\bfrom\s+(os|subprocess|sys|shutil|pty|socket|urllib|requests|http|posix|builtin|builtins|pwd|grp|ctypes|inspect|importlib|pickle|marshal|commands|asyncio|signal|threading|multiprocessing|platform)\b/i,
-  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\()/i,
-  /\b(__subclasses__|__bases__|__mro__|__globals__|__code__|__builtins__)\b/i,
+  // Dynamic execution and attribute mutation.
+  /\b(__import__|open\s*\(|eval\s*\(|exec\s*\(|compile\s*\(|getattr\s*\(|setattr\s*\(|delattr\s*\(|system\s*\(|popen\s*\(|spawn\s*\(|globals\s*\(|locals\s*\(|vars\s*\(|input\s*\(|breakpoint\s*\()/i,
+  // Dunder traversal to reach the interpreter's object graph.
+  /\b(__subclasses__|__bases__|__base__|__mro__|__globals__|__code__|__builtins__|__class__|__reduce__|__getattribute__|__dict__|__init_subclass__)\b/i,
+  // Indirect reachability: attribute access by computed string, or chr/bytes assembly
+  // used to rebuild a blocked name at runtime.
+  /\[\s*['"][^'"]+['"]\s*\]\s*\(/i,
+  /\bchr\s*\(|\bbytes\s*\(|\bdecode\s*\(\s*['"]rot|\bcodecs\b/i,
+  // Shell and filesystem redirection.
+  /(\|\s*(ba)?sh\b|>\s*\/|\bsubprocess\b|\bos\.system\b|\bpty\.spawn)/i,
+  // `from x import *` star-imports to reach a module surface indirectly.
+  /\bfrom\s+\S+\s+import\s+\*/i,
 ];
+
+/** Maximum size of submitted source. A model-generated DCF script is well under this. */
+export const MAX_SANDBOX_CODE_BYTES = 64 * 1024;
 
 export class PythonExecutor {
   /**

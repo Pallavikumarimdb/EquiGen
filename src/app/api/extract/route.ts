@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { triggerBackgroundJob } from "@/lib/queue/worker";
 import { currentSchemaVersion } from "@/lib/ai/versions";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
 
@@ -84,6 +84,18 @@ export async function POST(req: NextRequest) {
     const existingJob = jobId
       ? await prisma.extractionJob.findUnique({ where: { id: activeJobId } })
       : null;
+
+    // SECURITY: `existingJob` was fetched without an org predicate, and the upsert's
+    // `update` branch REASSIGNED `orgId` and `createdById` to the caller. Submitting
+    // another tenant's jobId therefore transferred ownership of that job -- including
+    // its stored `rawText`, the full uploaded filing -- into the attacker's org.
+    if (existingJob && !canAccessTenantRecord(session, existingJob)) {
+      return NextResponse.json(
+        { message: "A job with this id already exists." },
+        { status: 409 },
+      );
+    }
+
     const effectiveCompanyName = existingJob?.companyName ?? companyName;
     const effectiveFileName = existingJob?.fileName ?? fileName;
     const effectiveRawText = existingJob?.rawText ?? rawText;

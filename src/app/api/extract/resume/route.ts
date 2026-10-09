@@ -1,14 +1,14 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { resumeBackgroundJob } from "@/lib/queue/worker";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 const ResumePayloadSchema = z.object({
   jobId: z.string().min(1, "Job ID is required to resume"),
   provider: z.enum(["groq", "openai"]).optional().default("groq"),
   modelName: z.string().optional(),
-  apiKey: z.string().optional(),
 });
 
 /**
@@ -34,14 +34,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { jobId, provider, modelName, apiKey } = parsedPayload.data;
+    const { jobId, provider, modelName } = parsedPayload.data;
     activeJobId = jobId;
 
-    // Resolve API key: check database (BYOK) first, then fallback to request payload
-    let resolvedApiKey = apiKey;
+    // SECURITY: no ownership check at all. `resumeBackgroundJob` does an unscoped
+    // findUnique and, for `blocked_financials`, deletes the job's chunk-extraction
+    // rows, so any authenticated user could restart -- or wipe -- another tenant's
+    // extraction in progress. Proved before any work is scheduled.
+    const job = await prisma.extractionJob.findUnique({
+      where: { id: jobId },
+      select: { id: true, orgId: true },
+    });
+    if (!job || !canAccessTenantRecord(session, job)) {
+      return NextResponse.json({ message: "Job not found." }, { status: 404 });
+    }
+
+    // The caller may not supply an arbitrary API key: doing so would let one tenant
+    // bill another's LLM account, or exfiltrate a key to a provider of their choice.
+    // Keys come from the org's own BYOK record.
+    const dbKey = await getDecryptedApiKey(orgId, provider);
+    const resolvedApiKey = dbKey ?? undefined;
+
     if (!resolvedApiKey) {
-      const dbKey = await getDecryptedApiKey(orgId, provider);
-      if (dbKey) resolvedApiKey = dbKey;
+      return NextResponse.json(
+        { message: "No API key is configured for this organization." },
+        { status: 400 },
+      );
     }
 
     // Trigger background resumption worker

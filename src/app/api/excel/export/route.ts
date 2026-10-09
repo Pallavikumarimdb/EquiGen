@@ -32,21 +32,41 @@ async function enforceAuthenticityGate(
   searchParams: URLSearchParams,
   artifact: "excel" | "pdf",
 ): Promise<NextResponse | null> {
+  // SECURITY: `overrideQuality=true` was honoured for any authenticated user of any
+  // role, despite the message claiming a reviewer must re-request. The override now
+  // requires a reviewer/admin role and a written justification, matching
+  // /api/download and the reviewer-gate assumption in the state machine.
+  const overrideRequested = searchParams.get("overrideQuality") === "true";
+  const overrideJustification = searchParams.get("overrideReason")?.trim() ?? "";
+  const isReviewer =
+    session.isPlatformOperator === true ||
+    ["reviewer", "admin", "research_analyst"].includes((session.role ?? "").toLowerCase());
+  const overrideGranted =
+    overrideRequested && isReviewer && overrideJustification.length >= 10;
+
   const gate = evaluateDistributionGate(report.reportData, {
-    overrideWithJustification: searchParams.get("overrideQuality") === "true",
+    overrideWithJustification: overrideGranted,
     overriddenBy: session?.name ?? session?.userId,
   });
 
   if (!gate.allowed) {
+    const overrideRefusedReason = !overrideRequested
+      ? null
+      : !isReviewer
+      ? "An override requires the reviewer or admin role."
+      : "An override requires a written justification (overrideReason, at least 10 characters).";
+
     return NextResponse.json(
       {
         message: gate.reason,
         code: "AUTHENTICITY_GATE_BLOCKED",
         auditState: gate.state,
         artifact,
-        canOverride: true,
-        overrideHint:
-          "A SEBI-registered reviewer may re-request with ?overrideQuality=true after inspecting the listed critical failures. The override is written to the audit trail.",
+        canOverride: isReviewer,
+        overrideRefusedReason,
+        overrideHint: isReviewer
+          ? "Re-request with ?overrideQuality=true&overrideReason=<what you inspected>."
+          : "Ask a SEBI-registered reviewer in your organization to review and re-request this export.",
       },
       { status: 409 }
     );
@@ -63,6 +83,7 @@ async function enforceAuthenticityGate(
         toState: report.status,
         metadata: {
           reason: gate.reason,
+          justification: overrideJustification,
           auditState: gate.state,
           artifact,
         },

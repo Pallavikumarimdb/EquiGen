@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 
 /**
  * GET /api/extract/status?jobId=...
@@ -11,6 +11,7 @@ import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
 export async function GET(req: NextRequest) {
   const guard = await requireTenantSession(req);
   if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
   try {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get("jobId");
@@ -22,11 +23,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // SECURITY: `jobId` came from the query string and the lookup had no org
+    // predicate, so any authenticated user could read any tenant's job (reportId,
+    // stepIndex, errorMessage) AND mutate it: the timeout branch below forces a
+    // running job to "failed", a targeted denial of service on a competitor's
+    // pipeline. Ownership is proven before any read or write.
     const job = await prisma.extractionJob.findUnique({
       where: { id: jobId },
     });
 
-    if (!job) {
+    if (!job || !canAccessTenantRecord(session, job)) {
+      // 404 rather than 403: do not confirm the existence of another tenant's job.
       return NextResponse.json({ message: "Job not found." }, { status: 404 });
     }
 

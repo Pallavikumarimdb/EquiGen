@@ -35,12 +35,21 @@ export async function GET(req: NextRequest) {
     }).catch(() => null);
 
     if (!report) {
-      // Check if this is an autonomous ResearchPlan ID
+      // Check if this is an autonomous ResearchPlan ID.
+      //
+      // SECURITY: this branch returned BEFORE the `canAccessTenantRecord` check, so
+      // passing a `researchPlan` id instead of a `reportHistory` id disclosed the
+      // goalText, ticker and companyName of any tenant's plan. The `.catch(() => null)`
+      // on both lookups had the same fail-open shape as the audit route.
       const plan = await prisma.researchPlan.findUnique({
         where: { id: reportId },
+        include: { session: { select: { orgId: true } } },
       }).catch(() => null);
 
       if (plan) {
+        if (!canAccessTenantRecord(session, { orgId: plan.session?.orgId ?? null })) {
+          return tenantForbidden();
+        }
         return NextResponse.json({
           id: plan.id,
           reportId: plan.id,

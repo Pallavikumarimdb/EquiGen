@@ -104,21 +104,43 @@ export async function GET(req: NextRequest) {
 
     // Financial authenticity gate. A report whose figures fail (or cannot be shown to
     // pass) verification must not leave the system as a distributable PDF.
-    const overrideGranted = searchParams.get("overrideQuality") === "true";
+    //
+    // SECURITY: `?overrideQuality=true` was honoured for any authenticated user of any
+    // role, while the message claimed "a SEBI-registered reviewer may re-request".
+    // The state machine treats this gate as reviewer-gated, so an `analyst` could
+    // bypass it here. The override now requires a reviewer role and an explicit
+    // justification naming who inspected the failures.
+    const overrideRequested = searchParams.get("overrideQuality") === "true";
+    const overrideJustification = searchParams.get("overrideReason")?.trim() ?? "";
+    const isReviewer =
+      session?.isPlatformOperator === true ||
+      ["reviewer", "admin", "research_analyst"].includes((session?.role ?? "").toLowerCase());
+
+    const overrideGranted =
+      overrideRequested && isReviewer && overrideJustification.length >= 10;
+
     const gate = evaluateDistributionGate(report.reportData, {
       overrideWithJustification: overrideGranted,
       overriddenBy: session?.name ?? session?.userId,
     });
 
     if (!gate.allowed) {
+      const overrideRefusedReason = !overrideRequested
+        ? null
+        : !isReviewer
+        ? "An override requires the reviewer or admin role."
+        : "An override requires a written justification (overrideReason, at least 10 characters) describing the failures you inspected.";
+
       return NextResponse.json(
         {
           message: gate.reason,
           code: "AUTHENTICITY_GATE_BLOCKED",
           auditState: gate.state,
-          canOverride: true,
-          overrideHint:
-            "A SEBI-registered reviewer may re-request with ?overrideQuality=true after inspecting the listed critical failures. The override is written to the audit trail.",
+          canOverride: isReviewer,
+          overrideRefusedReason,
+          overrideHint: isReviewer
+            ? "A SEBI-registered reviewer may re-request with ?overrideQuality=true&overrideReason=<what you inspected>. The override is written to the audit trail."
+            : "Ask a SEBI-registered reviewer in your organization to review and re-request this export.",
         },
         { status: 409 },
       );
@@ -135,6 +157,7 @@ export async function GET(req: NextRequest) {
           toState: report.status,
           metadata: {
             reason: gate.reason,
+            justification: overrideJustification,
             auditState: gate.state,
             artifact: "pdf",
           },

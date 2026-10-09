@@ -28,16 +28,20 @@ export async function GET(req: NextRequest) {
   const primaryId = planId || altPlanId || "";
 
   // ── Tenant check on both stream ids ───────────────────────────────────────
-  // A ResearchPlan carries its org via `session.orgId`; an ExtractionJob has its
-  // own `orgId`. An id that resolves to neither is not streamable.
+  // SECURITY: this loop only refused a *positive* cross-tenant mismatch. A `null`
+  // (no persisted record — i.e. any arbitrary id string) and a `null` orgId both
+  // passed. Since the trajectory bus is in-memory, any authenticated user could open
+  // an SSE stream on a guessed or unowned id and receive the full trace: tool calls,
+  // fetched financial data, drafted section text, and peer/valuation output. An id
+  // that resolves to no run of the caller's organisation is not streamable.
   const ids = [primaryId, ...(altPlanId && altPlanId !== primaryId ? [altPlanId] : [])];
-  for (const id of ids) {
-    const owned = await isRunVisibleToOrg(id, session.orgId);
-    if (owned === false) {
-      return new Response("Forbidden. Access denied.", { status: 403 });
+  if (!session.isPlatformOperator) {
+    for (const id of ids) {
+      const owned = await isRunVisibleToOrg(id, session.orgId);
+      if (owned !== true) {
+        return new Response("Forbidden. Access denied.", { status: 403 });
+      }
     }
-    // `null` means "no such run"; the in-memory bus may still hold events for a
-    // plan that has since been removed, so only a positive mismatch is a 403.
   }
 
   const stream = new ReadableStream({
@@ -127,23 +131,23 @@ export const dynamic = "force-dynamic";
 /**
  * Whether a run id may be streamed by the given organisation.
  *
- * Returns:
- *   true  — the run exists and belongs to `orgId`
- *   false — the run exists and belongs to a DIFFERENT organisation
- *   null  — no persisted record was found for this id
+ /**
+ * Whether the run identified by `id` belongs to `orgId`.
  *
- * A `null` is not treated as a denial: the trajectory bus is in-memory, so events
- * for a plan that has since been deleted (or for a run whose parent session was
- * cleaned up) can still be buffered. Only a positive cross-tenant mismatch is
- * refused, so this cannot be used to probe which ids exist.
+ * Returns:
+ *   true  — the run exists and is owned by `orgId`
+ *   false — the run is unknown, or belongs to a different organisation
+ *
+ * A null-org row is NOT visible to an ordinary user: `canAccessTenantRecord` treats
+ * pre-tenancy records as platform-operator only, and that rule is applied here too.
  */
-async function isRunVisibleToOrg(id: string, orgId: string): Promise<boolean | null> {
+async function isRunVisibleToOrg(id: string, orgId: string): Promise<boolean> {
   try {
     const job = await prisma.extractionJob.findUnique({
       where: { id },
       select: { orgId: true },
     });
-    if (job) return job.orgId === null || job.orgId === orgId;
+    if (job) return job.orgId !== null && job.orgId === orgId;
 
     const plan = await prisma.researchPlan.findUnique({
       where: { id },
@@ -151,12 +155,12 @@ async function isRunVisibleToOrg(id: string, orgId: string): Promise<boolean | n
     });
     if (plan) {
       const planOrg = plan.session?.orgId ?? null;
-      return planOrg === null || planOrg === orgId;
+      return planOrg !== null && planOrg === orgId;
     }
 
-    return null;
+    return false;
   } catch {
-    // Database unavailable — fall back to refusing, so an outage cannot open a hole.
+    // Database unavailable — refuse, so an outage cannot open a hole.
     return false;
   }
 }
