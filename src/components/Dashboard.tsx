@@ -289,7 +289,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           id: "rep_default_sample",
           companyName: "Tata Motors Limited",
           fileName: "Tata_Motors_Initiation.pdf",
-          createdAt: new Date().toISOString(),
+          createdAt: "2025-01-15T10:30:00.000Z",
           reportData: DEFAULT_SAMPLE_REPORT,
           reportPdfBase64: null,
           status: "draft",

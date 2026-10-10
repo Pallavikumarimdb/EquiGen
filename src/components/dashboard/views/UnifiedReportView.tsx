@@ -538,10 +538,51 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
               </div>
             </div>
 
-            <div className="py-6 text-center">
-              <p className="text-xs text-[#9E988A] italic">Concall guidance tracking requires a parsed earnings call transcript.</p>
-              <p className="text-[11px] text-[#B0AA9E] mt-1">Once a concall transcript is ingested, management guidance vs. actual execution will be displayed here automatically.</p>
-            </div>
+            {(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const dataSources = (reportData as any)?.dataSources;
+              const concallLive = dataSources?.concallTranscript?.isLive;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const concallData = (reportData as any)?.concallTranscript;
+              const hasConcallData = concallLive && concallData && (
+                (Array.isArray(concallData.guidance) && concallData.guidance.length > 0) ||
+                (Array.isArray(concallData.takeaways) && concallData.takeaways.length > 0) ||
+                (Array.isArray(concallData.managementCommentary) && concallData.managementCommentary.length > 0)
+              );
+
+              if (hasConcallData) {
+                const items = concallData.guidance || concallData.takeaways || concallData.managementCommentary || [];
+                return (
+                  <div className="space-y-3">
+                    {items.map((item: { metric?: string; guidance?: string; actual?: string; period?: string }, idx: number) => (
+                      <div key={idx} className="p-3.5 bg-[#FAF8F5] border border-[#E5E1D7] rounded-xl">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold text-[#1A1917]">{item.metric || `Guidance ${idx + 1}`}</span>
+                          {item.period && <span className="text-[10px] font-mono text-[#7A7569]">{item.period}</span>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-[11px]">
+                          <div>
+                            <span className="text-[10px] font-bold text-[#7A7569] uppercase tracking-wider block mb-0.5">Guidance</span>
+                            <span className="text-[#3D3A32]">{item.guidance || "—"}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold text-[#7A7569] uppercase tracking-wider block mb-0.5">Actual</span>
+                            <span className="text-[#3D3A32]">{item.actual || "—"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="py-6 text-center">
+                  <p className="text-xs text-[#9E988A] italic">Concall guidance tracking requires a parsed earnings call transcript.</p>
+                  <p className="text-[11px] text-[#B0AA9E] mt-1">Once a concall transcript is ingested, management guidance vs. actual execution will be displayed here automatically.</p>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -562,9 +603,36 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
               <h3 className="text-sm font-extrabold text-[#1A1917]">SEBI (Research Analysts) Regulations, 2014 Audit</h3>
               <p className="text-xs text-[#7A7569]">Automated regulatory checklist & conflict of interest disclosures</p>
             </div>
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              100% COMPLIANT
-            </span>
+            {(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const financialAudit = (reportData as any)?.financialAudit;
+              const auditVerdict = financialAudit?.verdict;
+              const hasForensic = !!reportData?.forensicAnalysis;
+              const isApproved = status === "approved" || status === "published";
+
+              let complianceLabel = "PENDING AUDIT";
+              let complianceClasses = "bg-amber-100 text-amber-800 border-amber-200";
+
+              if (auditVerdict === "CERTIFIED_AUTHENTIC" && hasForensic) {
+                complianceLabel = "COMPLIANT";
+                complianceClasses = "bg-emerald-100 text-emerald-800 border-emerald-200";
+              } else if (auditVerdict === "VALIDATED_WITH_WARNINGS") {
+                complianceLabel = "COMPLIANT (WARNINGS)";
+                complianceClasses = "bg-amber-100 text-amber-800 border-amber-200";
+              } else if (auditVerdict === "FAILED_UNRELIABLE") {
+                complianceLabel = "NON-COMPLIANT";
+                complianceClasses = "bg-rose-100 text-rose-800 border-rose-200";
+              } else if (isApproved) {
+                complianceLabel = "COMPLIANT";
+                complianceClasses = "bg-emerald-100 text-emerald-800 border-emerald-200";
+              }
+
+              return (
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${complianceClasses}`}>
+                  {complianceLabel}
+                </span>
+              );
+            })()}
           </div>
 
           <div className="space-y-3">

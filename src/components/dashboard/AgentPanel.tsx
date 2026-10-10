@@ -74,33 +74,45 @@ export function AgentPanel({
   // Storage Key for persistent chat history per report
   const storageKey = `equigen_agent_chat_${reportId || "default_sample"}`;
 
-  // Default simulated or live tool runs for this equity research target
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reportAny = reportData as any;
+  const reportStatus = reportAny?.status as string | undefined;
+  const isReportRunning = reportStatus === "running" || reportStatus === "pending";
+  const hasReportData = !!reportData && !!reportData?.company?.name;
+  const hasFinancials = !!reportData?.fiveYearSummary && reportData.fiveYearSummary.length > 0;
+  const hasValuation = !!reportData?.recommendation?.targetPrice;
+  const hasPeers = Array.isArray(reportData?.competitors) && reportData.competitors.length > 0;
+  const hasCompliance = !!reportData?.forensicAnalysis;
+
   const toolRuns: ToolRunItem[] = [
     {
       id: "tool_1",
       name: "BSE/NSE Corporate Filing Scraper",
       category: "Document Extraction",
-      status: "success",
+      status: hasReportData ? "success" : "failed",
       durationMs: 420,
-      summary: `Parsed Q3 disclosures, investor presentation, and concall transcript for ${companyName}.`,
+      summary: hasReportData
+        ? `Parsed Q3 disclosures, investor presentation, and concall transcript for ${companyName}.`
+        : "No document extraction has been performed for this report.",
     },
     {
       id: "tool_2",
       name: "3-Tier Financial Modeling Engine",
       category: "Quantitative Analysis",
-      status: "success",
+      status: hasFinancials ? "success" : "failed",
       durationMs: 890,
-      summary: "Extracted 5-year historical P&L, balance sheet, and calculated 5-year CAGR margins.",
+      summary: hasFinancials
+        ? `Extracted 5-year historical P&L, balance sheet, and calculated 5-year CAGR margins.`
+        : "Financial statements have not been extracted yet.",
     },
     {
       id: "tool_3",
       name: "Python DCF Valuation Sandbox",
       category: "Valuation Sandbox",
-      status: "success",
+      status: hasValuation ? "success" : "failed",
       durationMs: 1150,
       summary: (() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const assumptions = (reportData as any)?.modelingData?.assumptions;
+        const assumptions = reportAny?.modelingData?.assumptions;
         const wacc = assumptions?.wacc != null
           ? `${(Number(assumptions.wacc) <= 1 ? Number(assumptions.wacc) * 100 : Number(assumptions.wacc)).toFixed(1)}%`
           : null;
@@ -112,35 +124,62 @@ export function AgentPanel({
         if (params && tp) return `Executed multi-scenario DCF (Base Case: ${params}) → Target: ₹${tp.toLocaleString()}.`;
         if (params) return `Executed multi-scenario DCF (Base Case: ${params}) → Valuation model completed.`;
         if (tp) return `Executed multi-scenario DCF model → Target: ₹${tp.toLocaleString()}.`;
-        return "Executed multi-scenario DCF model. Valuation model initialized.";
+        return "DCF valuation model has not been executed yet.";
       })(),
     },
     {
       id: "tool_4",
       name: "Peer Benchmarking & Multiples Matrix",
       category: "Market Intelligence",
-      status: "success",
+      status: hasPeers ? "success" : "failed",
       durationMs: 340,
-      summary: "Benchmarked EV/EBITDA, forward P/E, and ROE against domestic and global sector peers.",
+      summary: hasPeers
+        ? "Benchmarked EV/EBITDA, forward P/E, and ROE against domestic and global sector peers."
+        : "Peer benchmarking data is not available yet.",
     },
     {
       id: "tool_5",
       name: "SEBI RA 2014 Compliance Auditor",
       category: "Regulatory Audit",
-      status: "success",
+      status: hasCompliance ? "success" : "failed",
       durationMs: 210,
-      summary: "Verified statutory disclaimers, conflict of interest checks (Reg 19), and mathematical consistency.",
+      summary: hasCompliance
+        ? "Verified statutory disclaimers, conflict of interest checks (Reg 19), and mathematical consistency."
+        : "Compliance audit has not been performed for this report.",
     },
   ];
 
-  // 6 Autonomous Research Milestones
   const milestones = [
-    { title: "1. Fetch Exchange Disclosures", desc: "BSE/NSE India official archives", status: "completed" },
-    { title: "2. Extract Financial Statements", desc: "Audited P&L, balance sheet, margins", status: "completed" },
-    { title: "3. Build Quantitative Model", desc: "5-year DCF & sensitivity sandbox", status: "completed" },
-    { title: "4. Peer Benchmarking", desc: "Sector multiples & comp analysis", status: "completed" },
-    { title: "5. Synthesise Research Draft", desc: "Institutional note composition", status: "completed" },
-    { title: "6. SEBI Compliance Audit", desc: "Statutory RA 2014 regulatory checks", status: "completed" },
+    {
+      title: "1. Fetch Exchange Disclosures",
+      desc: "BSE/NSE India official archives",
+      status: hasReportData ? "completed" : isReportRunning ? "running" : "pending",
+    },
+    {
+      title: "2. Extract Financial Statements",
+      desc: "Audited P&L, balance sheet, margins",
+      status: hasFinancials ? "completed" : isReportRunning ? "running" : "pending",
+    },
+    {
+      title: "3. Build Quantitative Model",
+      desc: "5-year DCF & sensitivity sandbox",
+      status: hasValuation ? "completed" : isReportRunning ? "running" : "pending",
+    },
+    {
+      title: "4. Peer Benchmarking",
+      desc: "Sector multiples & comp analysis",
+      status: hasPeers ? "completed" : isReportRunning ? "running" : "pending",
+    },
+    {
+      title: "5. Synthesise Research Draft",
+      desc: "Institutional note composition",
+      status: hasReportData ? "completed" : isReportRunning ? "running" : "pending",
+    },
+    {
+      title: "6. SEBI Compliance Audit",
+      desc: "Statutory RA 2014 regulatory checks",
+      status: hasCompliance ? "completed" : isReportRunning ? "running" : "pending",
+    },
   ];
 
   // Load chat history from localStorage or session on mount/report change
@@ -577,7 +616,7 @@ export function AgentPanel({
       {activeTab === "milestones" && (
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#FAF8F5]">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A7569] mb-1">
-            Decomposed Research Milestones (6/6 Completed)
+            Decomposed Research Milestones ({milestones.filter((m) => m.status === "completed").length}/{milestones.length} Completed)
           </div>
 
           <div className="space-y-2">
@@ -587,10 +626,21 @@ export function AgentPanel({
                   <span className="text-xs font-bold text-[#1A1917] block">{m.title}</span>
                   <span className="text-[10px] text-[#7A7569]">{m.desc}</span>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1 shrink-0 ml-2">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  Done
-                </span>
+                {m.status === "completed" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1 shrink-0 ml-2">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Done
+                  </span>
+                ) : m.status === "running" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 shrink-0 ml-2 animate-pulse">
+                    <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />
+                    Running
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200 flex items-center gap-1 shrink-0 ml-2">
+                    Pending
+                  </span>
+                )}
               </div>
             ))}
           </div>

@@ -12,6 +12,7 @@ import {
 import { PersonaType } from "./types";
 
 interface ChatMessage {
+  id: string;
   role: "user" | "agent";
   content: string;
   isError?: boolean;
@@ -40,6 +41,7 @@ export function CopilotDrawer({
 }: CopilotDrawerProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
+      id: "init_1",
       role: "agent",
       content: `Hello! I am your AI Equity Analyst Co-Pilot for **${companyName}**${ticker ? ` (${ticker})` : ""}. Ask me anything about valuation, margin drivers, balance sheet leverage, or concall takeaways.`,
     },
@@ -71,7 +73,7 @@ export function CopilotDrawer({
     const textToSend = customText || input.trim();
     if (!textToSend || loading) return;
 
-    const userMessage: ChatMessage = { role: "user", content: textToSend };
+    const userMessage: ChatMessage = { id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), role: "user", content: textToSend };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
@@ -116,13 +118,14 @@ export function CopilotDrawer({
       if (res.ok) {
         const data = await res.json();
         const reply = data.reply || data.response || "Analysis complete.";
-        setMessages((prev) => [...prev, { role: "agent", content: reply }]);
+        setMessages((prev) => [...prev, { id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), role: "agent", content: reply }]);
       } else {
         const errData = await res.json().catch(() => null);
         const serverError = errData?.response || errData?.message || `Server returned HTTP ${res.status}`;
         setMessages((prev) => [
           ...prev,
           {
+            id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
             role: "agent",
             content: `⚠️ **Research Service Notice**: ${serverError}. In accordance with strict financial data integrity guidelines, unverified estimates or synthetic figures are suppressed.`,
           },
@@ -132,6 +135,7 @@ export function CopilotDrawer({
       setMessages((prev) => [
         ...prev,
         {
+          id: "msg_err_" + Date.now(),
           role: "agent",
           content: `⚠️ **Connection Error**: Unable to reach the EquiGen AI research engine. To guarantee financial accuracy, unverified placeholder estimates are disabled. Please check your network connection or API configuration.`,
         },
@@ -169,6 +173,7 @@ export function CopilotDrawer({
             onClick={() =>
               setMessages([
                 {
+                  id: "reset_" + Date.now(),
                   role: "agent",
                   content: `Context reset for ${companyName}. How can I assist with your investment thesis?`,
                 },
@@ -191,9 +196,9 @@ export function CopilotDrawer({
 
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3.5 text-xs">
-        {messages.map((m, idx) => (
+        {messages.map((m) => (
           <div
-            key={idx}
+            key={m.id}
             className={`flex items-start gap-2.5 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
           >
             <div

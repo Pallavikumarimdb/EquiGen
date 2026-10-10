@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useCallback } from "react";
 import Link from "next/link";
 import {
   FileText,
@@ -14,6 +14,7 @@ import {
   Square,
 } from "lucide-react";
 import { DashboardHistoryItem, HistoryFilterType } from "./types";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 
 interface CoverageSidebarProps {
   isOpen: boolean;
@@ -44,6 +45,24 @@ export function CoverageSidebar({
   onOpenNewResearch,
   isLoading = false,
 }: CoverageSidebarProps) {
+  const [deleteTarget, setDeleteTarget] = useState<DashboardHistoryItem | null>(null);
+
+  const handleDeleteClick = useCallback((e: React.MouseEvent, item: DashboardHistoryItem) => {
+    e.stopPropagation();
+    setDeleteTarget(item);
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteTarget) {
+      onDeleteReport({ stopPropagation: () => {} } as React.MouseEvent, deleteTarget.id);
+      setDeleteTarget(null);
+    }
+  }, [deleteTarget, onDeleteReport]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeleteTarget(null);
+  }, []);
+
   const isAutonomousItem = (item: DashboardHistoryItem) => {
     return (
       item.sourceType === "autonomous" ||
@@ -302,10 +321,11 @@ export function CoverageSidebar({
                       {new Date(item.createdAt).toLocaleDateString(undefined, {
                         month: "short",
                         day: "numeric",
+                        year: "numeric",
                       })}
                     </span>
                     <button
-                      onClick={(e) => onDeleteReport(e, item.id)}
+                      onClick={(e) => handleDeleteClick(e, item)}
                       title="Delete Report"
                       className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-rose-100 hover:text-rose-600 transition-all text-[#9C978B]"
                     >
@@ -354,6 +374,14 @@ export function CoverageSidebar({
           </Link>
         </div>
       )}
+
+      <DeleteConfirmDialog
+        isOpen={deleteTarget !== null}
+        companyName={deleteTarget?.companyName ?? ""}
+        isRunning={deleteTarget?.status === "running" || deleteTarget?.status === "pending"}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </aside>
   );
 }
