@@ -95,13 +95,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           setUser(data.plan ? { ...data.user, plan: data.plan } : data.user);
           if (data.user?.name) setReviewerName(data.user.name);
           if (data.user?.sebiRegNo) setSebiRegNo(data.user.sebiRegNo);
+        } else if (res.status === 401) {
+          router.push("/signin");
         }
       } catch (err) {
         console.warn("User session check:", err);
       }
     };
     fetchUser();
-  }, []);
+  }, [router]);
 
   // Global prevention for unintended browser file navigation (e.g. dropping a PDF outside the drop zone)
   // This prevents the browser from attempting to navigate to file:/// links, which triggers Security Errors
