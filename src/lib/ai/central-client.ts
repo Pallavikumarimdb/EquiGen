@@ -7,13 +7,21 @@
  * and graceful fallback ladders.
  */
 
-import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createLangChainChatModel } from "./langchain-service";
 import { fetchNewsAndFilings, NewsArticle } from "./tools/news-search-tool";
+import { compactConversationHistory } from "./context-compactor";
+
+export interface ChatHistoryTurn {
+  role: "user" | "agent" | "assistant" | "system";
+  content: string;
+}
 
 export interface CentralizedChatRequest {
   prompt: string;
+  history?: ChatHistoryTurn[];
+  signal?: AbortSignal;
   systemPrompt?: string;
   companyName?: string;
   ticker?: string;
@@ -298,10 +306,56 @@ export async function* executeCentralizedAIChatStream(
       `\n\n(IMPORTANT: In '### Sources & Reference Verification', format links as [Article Title or Source](Reference URL) using ONLY the exact Reference URLs above. Do not invent any dummy or unvisited URLs. Do not attempt to invoke web browsing tools or functions; all references are already provided above).`;
   }
 
-  const langChainMessages = [
+  const langChainMessages: (SystemMessage | HumanMessage | AIMessage)[] = [
     new SystemMessage(fullSystemPrompt),
-    new HumanMessage(userContent),
   ];
+
+  // Multi-turn conversation memory processing
+  if (req.history && req.history.length > 0) {
+    const historyPairs: [string, string][] = req.history
+      .filter((h) => h.content && h.content.trim().length > 0)
+      .map((h) => [
+        h.role === "agent" ? "assistant" : h.role,
+        h.content.trim(),
+      ]);
+
+    if (historyPairs.length > 0) {
+      const estimatedHistoryTokens = historyPairs.reduce(
+        (acc, [_, text]) => acc + Math.ceil(text.length / 4),
+        0
+      );
+
+      let activePairs = historyPairs;
+      // If history is extensive (>8 turns or >4,500 tokens), summarize older turns to prevent rate limit overflow
+      if (historyPairs.length > 8 || estimatedHistoryTokens > 4500) {
+        try {
+          const compacted = await compactConversationHistory(historyPairs, {
+            maxTokens: 4500,
+            maxTurns: 8,
+            preserveRecentTurns: 4,
+            apiKey: req.apiKey,
+          });
+          activePairs = compacted.messages;
+        } catch (compErr) {
+          console.warn("[CentralizedAI] History compaction failed, using recent slice:", compErr);
+          activePairs = historyPairs.slice(-6);
+        }
+      }
+
+      for (const [role, content] of activePairs) {
+        if (role === "system") {
+          langChainMessages.push(new SystemMessage(content));
+        } else if (role === "assistant") {
+          langChainMessages.push(new AIMessage(content));
+        } else {
+          langChainMessages.push(new HumanMessage(content));
+        }
+      }
+    }
+  }
+
+  // Current turn HumanMessage
+  langChainMessages.push(new HumanMessage(userContent));
 
   const visitedUrls = liveArticles.map((a) => a.url).filter(Boolean) as string[];
 
@@ -311,10 +365,12 @@ export async function* executeCentralizedAIChatStream(
     modelUsed: string,
     source: "groq" | "openai" | "openrouter" | "ollama" | "anthropic" | "fallback_synthesis",
   ) {
+    if (req.signal?.aborted) return;
     let sentMeta = false;
     let accumulated = "";
-    const responseStream = await model.stream(langChainMessages);
+    const responseStream = await model.stream(langChainMessages, { signal: req.signal });
     for await (const chunk of responseStream) {
+      if (req.signal?.aborted) break;
       const text = typeof chunk.content === "string" ? chunk.content : JSON.stringify(chunk.content);
       if (!text) continue;
       accumulated += text;
@@ -324,6 +380,8 @@ export async function* executeCentralizedAIChatStream(
       }
       yield { type: "delta" as const, text };
     }
+
+    if (req.signal?.aborted) return;
 
     if (!sentMeta && accumulated.trim().length > 0) {
       yield { type: "meta" as const, modelUsed, source, visitedUrls };

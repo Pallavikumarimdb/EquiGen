@@ -21,19 +21,19 @@ import {
   Square,
   Clock,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  Edit2,
+  RotateCw,
+  ArrowDown,
 } from "lucide-react";
 import { PersonaType } from "../types";
 import { EquityResearchData } from "@/types";
 import { FormattedChatMessage } from "../shared/FormattedChatMessage";
 import { TrajectoryFeed } from "@/components/TrajectoryFeed";
+import { useConversationManager, ChatNode } from "@/hooks/useConversationManager";
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "agent";
-  content: string;
-  timestamp: string;
-  appliedChanges?: { field: string; from: unknown; to: unknown; reason: string }[];
-}
+export type ChatMessage = ChatNode;
 
 interface AgentChatViewProps {
   reportId?: string | null;
@@ -59,19 +59,40 @@ export function AgentChatView({
   onPlanComplete,
   onStopAgent,
 }: AgentChatViewProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const {
+    activeThread: messages,
+    isStreaming,
+    sendPrompt,
+    stopGeneration,
+    editUserMessage,
+    regenerateMessage,
+    switchBranch,
+    getBranchInfo,
+    addCustomTurn,
+    clearHistory: handleClearHistory,
+  } = useConversationManager({
+    sessionId: reportId ? reportId.replace(/^rep_/, "") : "session-demo",
+    reportId,
+    companyName,
+    ticker,
+    reportData,
+    onUpdateReportData,
+  });
+
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isModifying, setIsModifying] = useState(false);
+  const loading = isStreaming || isModifying;
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+
   const [activeStudioTab, setActiveStudioTab] = useState<"split" | "chat" | "pipeline">("split");
   const [previousReportSnapshot, setPreviousReportSnapshot] = useState<EquityResearchData | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesRef = useRef<ChatMessage[]>(messages);
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
 
   const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,7 +100,6 @@ export function AgentChatView({
   const effectiveJobId = cleanPlanId.startsWith("job_")
     ? cleanPlanId
     : rawReportData?.jobId || rawReportData?.planId || cleanPlanId;
-  const storageKey = cleanPlanId ? `equigen_chatgpt_agent_${cleanPlanId}` : "equigen_chatgpt_agent_empty";
 
   const rec = reportData?.recommendation;
   const tp = rec?.targetPrice ?? null;
@@ -108,10 +128,39 @@ export function AgentChatView({
     }
   }, [status, reportId]);
 
-  // Auto-scroll chat stream as messages arrive or stream in
+  // Keyboard shortcut: Escape stops AI generation mid-stream
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isStreaming) {
+        stopGeneration();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isStreaming, stopGeneration]);
+
+  // Smart auto-scroll: scroll to bottom unless user manually scrolled up to inspect prior turns
+  useEffect(() => {
+    if (!userScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading, userScrolledUp]);
+
+  const handleChatScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const isNearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+    setUserScrolledUp(!isNearBottom);
+  };
+
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    setUserScrolledUp(false);
+  };
+
+  const onPlanCompleteRef = useRef(onPlanComplete);
+  useEffect(() => {
+    onPlanCompleteRef.current = onPlanComplete;
+  }, [onPlanComplete]);
 
   // Live polling and SSE connection for running tasks
   useEffect(() => {
@@ -160,7 +209,7 @@ export function AgentChatView({
 
     eventSource.addEventListener("plan_complete", () => {
       setLiveStepIndex(6);
-      onPlanComplete?.(effectiveJobId);
+      onPlanCompleteRef.current?.(effectiveJobId);
     });
 
     // 2. Periodic status check for ExtractionJob records (only for uploaded document jobs)
@@ -176,7 +225,7 @@ export function AgentChatView({
           }
           if (data.status === "completed") {
             setLiveStepIndex(6);
-            onPlanComplete?.(effectiveJobId);
+            onPlanCompleteRef.current?.(effectiveJobId);
           }
         }
       } catch {}
@@ -187,7 +236,7 @@ export function AgentChatView({
       clearInterval(pollInterval);
       eventSource.close();
     };
-  }, [status, effectiveJobId, cleanPlanId, onPlanComplete]);
+  }, [status, effectiveJobId, cleanPlanId]);
 
   const getMilestoneStatus = (stepNum: number) => {
     if (status === "completed" || status === "published" || status === "approved") return "completed";
@@ -331,150 +380,96 @@ export function AgentChatView({
     },
   ];
 
-  // Load chat history from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
-          return;
-        }
-      }
-    } catch {}
+  const isModificationInstruction = (text: string): boolean => {
+    const trimmed = text.trim();
+    const lower = trimmed.toLowerCase();
+    const isQuestion =
+      lower.startsWith("explain") ||
+      lower.startsWith("how") ||
+      lower.startsWith("what") ||
+      lower.startsWith("why") ||
+      lower.startsWith("analyze") ||
+      lower.startsWith("tell me") ||
+      lower.startsWith("summarize") ||
+      lower.startsWith("can you") ||
+      lower.startsWith("could you") ||
+      lower.startsWith("calculate") ||
+      lower.startsWith("compare") ||
+      lower.startsWith("evaluate") ||
+      lower.startsWith("show") ||
+      lower.endsWith("?");
 
-    // If we already have in-memory messages for this company session (e.g. during tempPlanId -> realPlanId handoff), keep them!
-    if (messagesRef.current.length > 0 && messagesRef.current[0].content.includes(companyName || "")) {
-      return;
-    }
+    const isExplicitTpChange =
+      /(?:update|change|set|raise|lower|revise|adjust)\s+(?:the\s+)?(?:target(?:\s+price)?|tp)\s+(?:to|=|is)\s*₹?\s*[0-9,]+/i.test(trimmed) ||
+      /^(?:target(?:\s+price)?|tp)\s*(?:to|=|is)\s*₹?\s*[0-9,]+/i.test(trimmed);
 
-    // Initial welcome message
-    const welcome: ChatMessage = {
-      id: "init_1",
-      role: "agent",
-      content: !companyName
-        ? `Hello! I am your **AI Research Agent**.\n\nSelect a company from your coverage universe on the left or click **New Research** to initiate an autonomous research note, extract company filings, and generate 5-year DCF models.`
-        : isUploadJob && status === "running"
-        ? `📄 **Document AI Extraction In Progress for ${companyName}**\n\nThe multi-agent document pipeline is currently parsing and extracting financial tables, balance sheets, and cash flows from your uploaded document.\n\n• **Status**: Live Statement Ingestion & Ratio Verification\n• **Live Sandbox**: Watch real-time execution steps and subagent milestones in the panel on the right.`
-        : `Hello! I am your **AI Research Agent** for **${companyName}**${ticker ? ` (${ticker})` : ""}.\n\nI have complete access to this company's financial model, DCF valuation, exchange filings, and research draft. You can chat with me, ask deep analytical questions, or instruct me to **update, fix, or modify** any part of the report in real time.`,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-    setMessages([welcome]);
-  }, [reportId, companyName, ticker, storageKey, isUploadJob, status]);
+    const isExplicitRatingChange =
+      /(?:update|change|set|revise)\s+(?:the\s+)?(?:rating|recommendation)\s+(?:to|=|is)\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed) ||
+      /(?:upgrade|downgrade)\s+(?:the\s+)?(?:rating|recommendation|stock)?\s*(?:to|=)?\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed) ||
+      /^(?:rating|recommendation)\s*(?:to|=|is)\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed);
 
-  // Save chat history
-  useEffect(() => {
-    if (typeof window === "undefined" || messages.length === 0) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(messages));
-    } catch {}
-  }, [messages, storageKey]);
+    const isExplicitWaccChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:wacc|discount\s+rate|cost\s+of\s+capital)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:wacc|discount\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    const isExplicitTgChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:terminal\s+growth(?:\s+rate)?|terminal\s+g)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:terminal\s+growth|terminal\s+g)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+    const isExplicitMarginChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:ebitda\s+margin|operating\s+margin|margin)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:ebitda\s+margin|margin)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+    const isExplicitGrowthChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:revenue\s+growth|sales\s+growth|growth\s+rate|topline\s+growth)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:revenue\s+growth|sales\s+growth|growth\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+    const isExplicitWcChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:dso|dio|dpo|working\s+capital|receivables?\s+days|inventory\s+days|payables?\s+days)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:dso|dio|dpo)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+    const isExplicitCapexChange =
+      /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:capex|capital\s+expenditure)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
+      /^(?:capex)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
+
+    const isExplicitRiskAddition =
+      /(?:add|append|insert)\s+(?:a\s+)?(?:new\s+)?(?:risk|threat|headwind)/i.test(trimmed);
+
+    const isExplicitSummaryEdit =
+      /(?:update|edit|rewrite|modify)\s+(?:the\s+)?(?:executive\s+)?(?:summary|thesis)/i.test(trimmed);
+
+    const isGeneralModifyCmd =
+      /(?:modify|patch|update)\s+(?:the\s+)?(?:report|dashboard|model|dcf|assumptions|drivers)/i.test(trimmed);
+
+    return (
+      !isQuestion &&
+      (isExplicitTpChange ||
+        isExplicitRatingChange ||
+        isExplicitWaccChange ||
+        isExplicitTgChange ||
+        isExplicitMarginChange ||
+        isExplicitGrowthChange ||
+        isExplicitWcChange ||
+        isExplicitCapexChange ||
+        isExplicitRiskAddition ||
+        isExplicitSummaryEdit ||
+        isGeneralModifyCmd)
+    );
+  };
 
   const handleSendMessage = async (customPrompt?: string) => {
     const textToSend = customPrompt || input.trim();
     if (!textToSend || loading) return;
 
-    const userMsg: ChatMessage = {
-      id: "msg_" + Math.random().toString(36).substring(2, 9),
-      role: "user",
-      content: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setLoading(true);
 
-    try {
-      if (!reportData) throw new Error("No active report loaded.");
+    // 1. Check if user instructed an explicit report modification
+    if (isModificationInstruction(textToSend)) {
+      if (!reportData) return;
+      setIsModifying(true);
+      setPreviousReportSnapshot(JSON.parse(JSON.stringify(reportData)));
 
-      const trimmed = textToSend.trim();
-      const lower = trimmed.toLowerCase();
-
-      // Check if user is asking an analytical/conversational question
-      const isQuestion =
-        lower.startsWith("explain") ||
-        lower.startsWith("how") ||
-        lower.startsWith("what") ||
-        lower.startsWith("why") ||
-        lower.startsWith("analyze") ||
-        lower.startsWith("tell me") ||
-        lower.startsWith("summarize") ||
-        lower.startsWith("can you") ||
-        lower.startsWith("could you") ||
-        lower.startsWith("calculate") ||
-        lower.startsWith("compare") ||
-        lower.startsWith("evaluate") ||
-        lower.startsWith("show") ||
-        lower.endsWith("?");
-
-      // Explicit modification instruction patterns:
-      const isExplicitTpChange =
-        /(?:update|change|set|raise|lower|revise|adjust)\s+(?:the\s+)?(?:target(?:\s+price)?|tp)\s+(?:to|=|is)\s*₹?\s*[0-9,]+/i.test(trimmed) ||
-        /^(?:target(?:\s+price)?|tp)\s*(?:to|=|is)\s*₹?\s*[0-9,]+/i.test(trimmed);
-
-      const isExplicitRatingChange =
-        /(?:update|change|set|revise)\s+(?:the\s+)?(?:rating|recommendation)\s+(?:to|=|is)\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed) ||
-        /(?:upgrade|downgrade)\s+(?:the\s+)?(?:rating|recommendation|stock)?\s*(?:to|=)?\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed) ||
-        /^(?:rating|recommendation)\s*(?:to|=|is)\s*(?:BUY|ACCUMULATE|HOLD|REDUCE|SELL)/i.test(trimmed);
-
-      const isExplicitWaccChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:wacc|discount\s+rate|cost\s+of\s+capital)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:wacc|discount\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitTgChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:terminal\s+growth(?:\s+rate)?|terminal\s+g)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:terminal\s+growth|terminal\s+g)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitMarginChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:ebitda\s+margin|operating\s+margin|margin)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:ebitda\s+margin|margin)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitGrowthChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:revenue\s+growth|sales\s+growth|growth\s+rate|topline\s+growth)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:revenue\s+growth|sales\s+growth|growth\s+rate)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitWcChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:dso|dio|dpo|working\s+capital|receivables?\s+days|inventory\s+days|payables?\s+days)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:dso|dio|dpo)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitCapexChange =
-        /(?:update|change|set|revise|adjust)\s+(?:the\s+)?(?:capex|capital\s+expenditure)\s*(?:to|=|is)?\s*[0-9.]+/i.test(trimmed) ||
-        /^(?:capex)\s*(?:to|=|is)\s*[0-9.]+/i.test(trimmed);
-
-      const isExplicitRiskAddition =
-        /(?:add|append|insert)\s+(?:a\s+)?(?:new\s+)?(?:risk|threat|headwind)/i.test(trimmed);
-
-      const isExplicitSummaryEdit =
-        /(?:update|edit|rewrite|modify)\s+(?:the\s+)?(?:executive\s+)?(?:summary|thesis)/i.test(trimmed);
-
-      const isGeneralModifyCmd =
-        /(?:modify|patch|update)\s+(?:the\s+)?(?:report|dashboard|model|dcf|assumptions|drivers)/i.test(trimmed);
-
-      const isModificationIntent =
-        !isQuestion && (
-          isExplicitTpChange ||
-          isExplicitRatingChange ||
-          isExplicitWaccChange ||
-          isExplicitTgChange ||
-          isExplicitMarginChange ||
-          isExplicitGrowthChange ||
-          isExplicitWcChange ||
-          isExplicitCapexChange ||
-          isExplicitRiskAddition ||
-          isExplicitSummaryEdit ||
-          isGeneralModifyCmd
-        );
-
-      if (isModificationIntent) {
-        setPreviousReportSnapshot(JSON.parse(JSON.stringify(reportData)));
-
+      try {
         const res = await fetch("/api/agent/modify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -487,171 +482,38 @@ export function AgentChatView({
 
         if (res.ok) {
           const data = await res.json();
-          // Only treat as report update if actual changes were applied
           if (data.updatedReport && data.appliedChanges && data.appliedChanges.length > 0) {
             onUpdateReportData(data.updatedReport);
-
-            const agentReply: ChatMessage = {
-              id: "msg_" + Math.random().toString(36).substring(2, 9),
-              role: "agent",
-              content: data.reply,
-              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              appliedChanges: data.appliedChanges,
-            };
-            setMessages((prev) => [...prev, agentReply]);
+            addCustomTurn(textToSend, data.reply, data.appliedChanges);
             return;
           }
         }
+      } catch (err) {
+        console.warn("[AgentChatView] Report modify failed, falling back to chat:", err);
+      } finally {
+        setIsModifying(false);
       }
-
-      // Provider/model preference only.
-      //
-      // SECURITY: this previously also read `equigen_<provider>_api_key` from
-      // localStorage and sent it to the server on every request. The settings page no
-      // longer writes keys there, and the server resolves the organisation's BYOK
-      // through `getDecryptedApiKey`, so no key needs to reach the browser at all.
-      // Non-secret preferences remain.
-      let userProvider: string | undefined;
-      let userModelName: string | undefined;
-      let userBaseUrl: string | undefined;
-      try {
-        if (typeof window !== "undefined") {
-          userProvider = localStorage.getItem("equigen_ai_provider") || undefined;
-          userModelName = localStorage.getItem("equigen_groq_model") || undefined;
-          userBaseUrl = localStorage.getItem("equigen_ollama_base_url") || undefined;
-        }
-      } catch {}
-
-      // Intentionally never read an API key from browser storage.
-      const userApiKey: undefined = undefined;
-
-      // Prepare the placeholder message for streaming tokens
-      const agentMsgId = "msg_" + Math.random().toString(36).substring(2, 9);
-      const agentPlaceholder: ChatMessage = {
-        id: agentMsgId,
-        role: "agent",
-        content: "",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setMessages((prev) => [...prev, agentPlaceholder]);
-
-      // General or analytical conversational query (ChatGPT style with streaming)
-      const chatRes = await fetch("/api/agent/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream, application/json",
-        },
-        body: JSON.stringify({
-          sessionId: reportId ? reportId.replace(/^rep_/, "") : "session-demo",
-          prompt: textToSend,
-          companyName,
-          ticker,
-          reportData,
-          currentPersona: "institutional",
-          provider: userProvider,
-          apiKey: userApiKey,
-          baseUrl: userBaseUrl,
-          modelName: userModelName,
-          stream: true,
-        }),
-      }).catch(() => null);
-
-      if (chatRes && chatRes.ok) {
-        const contentType = chatRes.headers.get("content-type") || "";
-
-        if (contentType.includes("text/event-stream") && chatRes.body) {
-          const reader = chatRes.body.getReader();
-          const decoder = new TextDecoder();
-          let accumulated = "";
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const blocks = buffer.split("\n\n");
-            buffer = blocks.pop() || "";
-
-            for (const block of blocks) {
-              const trimmed = block.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const jsonStr = trimmed.slice(5).trim();
-              if (!jsonStr) continue;
-              try {
-                const ev = JSON.parse(jsonStr);
-                if (ev.type === "delta" && typeof ev.text === "string") {
-                  accumulated += ev.text;
-                  setMessages((prev) =>
-                    prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: accumulated } : msg))
-                  );
-                } else if (ev.type === "error") {
-                  accumulated += (accumulated ? "\n\n" : "") + `⚠️ **Error**: ${ev.error}`;
-                  setMessages((prev) =>
-                    prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: accumulated } : msg))
-                  );
-                }
-              } catch {}
-            }
-          }
-
-          if (!accumulated.trim()) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === agentMsgId ? { ...msg, content: "Analysis processed." } : msg
-              )
-            );
-          }
-          return;
-        }
-
-        // Fallback for non-streaming JSON responses
-        const data = await chatRes.json();
-        const replyText = data.response || data.reply || "Analysis processed.";
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: replyText } : msg))
-        );
-        return;
-      } else {
-        const errorData = chatRes ? await chatRes.json().catch(() => null) : null;
-        const serverMsg = errorData?.response || errorData?.message || `Server returned HTTP ${chatRes?.status || "error"}`;
-        const errorNotice = `⚠️ **Research Service Notice**: ${serverMsg}. In accordance with strict financial data integrity standards, unverified estimates or synthetic responses are suppressed.`;
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === agentMsgId ? { ...msg, content: errorNotice } : msg))
-        );
-      }
-    } catch {
-      const errMsg = `⚠️ **Connection Error**: Unable to reach the EquiGen AI research engine. To guarantee financial accuracy, unverified placeholder estimates are disabled. Please check your network connectivity or API configuration.`;
-      setMessages((prev) => {
-        const hasPlaceholder = prev.some((m) => m.role === "agent" && !m.content);
-        if (hasPlaceholder) {
-          return prev.map((m) => (m.role === "agent" && !m.content ? { ...m, content: errMsg } : m));
-        }
-        return [
-          ...prev,
-          {
-            id: "msg_err_" + Date.now(),
-            role: "agent",
-            content: errMsg,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ];
-      });
-    } finally {
-      setLoading(false);
     }
+
+    // 2. Multi-turn streaming chat via centralized AI engine
+    await sendPrompt(textToSend);
+  };
+
+  const handleSaveEdit = async (nodeId: string) => {
+    if (!editingContent.trim() || isStreaming) return;
+    const content = editingContent.trim();
+    setEditingNodeId(null);
+    setEditingContent("");
+    await editUserMessage(nodeId, content);
   };
 
   const handleUndoModification = () => {
     if (previousReportSnapshot) {
       onUpdateReportData(previousReportSnapshot);
-      const undoMsg: ChatMessage = {
-        id: "undo_" + Date.now(),
-        role: "agent",
-        content: `↩️ Undid previous report modifications. Canvas restored to prior state.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setMessages((prev) => [...prev, undoMsg]);
+      addCustomTurn(
+        "Undo previous modification",
+        "↩️ Undid previous report modifications. Canvas restored to prior state.",
+      );
       setPreviousReportSnapshot(null);
     }
   };
@@ -662,20 +524,6 @@ export function AgentChatView({
       setCopiedMessageId(msgId);
       setTimeout(() => setCopiedMessageId(null), 2000);
     }
-  };
-
-  const handleClearHistory = () => {
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {}
-    setMessages([
-      {
-        id: "reset_" + Date.now(),
-        role: "agent",
-        content: `Chat history reset for **${companyName}**. Ready for your analysis or report modification commands.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      },
-    ]);
   };
 
   return (
@@ -799,11 +647,16 @@ export function AgentChatView({
           {/* Jump to Full Report */}
           <button
             onClick={onSwitchToReport}
-            className="flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-[#FAF8F5] text-[#1A1917] rounded-xl text-xs font-bold transition-all border border-[#DDD9CE] shadow-2xs"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+              status === "completed" || status === "published" || status === "approved" || status === "pending_review" || liveStepIndex >= 6
+                ? "bg-[#1A1917] hover:bg-[#2C2A26] text-white ring-2 ring-amber-400/30"
+                : "bg-white hover:bg-[#FAF8F5] text-[#1A1917] border border-[#DDD9CE]"
+            }`}
+            title="Inspect completed equity research report, financial model, and disclosures"
           >
-            <FileText className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Report</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-[#7A7569]" />
+            <FileText className={`w-3.5 h-3.5 ${status === "completed" || status === "published" || status === "approved" || status === "pending_review" || liveStepIndex >= 6 ? "text-amber-400" : ""}`} />
+            <span>{status === "completed" || status === "published" || status === "approved" || status === "pending_review" || liveStepIndex >= 6 ? "View Full Report" : "Report"}</span>
+            <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
           </button>
 
           {/* Reset Chat */}
@@ -829,7 +682,11 @@ export function AgentChatView({
             }`}
           >
             {/* Message Stream */}
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 select-text min-w-0">
+            <div
+              ref={chatScrollContainerRef}
+              onScroll={handleChatScroll}
+              className="flex-1 overflow-y-auto px-5 py-5 space-y-5 select-text min-w-0"
+            >
               <div className={`${
                 activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
               } mx-auto space-y-5 w-full min-w-0`}>
@@ -963,103 +820,226 @@ export function AgentChatView({
                 )}
 
                 {/* Messages */}
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex items-start gap-3 w-full min-w-0 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-                  >
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-2xs select-none ${
-                        m.role === "user"
-                          ? "bg-[#1A1917] text-white font-bold text-xs"
-                          : "bg-[#FFFFFF] border border-[#E0DCD3] text-black"
-                      }`}
-                    >
-                      {m.role === "user" ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-amber-600" />}
-                    </div>
+                {messages.map((m: ChatNode) => {
+                  const branch = getBranchInfo(m.id);
+                  const isUser = m.role === "user";
+                  const isEditingThis = editingNodeId === m.id;
 
-                    <div className="max-w-[88%] min-w-0 space-y-1.5 select-text">
+                  return (
+                    <div
+                      key={m.id}
+                      className={`group flex items-start gap-3 w-full min-w-0 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+                    >
                       <div
-                        className={`rounded-2xl p-3.5 leading-relaxed text-xs select-text cursor-text break-words [overflow-wrap:anywhere] overflow-hidden selection:bg-[#F59E0B]/30 selection:text-[#1A1917] ${
-                          m.role === "user"
-                            ? "bg-[#1A1917] text-white font-medium selection:bg-white/30 selection:text-white"
-                            : "bg-[#FAF8F5] border border-[#E3DFD5] text-[#1A1917] shadow-2xs"
+                        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-2xs select-none ${
+                          isUser
+                            ? "bg-[#1A1917] text-white font-bold text-xs"
+                            : "bg-[#FFFFFF] border border-[#E0DCD3] text-black"
                         }`}
                       >
-                        {m.content ? (
-                          <FormattedChatMessage content={m.content} isUser={m.role === "user"} />
-                        ) : (
-                          <div className="flex items-center gap-2 text-stone-500 py-1">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600 shrink-0" />
-                            <span className="italic text-[11px] animate-pulse">Formulating institutional analysis...</span>
-                          </div>
-                        )}
+                        {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-amber-600" />}
                       </div>
 
-                      {/* Live Report Updated Card */}
-                      {m.appliedChanges && m.appliedChanges.length > 0 && (
-                        <div className="p-3 bg-emerald-50/80 border border-emerald-300 rounded-xl space-y-1.5 shadow-2xs select-text">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              Live Report Updated
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              {previousReportSnapshot && (
-                                <button
-                                  onClick={handleUndoModification}
-                                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-emerald-300 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100 transition-colors"
-                                >
-                                  <Undo2 className="w-3 h-3" />
-                                  <span>Undo</span>
-                                </button>
-                              )}
+                      <div className={`max-w-[88%] min-w-0 space-y-1.5 select-text ${isUser ? "items-end" : "items-start"}`}>
+                        {/* Message Bubble or Inline Editor */}
+                        {isEditingThis ? (
+                          <div className="p-3 bg-[#FAF8F5] border-2 border-[#1A1917] rounded-2xl shadow-sm space-y-2 w-full min-w-[280px]">
+                            <textarea
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSaveEdit(m.id);
+                                }
+                                if (e.key === "Escape") {
+                                  setEditingNodeId(null);
+                                  setEditingContent("");
+                                }
+                              }}
+                              className="w-full bg-white text-xs text-[#1A1917] p-2 rounded-xl border border-[#DDD9CE] focus:outline-none focus:border-[#1A1917] resize-none min-h-[64px]"
+                              autoFocus
+                            />
+                            <div className="flex items-center justify-end gap-1.5 text-xs">
                               <button
-                                onClick={onSwitchToReport}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-700 text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors shadow-2xs"
+                                onClick={() => {
+                                  setEditingNodeId(null);
+                                  setEditingContent("");
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-[#EFECE6] hover:bg-[#E5E1D7] text-[#59554A] font-medium transition-colors"
                               >
-                                <span>Inspect</span>
-                                <ArrowUpRight className="w-3 h-3" />
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSaveEdit(m.id)}
+                                disabled={!editingContent.trim() || isStreaming}
+                                className="px-3 py-1 rounded-lg bg-[#1A1917] hover:bg-[#2C2A26] text-white font-bold disabled:opacity-40 transition-colors shadow-2xs"
+                              >
+                                Save &amp; Submit
                               </button>
                             </div>
                           </div>
-
-                          <div className="space-y-0.5 pt-1 border-t border-emerald-200">
-                            {m.appliedChanges.map((c, idx) => (
-                              <div key={idx} className="text-[11px] font-mono text-emerald-950 flex items-start gap-1">
-                                <span className="font-bold text-emerald-800">• {c.field}:</span>
-                                <span>{String(c.to)}</span>
+                        ) : (
+                          <div
+                            className={`rounded-2xl p-3.5 leading-relaxed text-xs select-text cursor-text break-words [overflow-wrap:anywhere] overflow-hidden selection:bg-[#F59E0B]/30 selection:text-[#1A1917] ${
+                              isUser
+                                ? "bg-[#1A1917] text-white font-medium selection:bg-white/30 selection:text-white"
+                                : "bg-[#FAF8F5] border border-[#E3DFD5] text-[#1A1917] shadow-2xs"
+                            }`}
+                          >
+                            {m.content ? (
+                              <FormattedChatMessage content={m.content} isUser={isUser} />
+                            ) : (
+                              <div className="flex items-center gap-2 text-stone-500 py-1">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600 shrink-0" />
+                                <span className="italic text-[11px] animate-pulse">Formulating institutional analysis...</span>
                               </div>
-                            ))}
+                            )}
+                          </div>
+                        )}
+
+                        {/* Live Report Updated Card */}
+                        {m.appliedChanges && m.appliedChanges.length > 0 && (
+                          <div className="p-3 bg-emerald-50/80 border border-emerald-300 rounded-xl space-y-1.5 shadow-2xs select-text">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                Live Report Updated
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {previousReportSnapshot && (
+                                  <button
+                                    onClick={handleUndoModification}
+                                    className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-emerald-300 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100 transition-colors"
+                                  >
+                                    <Undo2 className="w-3 h-3" />
+                                    <span>Undo</span>
+                                  </button>
+                                )}
+                                <button
+                                  onClick={onSwitchToReport}
+                                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-700 text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors shadow-2xs"
+                                >
+                                  <span>Inspect</span>
+                                  <ArrowUpRight className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-0.5 pt-1 border-t border-emerald-200">
+                              {(m.appliedChanges || []).map((c: { field: string; to: unknown }, idx: number) => (
+                                <div key={idx} className="text-[11px] font-mono text-emerald-950 flex items-start gap-1">
+                                  <span className="font-bold text-emerald-800">• {c.field}:</span>
+                                  <span>{String(c.to)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Message Toolbar: Branching, Status, Copy, Edit, Regenerate */}
+                        <div
+                          className={`flex items-center gap-2 text-[10px] text-[#9C978B] font-mono ${
+                            isUser ? "justify-end" : "justify-between"
+                          } px-1`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{m.timestamp}</span>
+
+                            {/* Branching Navigator (< 1 / 2 >) */}
+                            {branch.totalVersions > 1 && (
+                              <div className="flex items-center gap-0.5 bg-[#EFECE6] px-1.5 py-0.5 rounded-md border border-[#DDD9CE] text-[#59554A] font-bold select-none">
+                                <button
+                                  type="button"
+                                  disabled={!branch.hasPrevious}
+                                  onClick={() => switchBranch(m.id, "prev")}
+                                  className="p-0.5 hover:text-[#1A1917] disabled:opacity-25 transition-colors"
+                                  title="Previous version"
+                                >
+                                  <ChevronLeft className="w-3 h-3" />
+                                </button>
+                                <span className="px-0.5">
+                                  {branch.currentIndex + 1}/{branch.totalVersions}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={!branch.hasNext}
+                                  onClick={() => switchBranch(m.id, "next")}
+                                  className="p-0.5 hover:text-[#1A1917] disabled:opacity-25 transition-colors"
+                                  title="Next version"
+                                >
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Stopped Badge */}
+                            {m.status === "stopped" && (
+                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] rounded-md border border-amber-200 font-bold uppercase">
+                                Stopped
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {/* User Edit Button */}
+                            {isUser && !isEditingThis && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingNodeId(m.id);
+                                  setEditingContent(m.content);
+                                }}
+                                disabled={isStreaming}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#EFECE6] text-[#7A7569] hover:text-[#1A1917] transition-all opacity-0 group-hover:opacity-100 disabled:opacity-0"
+                                title="Edit message"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                                <span className="hidden sm:inline">Edit</span>
+                              </button>
+                            )}
+
+                            {/* Agent Regenerate Button */}
+                            {!isUser && m.content && (
+                              <button
+                                type="button"
+                                onClick={() => regenerateMessage(m.id)}
+                                disabled={isStreaming}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#EFECE6] text-[#7A7569] hover:text-[#1A1917] transition-all opacity-0 group-hover:opacity-100 disabled:opacity-40"
+                                title="Regenerate alternative answer"
+                              >
+                                <RotateCw className="w-3 h-3" />
+                                <span className="hidden sm:inline">Retry</span>
+                              </button>
+                            )}
+
+                            {/* Copy Button */}
+                            {m.content && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMarkdown(m.id, m.content)}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#EFECE6] text-[#7A7569] hover:text-[#1A1917] transition-all"
+                                title="Copy markdown"
+                              >
+                                {copiedMessageId === m.id ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                                    <span className="text-emerald-700 font-bold">Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span className="hidden sm:inline">Copy</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
-                      )}
-
-                      <div className={`flex items-center gap-2 text-[10px] text-[#9C978B] font-mono ${m.role === "user" ? "justify-end" : "justify-between"} px-1`}>
-                        <span>{m.timestamp}</span>
-                        {m.role === "agent" && (
-                          <button
-                            onClick={() => handleCopyMarkdown(m.id, m.content)}
-                            className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#EFECE6] text-[#7A7569] hover:text-[#1A1917] transition-all"
-                            title="Copy response markdown"
-                          >
-                            {copiedMessageId === m.id ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
-                                <span className="text-emerald-700 font-bold">Copied!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                <span>Copy</span>
-                              </>
-                            )}
-                          </button>
-                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {loading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
                   <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#FAF8F5] border border-[#E3DFD5] w-fit shadow-2xs">
@@ -1072,9 +1052,21 @@ export function AgentChatView({
 
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* Floating Jump to Latest Button */}
+              {userScrolledUp && (
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="sticky bottom-2 mx-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1A1917] text-white text-xs font-bold shadow-lg hover:bg-[#2C2A26] transition-all z-20"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>Scroll to latest</span>
+                </button>
+              )}
             </div>
 
-            {/* Bottom Composer */}
+            {/* Bottom Composer with Stop Control */}
             <div className="p-4 border-t border-[#E3DFD5] bg-[#FFFFFF] shrink-0">
               <div className={`${
                 activeStudioTab === "chat" ? "max-w-4xl" : "max-w-2xl"
@@ -1089,28 +1081,52 @@ export function AgentChatView({
                   <textarea
                     ref={textareaRef}
                     rows={1}
-                    placeholder={`Ask anything or command agent to modify ${companyName}...`}
+                    placeholder={
+                      isStreaming
+                        ? "AI is streaming response... (Click Stop or press Esc to cancel)"
+                        : `Ask anything or command agent to modify ${companyName || "the report"}...`
+                    }
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleSendMessage();
+                        if (isStreaming) {
+                          stopGeneration();
+                        } else {
+                          handleSendMessage();
+                        }
                       }
                     }}
-                    disabled={loading}
+                    disabled={isModifying}
                     className="w-full bg-transparent px-3 py-1.5 text-xs text-[#1A1917] placeholder-[#8C877D] focus:outline-none resize-none min-h-[38px]"
                   />
-                  <button
-                    type="submit"
-                    disabled={!input.trim() || loading}
-                    className="p-2 rounded-lg bg-[#1A1917] hover:bg-[#2C2A26] disabled:opacity-40 text-white transition-all shadow-2xs ml-1 shrink-0 self-end mb-0.5"
-                  >
-                    <Send className="w-3.5 h-3.5 stroke-[2.5]" />
-                  </button>
+
+                  {/* Dynamic Action Button: Stop if streaming, Send if idle */}
+                  {isStreaming ? (
+                    <button
+                      type="button"
+                      onClick={stopGeneration}
+                      className="p-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-2xs ml-1 shrink-0 self-end mb-0.5 flex items-center gap-1.5 animate-pulse"
+                      title="Stop generating (Esc)"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-white" />
+                      <span className="text-[10px] font-bold hidden sm:inline">Stop</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || loading}
+                      className="p-2 rounded-lg bg-[#1A1917] hover:bg-[#2C2A26] disabled:opacity-40 text-white transition-all shadow-2xs ml-1 shrink-0 self-end mb-0.5"
+                      title="Send message (Enter)"
+                    >
+                      <Send className="w-3.5 h-3.5 stroke-[2.5]" />
+                    </button>
+                  )}
                 </form>
+
                 <div className="flex items-center justify-between text-[10px] text-[#9C978B] px-1">
-                  <span>Context: Audited statements, DCF model, exchange disclosures</span>
+                  <span>Context: Audited statements, DCF model, exchange disclosures · Press Esc to Stop</span>
                   <Link href="/settings?tab=keys" className="hover:text-[#1A1917] flex items-center gap-1">
                     <Key className="w-2.5 h-2.5" />
                     <span>BYOK Keys</span>

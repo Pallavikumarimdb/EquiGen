@@ -105,6 +105,7 @@ export function CopilotDrawer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: textToSend,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
           companyName,
           ticker,
           currentPersona,

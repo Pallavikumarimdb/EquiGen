@@ -164,13 +164,14 @@ export function CopilotPanel({
         }
       }
 
-      // Standard conversational analytics query
+      // Standard conversational analytics query with multi-turn context
       const chatRes = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId: reportId ? reportId.replace(/^rep_/, "") : "session-demo",
           prompt: textToSend,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
           companyName,
           ticker,
           reportData,

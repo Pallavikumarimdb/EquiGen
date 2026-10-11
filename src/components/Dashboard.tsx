@@ -187,19 +187,40 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         });
       }
 
-      // Deduplicate items by normalized ID
-      const seenIds = new Set<string>();
-      const uniqueItems: DashboardHistoryItem[] = [];
+      // Helper to check whether an item has actual parsed report data vs a bare skeleton
+      const isRichItem = (it: DashboardHistoryItem) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rd = it.reportData as any;
+        if (!rd) return false;
+        return Boolean(
+          (Array.isArray(rd.sections) && rd.sections.length > 0) ||
+          (typeof rd.executiveSummary === "string" && rd.executiveSummary.trim().length > 0) ||
+          rd.companyData?.pe != null ||
+          rd.recommendation?.targetPrice != null ||
+          it.status === "completed" ||
+          it.status === "pending_review" ||
+          it.status === "approved" ||
+          it.status === "published"
+        );
+      };
+
+      // Deduplicate items by normalized ID, prioritizing real reports over skeleton placeholders
+      const uniqueMap = new Map<string, DashboardHistoryItem>();
 
       for (const item of items) {
         const cleanId = item.id.replace(/^rep_/, "");
-        if (!seenIds.has(cleanId) && !seenIds.has(item.id)) {
-          seenIds.add(cleanId);
-          seenIds.add(item.id);
-          seenIds.add(`rep_${cleanId}`);
-          uniqueItems.push(item);
+        const existing = uniqueMap.get(cleanId);
+        if (!existing) {
+          uniqueMap.set(cleanId, item);
+        } else {
+          // If existing is a bare skeleton but new candidate is a rich report, replace it
+          if (!isRichItem(existing) && isRichItem(item)) {
+            uniqueMap.set(cleanId, item);
+          }
         }
       }
+
+      const uniqueItems = Array.from(uniqueMap.values());
 
       // If coverage universe is completely empty (all reports were deleted or DB reset)
       if (uniqueItems.length === 0) {
@@ -235,7 +256,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             setActiveReportId(cleanExistingId);
           }
           setActiveReportStatus(existing.status || "published");
-          if (existing.reportData) {
+          if (existing.reportData && (isRichItem(existing) || !reportData || !isRichItem({ reportData } as DashboardHistoryItem))) {
             setReportData(existing.reportData);
           }
           if (existing.companyName) {
@@ -873,6 +894,19 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
+  const handlePlanComplete = useCallback((completedJobId?: string) => {
+    void completedJobId;
+    fetchHistory(false);
+    showToast("Autonomous research completed! Full research note is ready.", "success");
+  }, []);
+
+  const handleSwitchToReport = useCallback(() => {
+    setActiveViewMode("report");
+    if (activeReportId) {
+      syncUrl(activeReportId.replace(/^rep_/, ""), "report");
+    }
+  }, [activeReportId, syncUrl]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-[#F6F4EE] text-[#1A1917] antialiased font-sans overflow-hidden">
       {/* ── Top Command Bar ─────────────────────────────────────────────── */}
@@ -976,8 +1010,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               reportData={reportData}
               status={activeReportStatus}
               onUpdateReportData={handleUpdateReportData}
-              onSwitchToReport={() => setActiveViewMode("report")}
-              onPlanComplete={() => fetchHistory(false)}
+              onSwitchToReport={handleSwitchToReport}
+              onPlanComplete={handlePlanComplete}
               onStopAgent={() => handleStopProcess(undefined, activeReportId || undefined)}
             />
           </main>

@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     const {
       sessionId,
       prompt,
+      history,
       provider,
       apiKey,
       modelName,
@@ -50,20 +51,32 @@ export async function POST(req: NextRequest) {
     const validatedBaseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim().length > 0 ? body.baseUrl.trim() : undefined;
     const validatedModelName = typeof modelName === "string" && modelName.trim().length > 0 ? modelName.trim() : undefined;
 
-    // 1. If a valid DB ResearchSession exists, try agent orchestrator first
+    // Validate & sanitize incoming conversation history turns
+    const validatedHistory = Array.isArray(history)
+      ? history
+          .filter(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (h: any) =>
+              h &&
+              typeof h === "object" &&
+              typeof h.content === "string" &&
+              h.content.trim().length > 0 &&
+              (h.role === "user" || h.role === "agent" || h.role === "assistant" || h.role === "system")
+          )
+          .map((h: { role: "user" | "agent" | "assistant" | "system"; content: string }) => ({
+            role: h.role,
+            content: h.content.slice(0, 15000),
+          }))
+      : undefined;
+
+    // Resolve active ResearchSession if valid in database
+    let dbSession = null;
     if (sessionId && !sessionId.startsWith("session-demo") && !sessionId.startsWith("rep_")) {
-      const dbSession = await prisma.researchSession.findUnique({
+      dbSession = await prisma.researchSession.findUnique({
         where: { id: sessionId },
       }).catch(() => null);
 
       if (dbSession) {
-        // SECURITY: `orgId === "default-org"` was treated as a wildcard, and any
-        // `default-org` member could therefore drive the agent against ANY tenant's
-        // session. `/api/auth/demo` used to mint exactly that membership
-        // unauthenticated, chaining into cross-tenant report mutation: the agent
-        // reads the linked report, writes conversation messages, and auto-applies
-        // pending correction proposals on approval intent.
-        // `canAccessTenantRecord` also denies null-org legacy rows to ordinary users.
         const hasAccess = canAccessTenantRecord(session, dbSession);
         if (!hasAccess) {
           return NextResponse.json(
@@ -71,34 +84,47 @@ export async function POST(req: NextRequest) {
             { status: 403 },
           );
         }
-        {
-          try {
-            const result = await agentOrchestrator.handleAgentTurn(sessionId, cleanPrompt, {
-              provider: (validatedProvider as "groq" | "openai") || "groq",
-              apiKey: validatedApiKey,
-              modelName: validatedModelName,
-            });
 
-            if (result && result.response) {
-              return NextResponse.json({
-                success: true,
-                response: result.response,
-                forkedReportId: result.forkedReportId || null,
-                correctionsApplied: result.correctionsApplied || false,
-                visitedUrls: [],
-              });
-            }
-          } catch (orchErr) {
-            console.warn("[Chat API] agentOrchestrator failed, falling back to centralized AI:", orchErr);
-          }
-        }
+        // Persist user prompt to DB session
+        await prisma.conversationMessage.create({
+          data: {
+            sessionId: dbSession.id,
+            role: "user",
+            content: cleanPrompt,
+          },
+        }).catch((err) => console.warn("[Chat API] Failed to log user message:", err));
       }
     }
 
-    // 2. Execute via Centralized AI Client (Single source of truth for models, budget & API keys)
+    // 1. If a valid DB ResearchSession exists and no custom history is provided, try agent orchestrator
+    if (dbSession && (!validatedHistory || validatedHistory.length === 0)) {
+      try {
+        const result = await agentOrchestrator.handleAgentTurn(sessionId, cleanPrompt, {
+          provider: (validatedProvider as "groq" | "openai") || "groq",
+          apiKey: validatedApiKey,
+          modelName: validatedModelName,
+        });
+
+        if (result && result.response) {
+          return NextResponse.json({
+            success: true,
+            response: result.response,
+            forkedReportId: result.forkedReportId || null,
+            correctionsApplied: result.correctionsApplied || false,
+            visitedUrls: [],
+          });
+        }
+      } catch (orchErr) {
+        console.warn("[Chat API] agentOrchestrator failed, falling back to centralized AI:", orchErr);
+      }
+    }
+
+    // 2. Execute via Centralized AI Client with full multi-turn context
     const rec = reportData?.recommendation;
     const chatParams = {
       prompt: cleanPrompt,
+      history: validatedHistory,
+      signal: req.signal,
       provider: validatedProvider,
       apiKey: validatedApiKey,
       baseUrl: validatedBaseUrl,
@@ -117,20 +143,53 @@ export async function POST(req: NextRequest) {
     if (wantsStream) {
       const generator = executeCentralizedAIChatStream(chatParams);
       const encoder = new TextEncoder();
+      let accumulatedReply = "";
+
       const readableStream = new ReadableStream({
         async start(controller) {
+          const onAbort = () => {
+            try {
+              controller.close();
+            } catch {}
+          };
+
+          if (req.signal.aborted) {
+            onAbort();
+            return;
+          }
+
+          req.signal.addEventListener("abort", onAbort, { once: true });
+
           try {
             for await (const event of generator) {
+              if (req.signal.aborted) break;
+              if (event.type === "delta" && typeof event.text === "string") {
+                accumulatedReply += event.text;
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
             }
             controller.close();
           } catch (err: unknown) {
-            console.error("[Chat API Stream Error]:", err);
-            const errMsg = err instanceof Error ? err.message : "Chat streaming failed";
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: "error", error: errMsg })}\n\n`)
-            );
+            if (!req.signal.aborted) {
+              console.error("[Chat API Stream Error]:", err);
+              const errMsg = err instanceof Error ? err.message : "Chat streaming failed";
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "error", error: errMsg })}\n\n`)
+              );
+            }
             controller.close();
+          } finally {
+            req.signal.removeEventListener("abort", onAbort);
+            // Persist agent response turn (even if interrupted) if session exists
+            if (dbSession && accumulatedReply.trim().length > 0) {
+              await prisma.conversationMessage.create({
+                data: {
+                  sessionId: dbSession.id,
+                  role: "agent",
+                  content: accumulatedReply.trim(),
+                },
+              }).catch(() => null);
+            }
           }
         },
       });
@@ -146,6 +205,16 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await executeCentralizedAIChat(chatParams);
+
+    if (dbSession && result.content.trim().length > 0) {
+      await prisma.conversationMessage.create({
+        data: {
+          sessionId: dbSession.id,
+          role: "agent",
+          content: result.content.trim(),
+        },
+      }).catch(() => null);
+    }
 
     return NextResponse.json({
       success: true,
@@ -168,6 +237,56 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 },
     );
+  }
+}
+
+/**
+ * GET /api/agent/chat?sessionId=...
+ * Retrieves persistent conversation history for a given ResearchSession.
+ */
+export async function GET(req: NextRequest) {
+  const guard = await requireTenantSession(req);
+  if (isTenantFailure(guard)) return guard.response;
+  const session = guard;
+
+  try {
+    const url = new URL(req.url);
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId || sessionId.startsWith("session-demo") || sessionId.startsWith("rep_")) {
+      return NextResponse.json({ messages: [] });
+    }
+
+    const dbSession = await prisma.researchSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        messages: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }).catch(() => null);
+
+    if (!dbSession) {
+      return NextResponse.json({ messages: [] });
+    }
+
+    if (!canAccessTenantRecord(session, dbSession)) {
+      return NextResponse.json(
+        { message: "Forbidden. Access to this research session is restricted." },
+        { status: 403 },
+      );
+    }
+
+    const formattedMessages = dbSession.messages.map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "agent",
+      content: m.content,
+      timestamp: m.createdAt.toISOString(),
+    }));
+
+    return NextResponse.json({ messages: formattedMessages });
+  } catch (err) {
+    console.error("[Chat API GET Error]:", err);
+    return NextResponse.json({ messages: [] });
   }
 }
 

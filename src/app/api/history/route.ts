@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import {
@@ -82,9 +82,12 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Also fetch active/recent ResearchPlan records (including running, failed, approved) for this user/org
+    // Only fetch genuinely active/in-progress ResearchPlan records (running, approved, pending)
     const activePlans = await prisma.researchPlan.findMany({
-      where: planWhere,
+      where: {
+        ...planWhere,
+        status: { in: ["running", "pending", "approved", "throttled"] },
+      },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -112,7 +115,10 @@ export async function GET(req: NextRequest) {
 
     // Also fetch active/recent ExtractionJob records for this user/org
     const activeJobs = await prisma.extractionJob.findMany({
-      where: jobWhere,
+      where: {
+        ...jobWhere,
+        status: { in: ["running", "pending", "throttled"] },
+      },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -155,7 +161,15 @@ export async function GET(req: NextRequest) {
       }));
 
     const activePlanItems = activePlans
-      .filter((p) => !existingReportIds.has(p.id) && !existingReportIds.has(`rep_${p.id}`) && !existingCleanIds.has(p.id))
+      .filter((p) => {
+        const cleanPId = p.id.replace(/^plan_/, "").replace(/^rep_/, "");
+        return (
+          !existingReportIds.has(p.id) &&
+          !existingReportIds.has(`rep_${p.id}`) &&
+          !existingCleanIds.has(p.id) &&
+          !existingCleanIds.has(cleanPId)
+        );
+      })
       .map((p) => ({
         id: p.id,
         companyName: p.companyName || p.ticker || "Target Company",
@@ -178,7 +192,8 @@ export async function GET(req: NextRequest) {
         createdAt: p.createdAt.toISOString(),
       }));
 
-    const combined = [...activeJobItems, ...activePlanItems, ...reports];
+    // Authoritative persisted reports first, followed by running jobs and plans
+    const combined = [...reports, ...activeJobItems, ...activePlanItems];
     return NextResponse.json(combined);
   } catch (error) {
     console.error("Failed to fetch history (returning empty list fallback):", error);
