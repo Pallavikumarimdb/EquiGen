@@ -135,6 +135,94 @@ flowchart LR
 
 ---
 
+## 🧠 LLM Multi-Provider Architecture & Model Hub
+
+EquiGen employs a multi-tiered, provider-agnostic LLM routing architecture designed for speed, budget elasticity, regulatory data integrity, and privacy. To balance high-velocity inference with zero-cost accessibility and institutional-grade reasoning, the system supports three operational tiers:
+
+```mermaid
+graph TD
+    UserReq[Research Milestone / Copilot Request] --> PreFlight{Pre-Flight Budget & Size Check<br/>model-router.ts}
+    
+    subgraph Tier1 ["Tier 1: Cloud Freemium (Default)"]
+        GroqPrimary["Groq LPU: openai/gpt-oss-120b<br/>(Primary Synthesis & Planning)"]
+        GroqBulk["Groq LPU: openai/gpt-oss-20b<br/>(Bulk Extraction & High-TPD Chunks)"]
+        GroqVision["Groq LPU: llama-3.2-11b-vision-preview<br/>(Table / Chart OCR)"]
+        ORFree["OpenRouter: openrouter/free<br/>meta-llama/llama-3.3-70b-instruct:free<br/>(High-Context Fallback >8k tokens)"]
+    end
+    
+    subgraph Tier2 ["Tier 2: Local & Air-Gapped (Zero Cost, No Rate Limits)"]
+        OllamaLocal["Ollama Local Instance (http://localhost:11434/v1)<br/>llama3.3 | qwen2.5:32b | deepseek-r1:14b"]
+    end
+    
+    subgraph Tier3 ["Tier 3: Institutional Paid BYOK"]
+        ClaudeSonnet["Anthropic Claude 3.5 Sonnet / Haiku<br/>(@langchain/anthropic)"]
+        OpenAIPrimary["OpenAI GPT-4o / GPT-4o-mini<br/>(@langchain/openai)"]
+    end
+    
+    PreFlight -->|Local Configured| OllamaLocal
+    PreFlight -->|BYOK Claude| ClaudeSonnet
+    PreFlight -->|BYOK OpenAI| OpenAIPrimary
+    PreFlight -->|Normal Cloud Path| GroqPrimary
+    PreFlight -->|Prompt > 8,000 tokens| ORFree
+    GroqPrimary -->|429 Rate Limit / TPD Exhausted| GroqBulk
+    GroqBulk -->|Groq Failover| ORFree
+```
+
+### 1. Provider Tiers & Supported Models
+
+| Tier | Provider | Model ID | Primary Role & Allocation | Context / Quota Profile |
+| :--- | :--- | :--- | :--- | :--- |
+| **Cloud Freemium** | **Groq LPU** | `openai/gpt-oss-120b` | Primary Report Synthesis, Master Planning, Concall Q&A, SEBI Compliance Audit | 8k TPM ceiling, ~97k TPD daily quota |
+| **Cloud Freemium** | **Groq LPU** | `openai/gpt-oss-20b` | High-throughput parallel PDF chunk extraction, financial statement pre-parsing | 8k TPM ceiling, 1,000,000 TPD daily quota |
+| **Cloud Freemium** | **Groq LPU** | `llama-3.2-11b-vision-preview` | Multi-modal OCR for scanned filing pages, balance sheet graphics, and charts | Vision-enabled, high-speed table extraction |
+| **Cloud Freemium** | **OpenRouter** | `openrouter/free` | Copilot conversational turns, dynamic free model pool switching | Automated zero-cost router |
+| **Cloud Freemium** | **OpenRouter** | `meta-llama/llama-3.3-70b-instruct:free` | High-context fallback when prompt exceeds Groq's 8,000 token ceiling | 128k context window, avoids HTTP 413 |
+| **Local / Offline** | **Ollama** | `llama3.3`, `qwen2.5:32b`, `deepseek-r1:14b` | Private, confidential on-premise execution; zero API keys, infinite TPM/TPD | Hardware-dependent, OpenAI-compatible API (`/v1`) |
+| **Paid BYOK** | **Anthropic** | `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022` | Institutional-grade equity research notes, complex multi-segment breakdown | 200k context, state-of-the-art financial reasoning |
+| **Paid BYOK** | **OpenAI** | `gpt-4o`, `gpt-4o-mini` | Enterprise institutional deployment via Azure or OpenAI BYOK keys | High throughput, deterministic structured output |
+
+### 2. Subagent Model Mapping & Architectural Justification
+
+Every agent in the swarm is mapped to a model chosen specifically for its operational profile:
+
+1. **`MasterPlannerAgent` (`src/lib/ai/planner/master-planner.ts`)**:
+   - **Model**: `openai/gpt-oss-120b` (or local `llama3.3` / `claude-3-5-sonnet`).
+   - **Why**: Milestone decomposition requires complex instruction following to extract ticker symbols, identify competitors, and structure a 6-milestone DAG without hallucinations.
+2. **`DocumentAgent` (`src/lib/ai/subagents/document-agent.ts`)**:
+   - **Model**: `openai/gpt-oss-20b` for chunk-level parsing; `openai/gpt-oss-120b` for concall management guidance extraction; `llama-3.2-11b-vision-preview` for scanned reports.
+   - **Why**: High token throughput is required when processing 100+ page annual filings. Bulk models provide a 1,000,000 TPD quota lane.
+3. **`ModelingAgent` (`src/lib/ai/subagents/modeling-agent.ts`)**:
+   - **Model**: **Intentional Non-LLM Architecture** (`three-statement-engine.ts`, `python-executor.ts`).
+   - **Why**: LLMs are notoriously prone to arithmetic drift and floating-point errors. All DCF valuation, working capital schedules, circularity loops, and sensitivity grids are computed purely via deterministic TypeScript algorithms and sandboxed Python code. The LLM is only used to normalize raw filing strings into structured input parameters.
+4. **`MarketIntelAgent` (`src/lib/ai/subagents/market-intel-agent.ts`)**:
+   - **Model**: `openai/gpt-oss-120b` with RSS ingestion tools.
+   - **Why**: Extracts sentiment, catalyst events, and peer comparative multiples from live Google News and Economic Times feeds.
+5. **`SynthesisAgent` (`src/lib/ai/subagents/synthesis-agent.ts`)**:
+   - **Model**: `openai/gpt-oss-120b` or `claude-3-5-sonnet`.
+   - **Why**: Composes publication-grade institutional prose across 7 report sections. Implements an automatic prompt trim safeguard (capped at 12,000 characters) to ensure requests never trip provider rate limits.
+6. **`ComplianceAgent` (`src/lib/ai/subagents/compliance-agent.ts`)**:
+   - **Model**: `openai/gpt-oss-120b`.
+   - **Why**: Validates cross-section figures and enforces mandatory SEBI Research Analyst (2014) statutory clauses.
+7. **`Centralized AI Copilot` (`src/lib/ai/central-client.ts`, `/api/agent/chat`)**:
+   - **Model**: Fallback ladder: `Groq 120B` → `Groq Qwen 27B` → `OpenRouter Free` → `Ollama / BYOK`.
+   - **Why**: Provides conversational streaming responses while grounding every answer in active report data and live exchange filings.
+
+### 3. Pre-Flight Token Sizing, Rate Limiting & Fallback Ladders
+
+To eliminate HTTP 413 (Payload Too Large) and HTTP 429 (Rate Limit Exceeded) errors, EquiGen features a proactive token management layer (`src/lib/ai/model-router.ts`):
+
+1. **Pre-Flight TPM & Size Check**:
+   - Before dispatching an inference request, `estimateTokens(promptText) + 1200` calculates total token load.
+   - If the estimated size exceeds Groq's model ceiling (e.g., > 6,000–8,000 TPM), the router immediately reroutes the request to OpenRouter's 128k context model (`meta-llama/llama-3.3-70b-instruct`) or the bulk 20B model *before* firing the network request.
+2. **Quota-Segregated Fallback Lanes**:
+   - Groq provides separate quota pools per model family. If `openai/gpt-oss-120b` nears its daily limit (~97k TPD), the system shifts calls to `openai/gpt-oss-20b` (1,000,000 TPD lane), preventing whole-pipeline lockouts.
+3. **Persistent Token Budget Store (`src/lib/ai/budget/postgres-store.ts`)**:
+   - Distributed worker processes coordinate token expenditure via PostgreSQL (`tokenBudgetManager`), ensuring multi-tenant or concurrent runs do not breach global provider quotas.
+4. **Fail-Closed Financial Integrity Principle**:
+   - In accordance with institutional research standards, EquiGen enforces **Accuracy Over Availability**. If all verified models and fallbacks fail, the system throws a structured error rather than synthesizing hallucinated target prices or financial metrics.
+
+---
+
 ## 📊 Mode 2: Integrated 3-Statement Engine & Live-Formula Excel Modeling
 
 EquiGen incorporates a professional-grade circular 3-statement financial engine ([three-statement-engine.ts]) that bridges qualitative research and rigorous quantitative valuation.

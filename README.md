@@ -3,7 +3,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-15.1.11-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![Autonomous Agents](https://img.shields.io/badge/Architecture-Multi--Agent%20Swarm-emerald?style=flat-square)](./Architecture.md)
-[![Groq](https://img.shields.io/badge/LLM-Groq%20Llama%203.3%20%2F%20GPT--4o-orange?style=flat-square)](https://groq.com/)
+[![LLMs](https://img.shields.io/badge/LLMs-Groq%20%7C%20OpenRouter%20%7C%20Ollama%20%7C%20Claude%20%7C%20OpenAI-orange?style=flat-square)](./Architecture.md#llm-multi-provider-architecture--model-hub)
 [![Puppeteer](https://img.shields.io/badge/PDF-Puppeteer%20(Headless)-green?style=flat-square)](https://pptr.dev/)
 [![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2016%20Prisma-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
 
@@ -25,7 +25,14 @@
 * **Human-in-the-Loop Analyst Steering**: Pause, redirect, adjust valuation assumptions (e.g. WACC, growth rates), or skip milestones mid-flight via the **Steering Panel**.
 * **Real-Time Telemetry Stream**: Server-Sent Events (SSE) stream tool calls, execution progress, and draft updates live to the UI without page refreshes. Streams are refused unless the run is owned by the requesting tenant.
 
-### 2. 📊 Dynamic 3-Statement Engine & Live-Formula Excel Export
+### 2. 🧠 Multi-Provider LLM Routing & Local Offline Support
+* **Cloud Freemium (Default)**: Groq LPU (`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `llama-3.2-11b-vision-preview`) and OpenRouter (`openrouter/free`, `meta-llama/llama-3.3-70b-instruct:free`).
+* **Local & Air-Gapped (Ollama)**: Run 100% offline and confidential on your own workstation or private GPU server with zero rate limits, zero API keys, and infinite token budgets (`llama3.3`, `qwen2.5:32b`, `deepseek-r1:14b`).
+* **Institutional BYOK**: Encrypted Bring-Your-Own-Key support for Anthropic Claude (`claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`) and OpenAI (`gpt-4o`, `gpt-4o-mini`).
+* **Pre-Flight Rate & Budget Guard**: Automatic prompt estimation and TPM pre-flight checks prevent HTTP 413 and 429 quota exhaustion; automatically reroutes oversized prompts to 128k context fallback lanes.
+* **Non-LLM Valuation Guarantee**: Financial modeling (DCF, 3-Statement circularity, WACC, sensitivity grids) uses deterministic mathematical engines—never hallucinated LLM arithmetic.
+
+### 3. 📊 Dynamic 3-Statement Engine & Live-Formula Excel Export
 * **Circular Financial Mechanics**: P&L directly drives Balance Sheet and Cash Flow with zero balance sheet discrepancy ($\Delta = \text{₹0.00}$). Asserted across every projection year in `tests/unit/financial-modeling/three-statement-engine.test.ts`.
 * **Working Capital Cycle Schedule**: Receivables (DSO), Inventory (DIO), and Payables (DPO) schedules dynamically feed Operating Cash Flow and track Cash Conversion Cycle (CCC).
 * **Single Valuation Engine**: DCF, the sensitivity grid, and the Monte Carlo simulation all call the *same* 3-statement engine, so the displayed matrix cannot disagree with the headline target price.
@@ -34,29 +41,29 @@
 * **Reproducible Stochastic Results**: Monte Carlo uses a seeded PRNG and the seed is persisted on the result, so a valuation can be re-derived exactly.
 * **Live Excel Generation (160+ Formulas)**: Generates institutional `.xlsx` workbooks with active calculation formulas (`=SUM()`, `=EBITDA-Capex-ΔWC`, `=PV()`, `=NPV()`) rather than static numeric dumps.
 
-### 3. 📈 Historical Valuation Multiples Bands (±1σ, ±2σ Corridors)
+### 4. 📈 Historical Valuation Multiples Bands (±1σ, ±2σ Corridors)
 * **Statistical Corridors**: Computes 3Y and 5Y historical P/E and EV/EBITDA trading corridors: Mean ($\mu$), Standard Deviation ($\sigma$), and $\pm 1\sigma, \pm 2\sigma$ bands.
 * **Cyclical Regime Detection**: Flags whether the stock is trading at an **Extreme Cyclical Peak (+2σ)** (multiple compression risk) or **Deep Value / Cyclical Trough (-2σ)** (contrarian entry point).
 * **Empirical Mean-Reversion Tracking**: Evaluates historical subsequent 12-month returns following extreme corridor touches.
 
-### 4. 🔍 Forensic Accounting & Quality Health Audit
+### 5. 🔍 Forensic Accounting & Quality Health Audit
 * **Overall Health Score (0-100)**: Quantitative risk classification across earnings quality, solvency, and corporate governance.
 * **Explicit Coverage Tracking**: Every metric records what was and was not assessed. **Absence of data is reported as `not_assessed`, never as a passing score** — a company the system has never heard of is *not* scored as low risk.
 * **Accrual Indicator (single-factor)**: CFO/PAT conversion and accrual divergence. Reported as a single-factor accrual indicator, explicitly **not** the 8-variable Beneish M-Score; it carries `isBeneishMScore: false` so no consumer can mistake it for one.
 * **Altman Z-Score**: Requires **all five** factors disclosed. If any is missing it reports `not_assessed` and names the missing items rather than substituting default values and printing a published zone threshold.
 * **Governance Flags**: Promoter pledging percentages, contingent liabilities vs net worth, and auditor opinion. Auditor quality reads **"Not Assessed"** when no report text is available — never a default of "Clean".
 
-### 5. 🏢 Unified Institutional Workspace & 1-Click IC Memo
+### 6. 🏢 Unified Institutional Workspace & 1-Click IC Memo
 * **Consolidated Workspace**: Seamlessly integrates Executive Thesis, 3-Statement DCF Modeler, 5-Year Financials, Forensic Audit, and Regulatory Disclosures in one unified view.
 * **Compliance Audit Trail**: A governance record of the SEBI audit, reviewer actions and state transitions is available alongside the draft.
 * **SEBI RA (2014) Digital Sign-Off**: Mandatory statutory disclosures and analyst certification stamp.
 
-### 6. 📄 Publication-Grade PDF Engine
+### 7. 📄 Publication-Grade PDF Engine
 * **A4 Print Layout**: Generates institutional A4 research notes with executive summaries, DCF valuation grids, concall highlights, and SEBI certification blocks.
 * **Puppeteer Headless Compilation**: Server-side rendering using Puppeteer with exact print CSS and inline SVG charts.
 * **SEBI RA Sign-Off**: Reviewers can review, digitally certify, and stamp reports with their official SEBI registration credentials before publishing.
 
-### 7. 📑 Assisted Document Ingestion (Mode 2)
+### 8. 📑 Assisted Document Ingestion (Mode 2)
 * **Drag-and-Drop Prospectus Processing**: Ingest raw `.pdf` or `.txt` financial reports.
 * **Vision & OCR Fallback**: Automatically invokes Groq Vision (`llama-3.2-11b-vision-preview`) for charts/graphics or Tesseract OCR for scanned pages when raw text yields fewer than 100 characters.
 * **Math Auditor**: Validates extracted financials for arithmetic impossibilities — negative revenue, EBITDA exceeding revenue, PAT exceeding revenue — and flags a likely **lakhs-vs-crores unit mismatch** when the PAT margin is implausibly high.
@@ -76,8 +83,10 @@ For in-depth architectural diagrams, subagent specifications, SSE event schemas,
 ### Prerequisites
 * **Node.js 20+** and **pnpm 10+** installed globally (`packageManager` is pinned to `pnpm@10.22.0`).
 * **PostgreSQL 15 or 16** running locally or via Docker.
-* A **Groq API key** from [console.groq.com](https://console.groq.com) and/or an **OpenAI API key**.
-* An **OpenRouter API key** (optional, used as an auxiliary free fallback).
+* **AI Provider Credentials** (choose any):
+  - **Option A (Cloud Freemium)**: A free **Groq API key** from [console.groq.com](https://console.groq.com) and/or an **OpenRouter API key** from [openrouter.ai](https://openrouter.ai).
+  - **Option B (100% Free & Local)**: **Ollama** installed locally ([ollama.ai](https://ollama.ai)) — zero API keys required.
+  - **Option C (Institutional Paid BYOK)**: An **Anthropic API key** ([console.anthropic.com](https://console.anthropic.com)) and/or **OpenAI API key** ([platform.openai.com](https://platform.openai.com)).
 
 ```bash
 npm install -g pnpm
@@ -104,10 +113,14 @@ npm install -g pnpm
    for full deployment prerequisites.
 
    ```env
-   # ── LLM provider keys ────────────────────────────────────────────────
+   # ── LLM Provider Keys (Choose Cloud Freemium, Local, or Paid BYOK) ────
    GROQ_API_KEY="gsk_your_groq_api_key"
-   OPENAI_API_KEY="sk-your_openai_api_key"
    OPENROUTER_API_KEY="sk-or-your_openrouter_api_key"
+   ANTHROPIC_API_KEY="sk-ant-your_anthropic_api_key"
+   OPENAI_API_KEY="sk-your_openai_api_key"
+
+   # Local Ollama URL (optional, defaults to http://localhost:11434/v1)
+   # OLLAMA_BASE_URL="http://localhost:11434/v1"
 
    # ── Database ─────────────────────────────────────────────────────────
    DATABASE_URL="postgresql://postgres:postgres@localhost:5432/equigen_db?sslmode=disable"
@@ -140,13 +153,25 @@ npm install -g pnpm
    ENABLE_DEMO_LOGIN="false"
    ```
 
-4. **Initialize Database & Run Migrations**:
+4. **(Optional) Running Local Offline Inference with Ollama**:
+   To run completely free, confidential research on your local GPU without rate limits:
+   ```bash
+   # 1. Pull your preferred model (e.g. Llama 3.3 70B, Qwen 2.5 32B, or DeepSeek R1 14B)
+   ollama pull llama3.3
+
+   # 2. Start the Ollama server
+   ollama serve
+
+   # 3. EquiGen will automatically connect to http://localhost:11434/v1 when "ollama" is selected
+   ```
+
+5. **Initialize Database & Run Migrations**:
    ```bash
    pnpm exec prisma generate
    pnpm exec prisma db push
    ```
 
-5. **Start Development Server**:
+6. **Start Development Server**:
    ```bash
    pnpm run dev
    ```
