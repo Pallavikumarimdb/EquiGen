@@ -69,13 +69,13 @@ export function AgentChatView({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "default_sample";
+  const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawReportData = reportData as any;
   const effectiveJobId = cleanPlanId.startsWith("job_")
     ? cleanPlanId
     : rawReportData?.jobId || rawReportData?.planId || cleanPlanId;
-  const storageKey = `equigen_chatgpt_agent_${cleanPlanId}`;
+  const storageKey = cleanPlanId ? `equigen_chatgpt_agent_${cleanPlanId}` : "equigen_chatgpt_agent_empty";
 
   const rec = reportData?.recommendation;
   const tp = rec?.targetPrice ?? null;
@@ -111,7 +111,7 @@ export function AgentChatView({
 
   // Live polling and SSE connection for running tasks
   useEffect(() => {
-    if (status !== "running" || !effectiveJobId || effectiveJobId === "default_sample") return;
+    if (status !== "running" || !effectiveJobId) return;
 
     let isSubscribed = true;
 
@@ -305,7 +305,7 @@ export function AgentChatView({
   const starterPrompts = [
     {
       title: "Upgrade Target Price",
-      prompt: tp != null ? `Change target price to ₹${Math.round(tp * 1.1)} and upgrade rating to BUY` : `Set target price and upgrade rating to BUY for ${companyName}`,
+      prompt: tp != null ? `Change target price to ₹${Math.round(tp * 1.1)} and upgrade rating to BUY` : `Set target price and upgrade rating to BUY for ${companyName || "the target equity"}`,
       desc: "Recalculate implied upside & update report live",
     },
     {
@@ -320,7 +320,7 @@ export function AgentChatView({
     },
     {
       title: "DCF Sensitivity Analysis",
-      prompt: `Explain how a 100 bps change in WACC impacts fair value per share for ${companyName}`,
+      prompt: `Explain how a 100 bps change in WACC impacts fair value per share for ${companyName || "this company"}`,
       desc: "Review sensitivity table and key valuation drivers",
     },
   ];
@@ -343,7 +343,9 @@ export function AgentChatView({
     const welcome: ChatMessage = {
       id: "init_1",
       role: "agent",
-      content: isUploadJob && status === "running"
+      content: !companyName
+        ? `Hello! I am your **AI Research Agent**.\n\nSelect a company from your coverage universe on the left or click **New Research** to initiate an autonomous research note, extract company filings, and generate 5-year DCF models.`
+        : isUploadJob && status === "running"
         ? `📄 **Document AI Extraction In Progress for ${companyName}**\n\nThe multi-agent document pipeline is currently parsing and extracting financial tables, balance sheets, and cash flows from your uploaded document.\n\n• **Status**: Live Statement Ingestion & Ratio Verification\n• **Live Sandbox**: Watch real-time execution steps and subagent milestones in the panel on the right.`
         : `Hello! I am your **AI Research Agent** for **${companyName}**${ticker ? ` (${ticker})` : ""}.\n\nI have complete access to this company's financial model, DCF valuation, exchange filings, and research draft. You can chat with me, ask deep analytical questions, or instruct me to **update, fix, or modify** any part of the report in real time.`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -676,7 +678,7 @@ export function AgentChatView({
           </div>
           <div>
             <div className="flex items-center gap-2 select-text">
-              <span className="text-sm font-black text-[#1A1917]">{companyName}</span>
+              <span className="text-sm font-black text-[#1A1917]">{companyName || "AI Research Studio"}</span>
               {ticker && (
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#59554A] font-bold border border-[#DDD9CE]">
                   {ticker}
@@ -686,9 +688,13 @@ export function AgentChatView({
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase">
                   {rating} · TP ₹{tp.toLocaleString()}{upside != null ? ` (${upside > 0 ? `+${upside}%` : `${upside}%`})` : ""}
                 </span>
-              ) : (
+              ) : companyName ? (
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 border border-zinc-200">
                   Active Asset
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                  Standby
                 </span>
               )}
             </div>
@@ -709,6 +715,10 @@ export function AgentChatView({
                 <span className="text-red-600 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-500" />
                   Swarm Execution Encountered An Issue · Check research stream
+                </span>
+              ) : !companyName ? (
+                <span className="text-[#7A7569]">
+                  Ready to assist · Initialize research or pick an equity
                 </span>
               ) : (
                 <span className="text-[#7A7569]">

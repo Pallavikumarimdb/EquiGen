@@ -186,7 +186,7 @@ export function HeaderNav({
             </div>
             <div className="hidden sm:flex flex-col text-left">
               <span className="text-xs font-bold leading-tight truncate max-w-[120px]">
-                {user?.name || "Pallavi Kumari"}
+                {user?.name || "Analyst"}
               </span>
               <span
                 className={`text-[10px] font-medium leading-none mt-0.5 ${

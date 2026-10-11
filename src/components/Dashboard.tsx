@@ -24,8 +24,6 @@ import {
   X,
 } from "lucide-react";
 
-import { DEFAULT_SAMPLE_REPORT } from "@/lib/report/sample-report";
-
 interface DashboardProps {
   initialReportId?: string;
   initialViewMode?: "report" | "agent";
@@ -170,20 +168,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         }
       }
 
-      // Add default sample report to top if empty
-      if (uniqueItems.length === 0) {
-        uniqueItems.push({
-          id: "rep_default_sample",
-          companyName: "Tata Motors Limited",
-          fileName: "Tata_Motors_Initiation.pdf",
-          createdAt: "2025-01-15T10:30:00.000Z",
-          reportData: DEFAULT_SAMPLE_REPORT,
-          reportPdfBase64: null,
-          status: "draft",
-          sourceType: "autonomous",
-        });
-      }
-
       // When merging background updates into history, preserve any active/running jobs without creating ghost duplicates
       setHistory((prev) => {
         const runningFromPrev = prev.filter((p) => {
@@ -272,6 +256,13 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           setApprovedAt(targetItem.approvedAt || null);
           setActiveViewMode(targetMode);
           syncUrl(targetItem.id, targetMode);
+        } else {
+          setActiveReportId(null);
+          setActiveSessionId(null);
+          setCompanyName("");
+          setReportData(null);
+          setReportPdfBase64(null);
+          setActiveReportStatus("draft");
         }
       }
     } catch (err) {

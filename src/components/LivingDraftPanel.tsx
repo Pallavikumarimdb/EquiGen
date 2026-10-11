@@ -251,7 +251,7 @@ export function LivingDraftPanel({
     {
       id: "aud-6",
       title: "Human Analyst Review & Steering",
-      actor: "Pallavi Kumari (Analyst)",
+      actor: signoffData?.reviewerName ? `${signoffData.reviewerName} (Analyst)` : "Research Analyst",
       actorType: "human",
       action: "human_review",
       timestamp: new Date(Date.now() - 600000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -572,7 +572,7 @@ export function LivingDraftPanel({
                     type="text"
                     value={reviewerNameInput}
                     onChange={(e) => setReviewerNameInput(e.target.value)}
-                    placeholder="e.g. Pallavi Kumari"
+                    placeholder="e.g. Research Analyst Name"
                     className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
                   />
                 </div>
