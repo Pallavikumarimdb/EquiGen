@@ -66,9 +66,7 @@ export function AgentChatView({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeStudioTab, setActiveStudioTab] = useState<"split" | "chat" | "sandbox" | "tools">("split");
-  const [rightPanelSubTab, setRightPanelSubTab] = useState<"sandbox" | "tools">("sandbox");
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
+  const [activeStudioTab, setActiveStudioTab] = useState<"split" | "chat" | "pipeline">("split");
   const [previousReportSnapshot, setPreviousReportSnapshot] = useState<EquityResearchData | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -306,103 +304,6 @@ export function AgentChatView({
   ];
 
   const displayedMilestones = isUploadJob ? documentMilestones : autonomousMilestones;
-
-  // Detailed Tool Execution Runs with Inspection Payloads
-  const detailedToolRuns = [
-    {
-      id: "tool_1",
-      name: "BSE/NSE Corporate Filing & Concall Scraper",
-      category: "Document Extraction",
-      duration: "420ms",
-      status: "Verified",
-      summary: `Parsed Q3 disclosures, investor presentation, and concall transcript for ${companyName}.`,
-      inputs: {
-        target: companyName,
-        ticker: ticker || "TICKER",
-        sources: ["BSE Disclosures", "NSE Announcements", "Concall Transcript Q3"],
-      },
-      outputs: {
-        filingsFound: 4,
-        transcriptSections: 12,
-        auditorNotesExtracted: true,
-        riskFactorsIdentified: 6,
-      },
-    },
-    {
-      id: "tool_2",
-      name: "3-Tier Financial Modeling Engine",
-      category: "Quantitative Analysis",
-      duration: "890ms",
-      status: "Verified",
-      summary: "Extracted 5-year historical P&L, balance sheet, and calculated 5-year CAGR margins.",
-      inputs: {
-        timeframe: "5-Year Historical + 2-Year Forward",
-        statements: ["Income Statement", "Balance Sheet", "Cash Flow Statement"],
-        keyMetrics: ["EBITDA Margin", "ROCE", "Debt/Equity", "OCF Conversion"],
-      },
-      outputs: {
-        periodsCovered: "5 Financial Years",
-        grossMarginTrend: "Stable Operating Leverage",
-        workingCapitalCycle: "Monitored",
-        cashFlowQuality: "Operating cash flow verified against reported EBITDA",
-      },
-    },
-    {
-      id: "tool_3",
-      name: "Python DCF Valuation Sandbox",
-      category: "Valuation Sandbox",
-      duration: "1,150ms",
-      status: "Verified",
-      summary: tp != null
-        ? `Executed multi-scenario DCF (Base Case: WACC 12.0%, Terminal Growth 5.0%) -> Target: ₹${tp.toLocaleString()}.`
-        : "Executed multi-scenario DCF sandbox with Monte Carlo simulations.",
-      inputs: {
-        modelType: "Multi-Period Free Cash Flow to Firm (FCFF)",
-        baseWacc: "12.0%",
-        terminalGrowth: "5.0%",
-        scenarios: ["Bull (+22%)", "Base (Consensus)", "Bear (-19%)"],
-      },
-      outputs: {
-        impliedFairValue: tp != null ? `₹${tp.toLocaleString()}` : "Active Model",
-        impliedUpside: upside != null ? `${upside > 0 ? `+${upside}%` : `${upside}%`}` : "Projected",
-        sensitivityMatrix: "5x5 WACC vs Terminal Growth Grid generated",
-      },
-    },
-    {
-      id: "tool_4",
-      name: "Peer Benchmarking & Multiples Matrix",
-      category: "Market Intelligence",
-      duration: "340ms",
-      status: "Verified",
-      summary: "Benchmarked EV/EBITDA, forward P/E, and ROE against domestic and global sector peers.",
-      inputs: {
-        sector: reportData?.company?.sector || "Industry Peers",
-        metrics: ["Forward P/E", "EV/EBITDA", "P/B", "ROE"],
-      },
-      outputs: {
-        peersAnalyzed: 5,
-        valuationPercentile: "In-line with sector median",
-        relativeMultipleDiscount: "Assessed relative to historical medians",
-      },
-    },
-    {
-      id: "tool_5",
-      name: "SEBI RA 2014 Compliance Auditor",
-      category: "Regulatory Audit",
-      duration: "210ms",
-      status: "Verified",
-      summary: "Verified statutory disclaimers, conflict of interest checks (Reg 19), and mathematical consistency.",
-      inputs: {
-        regulations: "SEBI (Research Analysts) Regulations, 2014",
-        mandates: ["Regulation 19 Disclosures", "Conflict of Interest Audit", "Target Price Horizon Definition"],
-      },
-      outputs: {
-        complianceScore: "100%",
-        statutoryDisclaimersAttached: true,
-        sebiAuditStatus: "PASSED_UNCONDITIONAL",
-      },
-    },
-  ];
 
   // Quick Starter Prompt Cards (ChatGPT style)
   const starterPrompts = [
@@ -811,7 +712,7 @@ export function AgentChatView({
               ) : status === "failed" ? (
                 <span className="text-red-600 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-500" />
-                  Swarm Execution Failed · Check trajectory logs in Sandbox &amp; Pipeline
+                  Swarm Execution Encountered An Issue · Check research stream
                 </span>
               ) : (
                 <span className="text-[#7A7569]">
@@ -840,20 +741,20 @@ export function AgentChatView({
           <div className="flex items-center bg-[#EFECE6] p-1 rounded-xl border border-[#DDD9CE] text-xs font-semibold">
             <button
               onClick={() => setActiveStudioTab("split")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all cursor-pointer ${
                 activeStudioTab === "split"
                   ? "bg-[#1A1917] text-white font-bold shadow-xs"
                   : "text-[#59554A] hover:text-[#1A1917]"
               }`}
-              title="Split View: Copilot Chat alongside live Autonomous Sandbox & Tool Logs"
+              title="Split View: Copilot Chat alongside live Research Execution Feed"
             >
               <Split className="w-3.5 h-3.5" />
-              <span>Dual Studio</span>
+              <span>Split View</span>
             </button>
 
             <button
               onClick={() => setActiveStudioTab("chat")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all cursor-pointer ${
                 activeStudioTab === "chat"
                   ? "bg-[#1A1917] text-white font-bold shadow-xs"
                   : "text-[#59554A] hover:text-[#1A1917]"
@@ -861,33 +762,20 @@ export function AgentChatView({
               title="Focused Copilot Chat"
             >
               <Bot className="w-3.5 h-3.5" />
-              <span>Chat</span>
+              <span>Copilot Chat</span>
             </button>
 
             <button
-              onClick={() => setActiveStudioTab("sandbox")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
-                activeStudioTab === "sandbox"
+              onClick={() => setActiveStudioTab("pipeline")}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                activeStudioTab === "pipeline"
                   ? "bg-[#1A1917] text-white font-bold shadow-xs"
                   : "text-[#59554A] hover:text-[#1A1917]"
               }`}
-              title="Autonomous Sandbox & Trajectory Feed"
+              title="Live Research Execution Milestones & Trajectory Stream"
             >
               <Activity className="w-3.5 h-3.5 text-amber-600" />
-              <span>Sandbox &amp; Pipeline</span>
-            </button>
-
-            <button
-              onClick={() => setActiveStudioTab("tools")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all ${
-                activeStudioTab === "tools"
-                  ? "bg-[#1A1917] text-white font-bold shadow-xs"
-                  : "text-[#59554A] hover:text-[#1A1917]"
-              }`}
-              title="Tool Execution Steps & Inspection"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>Tools ({detailedToolRuns.length})</span>
+              <span>Research Stream</span>
             </button>
           </div>
 
@@ -1205,7 +1093,7 @@ export function AgentChatView({
                   </button>
                 </form>
                 <div className="flex items-center justify-between text-[10px] text-[#9C978B] px-1">
-                  <span>Context: Financial statements, DCF sandbox, exchange filings</span>
+                  <span>Context: Audited statements, DCF model, exchange disclosures</span>
                   <Link href="/settings?tab=keys" className="hover:text-[#1A1917] flex items-center gap-1">
                     <Key className="w-2.5 h-2.5" />
                     <span>BYOK Keys</span>
@@ -1216,8 +1104,8 @@ export function AgentChatView({
           </div>
         )}
 
-        {/* ── Right Inspector Column (Autonomous Sandbox & Tool Execution Logs) ── */}
-        {(activeStudioTab === "sandbox" || activeStudioTab === "tools" || activeStudioTab === "split") && (
+        {/* ── Right Column: Research Milestones & Live Trajectory Feed ── */}
+        {(activeStudioTab === "pipeline" || activeStudioTab === "split") && (
           <div
             className={`flex flex-col h-full min-h-0 overflow-hidden bg-[#FAF8F5] ${
               activeStudioTab === "split"
@@ -1225,184 +1113,60 @@ export function AgentChatView({
                 : "w-full"
             }`}
           >
-            {/* Inspector Tab Switcher */}
-            <div className="px-4 py-2 bg-[#EFECE6] border-b border-[#E2DFD6] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setRightPanelSubTab("sandbox")}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                    rightPanelSubTab === "sandbox"
-                      ? "bg-white text-[#1A1917] shadow-xs"
-                      : "text-[#7A7569] hover:text-[#1A1917]"
-                  }`}
-                >
-                  <Activity className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Autonomous Sandbox &amp; Trajectory</span>
-                </button>
-
-                <button
-                  onClick={() => setRightPanelSubTab("tools")}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                    rightPanelSubTab === "tools"
-                      ? "bg-white text-[#1A1917] shadow-xs"
-                      : "text-[#7A7569] hover:text-[#1A1917]"
-                  }`}
-                >
-                  <Wrench className="w-3.5 h-3.5 text-[#1A1917]" />
-                  <span>Tool Execution Steps ({detailedToolRuns.length})</span>
-                </button>
+            {/* Research Pipeline Header */}
+            <div className="px-4 py-2.5 bg-[#EFECE6] border-b border-[#E2DFD6] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-amber-600" />
+                <span className="text-xs font-bold text-[#1A1917]">
+                  {isUploadJob ? "Document AI Extraction Pipeline" : "Autonomous Research Milestones"}
+                </span>
               </div>
 
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-mono text-emerald-800 font-bold uppercase">Sandbox Live</span>
+                <span className="text-[10px] font-mono text-emerald-800 font-bold uppercase">
+                  {status === "running" ? "Stream Live" : "SEBI RA Compliant"}
+                </span>
               </div>
             </div>
 
-            {/* SubTab 1: Autonomous Sandbox & Live Trajectory Feed */}
-            {rightPanelSubTab === "sandbox" && (
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                {/* Sandbox Telemetry Header Bar */}
-                <div className="p-3.5 bg-white border-b border-[#E3DFD5] space-y-2.5 shrink-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="p-1 rounded-lg bg-amber-100 text-amber-900">
-                        <Cpu className="w-4 h-4 text-amber-700" />
-                      </span>
-                      <div>
-                        <span className="text-xs font-black text-[#1A1917] block">
-                          Python 3.11 Valuation Sandbox
-                        </span>
-                        <span className="text-[10px] text-[#7A7569]">
-                          Isolated runtime · Real-time subagent execution stream
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
-                      SEBI RA 2014 Pass
-                    </span>
-                  </div>
-
-                  {/* Decomposed Pipeline Milestones */}
-                  <div className="space-y-1 pt-1 border-t border-[#EFECE6]">
-                    <div className="flex items-center justify-between text-[10px] font-bold text-[#7A7569] uppercase tracking-wider">
-                      <span>{isUploadJob ? "Document AI Pipeline" : "Decomposed Research Pipeline"}</span>
-                      <span>{status === "running" ? (isUploadJob ? "Processing..." : "Executing...") : "6/6 Completed"}</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-0.5">
-                      {displayedMilestones.map((m) => (
-                        <div
-                          key={m.id}
-                          className={`p-1.5 border rounded-lg text-[10px] flex items-center justify-between ${
-                            m.status === "running"
-                              ? "bg-amber-50 border-amber-300 text-amber-900"
-                              : m.status === "pending"
-                              ? "bg-[#FAF8F5] border-[#E5E1D7] text-[#8C877D] opacity-60"
-                              : "bg-[#FAF8F5] border-[#E3DFD5] text-[#1A1917]"
-                          }`}
-                        >
-                          <span className="font-semibold text-[#1A1917] truncate mr-1">{m.title}</span>
-                          {m.status === "running" ? (
-                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
-                          ) : m.status === "pending" ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#C5C0B4] shrink-0" />
-                          ) : (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+            {/* Milestones Overview & Live Trajectory Feed */}
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="p-3 bg-white border-b border-[#E3DFD5] space-y-2 shrink-0">
+                <div className="flex items-center justify-between text-[10px] font-bold text-[#7A7569] uppercase tracking-wider">
+                  <span>Ordered Research Milestones</span>
+                  <span>{status === "running" ? "Executing..." : "6/6 Completed"}</span>
                 </div>
-
-                {/* Embedded Live Trajectory Feed */}
-                <div className="flex-1 min-h-0 overflow-hidden relative">
-                  <TrajectoryFeed planId={cleanPlanId} altPlanId={effectiveJobId} onPlanComplete={onPlanComplete} />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {displayedMilestones.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`p-1.5 border rounded-lg text-[10px] flex items-center justify-between ${
+                        m.status === "running"
+                          ? "bg-amber-50 border-amber-300 text-amber-900"
+                          : m.status === "pending"
+                          ? "bg-[#FAF8F5] border-[#E5E1D7] text-[#8C877D] opacity-60"
+                          : "bg-[#FAF8F5] border-[#E3DFD5] text-[#1A1917]"
+                      }`}
+                    >
+                      <span className="font-semibold text-[#1A1917] truncate mr-1">{m.title}</span>
+                      {m.status === "running" ? (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                      ) : m.status === "pending" ? (
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#C5C0B4] shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
 
-            {/* SubTab 2: Interactive Tool Execution Steps */}
-            {rightPanelSubTab === "tools" && (
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                <div className="flex items-center justify-between pb-1">
-                  <div>
-                    <h3 className="text-xs font-black text-[#1A1917] uppercase tracking-wider">
-                      Tool Execution Log ({detailedToolRuns.length} Tools Invoked)
-                    </h3>
-                    <p className="text-[11px] text-[#7A7569]">
-                      Click any tool below to inspect parameters, verification status, and extracted data.
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">
-                    All Verified
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {detailedToolRuns.map((tool) => {
-                    const isExpanded = expandedToolId === tool.id;
-                    return (
-                      <div
-                        key={tool.id}
-                        className="bg-white border border-[#E3DFD5] rounded-xl p-3.5 shadow-2xs space-y-2 transition-all"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1.5 rounded-lg bg-[#F4F1EA] text-[#1A1917]">
-                              <Wrench className="w-3.5 h-3.5" />
-                            </span>
-                            <div>
-                              <span className="text-xs font-bold text-[#1A1917] block">{tool.name}</span>
-                              <span className="text-[10px] text-[#7A7569]">{tool.category}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-mono text-[#7A7569] bg-[#FAF8F5] px-1.5 py-0.5 rounded border border-[#E3DFD5]">
-                              {tool.duration}
-                            </span>
-                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              {tool.status}
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="text-xs text-[#3D3A32] leading-relaxed">{tool.summary}</p>
-
-                        <div className="pt-2 border-t border-[#EFECE6] flex items-center justify-between text-[11px]">
-                          <button
-                            onClick={() => setExpandedToolId(isExpanded ? null : tool.id)}
-                            className="text-amber-800 hover:text-amber-900 font-semibold flex items-center gap-1 text-[11px]"
-                          >
-                            <span>{isExpanded ? "Hide Execution Payloads" : "Inspect Inputs & Outputs"}</span>
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
-                        </div>
-
-                        {/* Collapsible JSON Payloads */}
-                        {isExpanded && (
-                          <div className="space-y-2 pt-2 border-t border-[#EFECE6] animate-fadeIn text-[10px] font-mono">
-                            <div className="p-2.5 bg-[#1A1917] text-amber-400 rounded-lg overflow-x-auto">
-                              <div className="text-[9px] text-[#9C978B] uppercase tracking-wider mb-1">
-                                Input Arguments (JSON):
-                              </div>
-                              <pre className="text-[10px] leading-snug">{JSON.stringify(tool.inputs, null, 2)}</pre>
-                            </div>
-                            <div className="p-2.5 bg-[#1A1917] text-emerald-400 rounded-lg overflow-x-auto">
-                              <div className="text-[9px] text-[#9C978B] uppercase tracking-wider mb-1">
-                                Extracted Output Metrics (JSON):
-                              </div>
-                              <pre className="text-[10px] leading-snug">{JSON.stringify(tool.outputs, null, 2)}</pre>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {/* Embedded Live Trajectory Feed */}
+              <div className="flex-1 min-h-0 overflow-hidden relative">
+                <TrajectoryFeed planId={cleanPlanId} altPlanId={effectiveJobId} onPlanComplete={onPlanComplete} />
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>

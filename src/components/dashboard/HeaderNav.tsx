@@ -152,16 +152,16 @@ export function HeaderNav({
         {/* Org Plan Badge -> Billing */}
         <Link
           href="/billing"
-          title={`${user?.plan?.name ?? "Free"} plan — view usage and change plan`}
-          className="h-8 flex items-center gap-1.5 px-2.5 bg-[#F1EFEA] border border-[#E3DFD5] rounded-lg text-[10px] font-bold uppercase tracking-wider text-[#6E695E] hover:bg-white hover:border-[#D5D0C3] transition-all shrink-0"
+          title={`${user?.plan?.name ?? "Freemium"} plan — view usage and change plan`}
+          className="h-8 flex items-center gap-1.5 px-2.5 bg-[#F1EFEA] border border-[#E3DFD5] rounded-lg text-[10px] font-bold uppercase tracking-wider text-[#6E695E] hover:bg-white hover:border-[#D5D0C3] transition-all shrink-0 cursor-pointer"
         >
           <Crown
             className={`w-3 h-3 ${
               user?.plan?.id && user.plan.id !== "free" ? "text-amber-600" : "text-[#8C877D]"
             }`}
           />
-          <span className="hidden md:inline">{user?.plan?.name ?? "Free"} Plan</span>
-          {user?.plan?.id === "free" && <span className="md:hidden">Free</span>}
+          <span className="hidden md:inline">{user?.plan?.name ?? "Freemium"} Plan</span>
+          {(!user?.plan?.id || user.plan.id === "free") && <span className="md:hidden">Free</span>}
         </Link>
 
         {/* Interactive User Avatar & Profile Dropdown */}

@@ -172,10 +172,8 @@ const auditFreshness = useMemo(
                 </span>
               </span>
             )}
-            {/* Data freshness badge — the figures' own age, not the render time.
-                A report built on stale market data must say so next to the
-                authenticity badge, since "authenticated" says nothing about age. */}
-            {auditFreshness && !auditFreshness.isCurrentSession && (
+            {/* Data freshness badge — only surfaced if figures are genuinely stale (>1 session old) */}
+            {auditFreshness && !auditFreshness.isCurrentSession && ((auditFreshness.sessionsElapsed ?? 0) > 1 || !auditFreshness.timestampKnown) && (
               <span
                 title={auditFreshness.summary}
                 className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300"
@@ -188,18 +186,13 @@ const auditFreshness = useMemo(
                 </span>
               </span>
             )}
-            {/* RC-8: Live source count badge */}
-            {liveSourceCount !== null && (
+            {/* Live source count badge — only displayed if live sources are low/compromised (<4) to avoid cluttering verified reports */}
+            {liveSourceCount !== null && liveSourceCount < 4 && (
               <span
-                className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                  liveSourceCount >= 3
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : liveSourceCount >= 1
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-red-50 text-red-700 border-red-200"
-                }`}
+                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300"
+                title={`${liveSourceCount}/6 live exchange and fundamental data sources connected`}
               >
-                <CheckCircle2 className="w-3 h-3" />
+                <AlertCircle className="w-3 h-3 text-amber-600" />
                 {liveSourceCount}/6 sources live
               </span>
             )}
