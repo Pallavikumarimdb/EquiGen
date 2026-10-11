@@ -13,14 +13,19 @@ export const metadata: Metadata = {
     "Generate institutional-grade, SEBI-compliant equity research reports with EquiGen's autonomous agentic analyst",
 };
 
+import { GlobalClientListeners } from "@/components/GlobalClientListeners";
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`${geistSans.variable} h-full antialiased`} suppressHydrationWarning>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        <GlobalClientListeners />
+        {children}
+      </body>
     </html>
   );
 }
