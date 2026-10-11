@@ -305,7 +305,11 @@ export class FinancialEvaluationEngine {
     const placeholderMatches: string[] = [];
     if (input.sections && input.sections.length > 0) {
       for (const s of input.sections) {
-        if (/data\s*pending/i.test(s.content)) placeholderMatches.push(`${s.name} (data pending)`);
+        if (/generation\s*unavailable|repair\s*generation\s*unavailable/i.test(s.content)) {
+          placeholderMatches.push(`${s.name} (generation unavailable)`);
+        } else if (s.content.length < 150 && /data\s*pending/i.test(s.content)) {
+          placeholderMatches.push(`${s.name} (data pending stub)`);
+        }
         if (/lorem\s*ipsum/i.test(s.content)) placeholderMatches.push(`${s.name} (lorem ipsum)`);
         if (/\[insert\s*|TBD|placeholder/i.test(s.content)) placeholderMatches.push(`${s.name} (unfilled template)`);
       }

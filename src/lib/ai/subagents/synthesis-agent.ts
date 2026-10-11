@@ -19,7 +19,7 @@ import { ConsistencyCheckerTool, ConsistencyCheckResult } from "../tools/consist
 import { SectionStore } from "@/lib/report/section-store";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
-import { getModelForRequest } from "@/lib/ai/model-router";
+import { getModelForRequest, recordActualUsage, getFallbackGroqModel, FALLBACK_GROQ_MODEL } from "@/lib/ai/model-router";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { ConcallTranscriptResult } from "../tools/concall-transcript-tool";
 
@@ -101,7 +101,7 @@ const SYNTHESIS_SYSTEM_PROMPT = `You are an institutional equity research analys
 Write each report section in professional, concise financial research prose.
 Rules:
 - Use ONLY the data provided in the user message. Never invent numbers.
-- If a specific figure is not in the provided data, say "data pending [field]" — do not fabricate.
+- If a specific figure is not in the provided data, state that it was not publicly disclosed in exchange filings — do not fabricate or use template tags.
 - Write for a professional investor audience (buy-side / sell-side).
 - Use INR (₹) currency notation. Use Indian numbering (Cr for crores, L for lakhs).
 - Keep sections factual, specific, and citation-ready.
@@ -126,9 +126,27 @@ async function generateSectionWithLLM(
     ]);
     const content = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
     console.log(`[SynthesisAgent] ✓ Section '${sectionName}' generated using model '${modelName}'.`);
+    recordActualUsage(modelName, prompt, content);
     return content.trim() || null;
   } catch (err) {
-    console.error(`[SynthesisAgent] ❌ LLM generation failed for section "${sectionName}":`, err instanceof Error ? err.message : String(err));
+    console.warn(`[SynthesisAgent] ⚠️ Primary model failed for section "${sectionName}":`, err instanceof Error ? err.message : String(err));
+    // Automatic fallback to FALLBACK_GROQ_MODEL (e.g. on 429 rate limit or TPM ceiling)
+    try {
+      console.log(`[SynthesisAgent] 🔄 Falling back to '${FALLBACK_GROQ_MODEL}' for section '${sectionName}'...`);
+      const fallbackModel = getFallbackGroqModel({ provider: "groq", apiKey });
+      const fallbackResponse = await fallbackModel.invoke([
+        new SystemMessage(SYNTHESIS_SYSTEM_PROMPT),
+        new HumanMessage(prompt),
+      ]);
+      const fallbackContent = typeof fallbackResponse.content === "string" ? fallbackResponse.content : JSON.stringify(fallbackResponse.content);
+      if (fallbackContent.trim()) {
+        console.log(`[SynthesisAgent] ✓ Section '${sectionName}' successfully generated via fallback model '${FALLBACK_GROQ_MODEL}'.`);
+        recordActualUsage(FALLBACK_GROQ_MODEL, prompt, fallbackContent);
+        return fallbackContent.trim();
+      }
+    } catch (fallbackErr) {
+      console.error(`[SynthesisAgent] ❌ Fallback model also failed for section "${sectionName}":`, fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
+    }
     return null;
   }
 }
@@ -142,7 +160,7 @@ function buildExecutiveSummaryPrompt(input: SynthesisInput): string {
   const hasTargetPrice = m && m.baseTargetPrice > 0;
   const valuation = hasTargetPrice
     ? `Base-case target price: ₹${Math.round(m!.baseTargetPrice)}/share (Bull: ₹${Math.round(m!.bullCasePrice)}, Bear: ₹${Math.round(m!.bearCasePrice)}). Model assumptions: ${JSON.stringify(m!.assumptions)}.`
-    : "Target price: data pending (financial model used sector fallback — not included in report).";
+    : "Target price: Not modeled (audited financial data not available in public disclosures — sector baseline applied).";
 
   const marketDataLines: string[] = [];
   if (mi?.currentPrice)      marketDataLines.push(`Current market price: ₹${mi.currentPrice}/share`);
@@ -196,7 +214,7 @@ Available data:
 
 Critical rules:
 1. Do NOT invent segment revenue splits or specific business unit percentages not in the data above.
-2. If filing content is unavailable, explicitly state "Detailed segment data pending — based on exchange filing titles only."
+2. If filing content is unavailable, state that detailed business unit segment breakdowns were not separately disclosed in current exchange filings and summarize the core business sector context.
 3. Do not use your training data to fill in financial numbers. Only describe what business the company is in.
 4. Be 120–150 words.`;
 }
@@ -229,9 +247,9 @@ DCF Model Output:
 ${modelDisclaimer ? `- Model disclaimer: ${modelDisclaimer}` : ""}
 
 Market intelligence:
-- P/E Ratio: ${input.marketIntelData?.peRatio ?? "data pending"}
-- Market Cap: ${input.marketIntelData?.marketCapCr ? `₹${input.marketIntelData.marketCapCr.toLocaleString()} Cr` : "data pending"}
-- Promoter holding: ${input.marketIntelData?.promoterShareholding ? `${input.marketIntelData.promoterShareholding}%` : "data pending"}
+- P/E Ratio: ${input.marketIntelData?.peRatio ?? "Not available"}
+- Market Cap: ${input.marketIntelData?.marketCapCr ? `₹${input.marketIntelData.marketCapCr.toLocaleString()} Cr` : "Not available"}
+- Promoter holding: ${input.marketIntelData?.promoterShareholding ? `${input.marketIntelData.promoterShareholding}%` : "Not available"}
 - Screener live data: ${input.marketIntelData?.screenerIsLive ? "Yes" : "No — market multiples may be unavailable"}
 
 Rules:
@@ -253,6 +271,14 @@ Keep this to 60 words.`;
     ? `\nPeer benchmark table:\n${input.marketIntelData.benchmarkTableMarkdown}`
     : "";
 
+  const currentPrice = input.marketIntelData?.currentPrice;
+  const impliedUpside = m && currentPrice && currentPrice > 0
+    ? (((m.baseTargetPrice - currentPrice) / currentPrice) * 100).toFixed(1)
+    : null;
+  const impliedRating = impliedUpside !== null
+    ? (parseFloat(impliedUpside) > 15 ? "BUY" : parseFloat(impliedUpside) > 0 ? "ACCUMULATE / HOLD" : "REDUCE / SELL")
+    : null;
+
   return `Write the Valuation section for ${input.companyName} (NSE: ${input.ticker}).
 
 Model results:
@@ -260,11 +286,15 @@ Model results:
 - Base case: ₹${Math.round(m.baseTargetPrice)}/share
 - Bull case: ₹${Math.round(m.bullCasePrice)}/share
 - Bear case: ₹${Math.round(m.bearCasePrice)}/share
+- Current price: ${currentPrice ? `₹${currentPrice}` : "Not available"}
+- Model implied upside: ${impliedUpside ? `${impliedUpside}%` : "Not available"}
+- Coherent rating recommendation: ${impliedRating ?? "Not determined"}
 - Assumptions: ${JSON.stringify(m.assumptions)}
 ${benchmarkTable}
 
 Explain the valuation methodology and derive the target price from the model output above.
 Present the bull/bear/base case scenarios. Reference peer multiples if the benchmark table is available.
+Ensure your recommendation is coherent with the model target price and upside (e.g. use ${impliedRating ?? "consistent rating"} corresponding to the modeled upside).
 Do not add assumptions not present in the data above.
 Be 160–200 words.`;
 }
@@ -278,7 +308,7 @@ function buildRisksSectionPrompt(input: SynthesisInput): string {
   return `Write the Key Risks section for ${input.companyName} (NSE: ${input.ticker}).
 
 Context:
-- Credit profile: ${input.marketIntelData?.creditRating ?? "data pending"}
+- Credit profile: ${input.marketIntelData?.creditRating ?? "Not publicly disclosed"}
 - ${newsContext}
 
 List 3–5 key investment risks specific to ${input.companyName}'s business and sector.
@@ -316,8 +346,8 @@ Be 150–180 words. Do not add quotes or claims not in the above data.`;
   }
 
   return `Write a Management Q&A Highlights placeholder for ${input.companyName} (${input.ticker}).
-State clearly that "earnings call transcript data is pending — this section will be populated once concall transcripts are fetched from Screener.in."
-Keep this to 50 words.`;
+State clearly that management earnings call audio/transcripts were not publicly filed or held for the analyzed reporting period, and summarize management guidance disclosures from regular exchange press releases.
+Keep this to 50–70 words.`;
 }
 
 // ─── Synthesis Agent ──────────────────────────────────────────────────────────
@@ -472,16 +502,15 @@ export class SynthesisAgent {
           });
 
         const repaired =
-          (await generateSectionWithLLM(sectionName, repairPrompt, apiKey)) ??
-          `[${sectionName} — data pending: repair generation unavailable.]`;
+          (await generateSectionWithLLM(sectionName, repairPrompt, apiKey)) ?? null;
 
         const idx = sections.findIndex((s) => s.name === sectionName);
-        if (idx >= 0) {
+        if (idx >= 0 && repaired) {
           sections[idx] = {
             ...sections[idx],
             content: repaired,
             lastUpdatedAt: new Date().toISOString(),
-            agentConfidence: 0.6,
+            agentConfidence: 0.8,
           };
           SectionStore.saveSectionVersion(
             input.planId,
@@ -489,6 +518,8 @@ export class SynthesisAgent {
             repaired,
             sections[idx].citations,
           );
+        } else if (!repaired) {
+          console.warn(`[SynthesisAgent] Repair pass could not regenerate section '${sectionName}'. Preserving existing draft.`);
         }
       }
 

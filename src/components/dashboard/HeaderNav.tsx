@@ -72,7 +72,7 @@ export function HeaderNav({
       {/* ── Left: Brand & Primary Mode / Persona Switchers ──────────────── */}
       <div className="flex items-center gap-5">
         {/* Brand */}
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
           <div className="w-9 h-9 rounded-xl bg-[#1A1917] flex items-center justify-center text-white shadow-sm">
             <BarChart3 className="w-5 h-5 text-white stroke-[2.5]" />
           </div>
@@ -82,7 +82,7 @@ export function HeaderNav({
               PRO
             </span>
           </div>
-        </div>
+        </Link>
 
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-[#E3DFD5]" />

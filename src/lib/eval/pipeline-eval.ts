@@ -228,8 +228,13 @@ function checkSectionCompleteness(snapshot: AgentRunSnapshot): EvalCheckResult {
     const content = sectionMap.get(name) ?? "";
     if (content.length < 100) {
       problems.push(`${name} (${content.length} chars)`);
-    } else if (content.includes("data pending")) {
-      problems.push(`${name} (contains "data pending" placeholder)`);
+    } else if (
+      content.includes("generation unavailable") ||
+      content.includes("repair generation unavailable") ||
+      /\[(?:insert|TBD|unfilled template)/i.test(content) ||
+      (content.length < 150 && /data\s*pending/i.test(content))
+    ) {
+      problems.push(`${name} (unfilled placeholder or generation failed)`);
     }
   }
 

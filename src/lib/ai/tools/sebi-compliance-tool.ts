@@ -12,7 +12,7 @@
  * Upgraded with auditReportAsync() for LLM-based semantic regulatory verification.
  */
 
-import { getModelForRequest } from "@/lib/ai/model-router";
+import { getModelForRequest, recordActualUsage, GROQ_MODELS } from "@/lib/ai/model-router";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
 export interface SebiAuditViolation {
@@ -86,13 +86,18 @@ Report text to audit:
 ${sectionsText.slice(0, 8000)}
 """`;
 
-      const { model } = await getModelForRequest({ provider: "groq", apiKey }, userPrompt);
+      const { model, modelName } = await getModelForRequest(
+        { provider: "groq", apiKey },
+        userPrompt,
+        GROQ_MODELS.BULK_8B
+      );
       const response = await model.invoke([
         new SystemMessage(systemPrompt),
         new HumanMessage(userPrompt),
       ]);
 
       const content = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
+      recordActualUsage(modelName, userPrompt, content);
       const jsonMatch = content.match(/\{[\s\S]*\}/);
 
       if (jsonMatch) {

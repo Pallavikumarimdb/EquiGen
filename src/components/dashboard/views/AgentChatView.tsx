@@ -68,6 +68,10 @@ export function AgentChatView({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const cleanPlanId = reportId ? reportId.replace(/^rep_/, "") : "";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,6 +116,8 @@ export function AgentChatView({
   // Live polling and SSE connection for running tasks
   useEffect(() => {
     if (status !== "running" || !effectiveJobId) return;
+    // Don't connect SSE to transient unpersisted client IDs (avoids 403 errors and reconnect churn)
+    if (effectiveJobId.startsWith("plan_")) return;
 
     let isSubscribed = true;
 
@@ -338,6 +344,11 @@ export function AgentChatView({
         }
       }
     } catch {}
+
+    // If we already have in-memory messages for this company session (e.g. during tempPlanId -> realPlanId handoff), keep them!
+    if (messagesRef.current.length > 0 && messagesRef.current[0].content.includes(companyName || "")) {
+      return;
+    }
 
     // Initial welcome message
     const welcome: ChatMessage = {
@@ -921,7 +932,7 @@ export function AgentChatView({
                     </div>
                     <div className="select-text">
                       <h2 className="text-lg font-extrabold text-[#1A1917]">
-                        AI Analyst Copilot for {companyName}
+                        AI Analyst Copilot{companyName ? ` for ${companyName}` : ""}
                       </h2>
                       <p className="text-xs text-[#7A7569] mt-0.5 max-w-sm mx-auto">
                         Ask analytical questions, request DCF stress-testing, or command live report updates.

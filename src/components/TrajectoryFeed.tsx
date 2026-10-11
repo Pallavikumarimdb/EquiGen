@@ -66,7 +66,7 @@ export function TrajectoryFeed({ planId, altPlanId, autoScroll = true, onPlanCom
 
   useEffect(() => {
     setEvents([]);
-    if (!planId || planId === "demo-plan-id") {
+    if (!planId || planId === "demo-plan-id" || planId.startsWith("plan_")) {
       return;
     }
 

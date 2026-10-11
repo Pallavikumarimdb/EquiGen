@@ -320,7 +320,10 @@ export function recordActualUsage(
   inputText: string,
   outputText: string,
 ) {
-  if (modelName.includes("/")) {
+  const isOpenRouterModel =
+    modelName.startsWith("openrouter/") ||
+    modelName.startsWith("meta-llama/");
+  if (isOpenRouterModel) {
     // Skip budget tracking for OpenRouter models to prevent budget exhaustion
     return;
   }

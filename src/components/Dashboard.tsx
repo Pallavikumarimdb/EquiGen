@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { HeaderNav } from "./dashboard/HeaderNav";
 import { CoverageSidebar } from "./dashboard/CoverageSidebar";
@@ -48,7 +48,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   // Active Research Data
   const [activeReportId, setActiveReportId] = useState<string | null>(initialReportId || null);
-  const [_activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string>("");
   const [reportData, setReportData] = useState<EquityResearchData | null>(null);
   const [reportPdfBase64, setReportPdfBase64] = useState<string | null>(null);
@@ -64,15 +64,62 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
 
-  // URL Synchronization Helper
-  const syncUrl = (reportId: string | null, mode: "report" | "agent") => {
-    if (!reportId || typeof window === "undefined") return;
+  // URL Synchronization Helper (shallow SPA update without triggering Next.js route remount)
+  const syncUrl = useCallback((reportId: string | null, mode: "report" | "agent") => {
+    if (typeof window === "undefined") return;
+
+    if (!reportId) {
+      if (window.location.pathname !== "/") {
+        try {
+          const state = { ...(window.history.state || {}), __NA: true };
+          window.history.replaceState(state, "", "/");
+        } catch {
+          window.history.replaceState(null, "", "/");
+        }
+        router.replace("/");
+      }
+      return;
+    }
+
+    // Never sync transient client-side optimistic IDs to the browser URL bar
+    if (reportId.startsWith("plan_") || reportId.startsWith("job_")) return;
+
     const cleanId = reportId.replace(/^rep_/, "");
     const newPath = mode === "agent" ? `/agent/${cleanId}` : `/research/${cleanId}`;
     if (window.location.pathname !== newPath) {
-      window.history.pushState(null, "", newPath);
+      try {
+        const state = { ...(window.history.state || {}), __NA: true };
+        window.history.replaceState(state, "", newPath);
+      } catch {
+        window.history.replaceState(null, "", newPath);
+      }
     }
-  };
+  }, [router]);
+
+  // Helper to completely clear active report state and redirect back to root dashboard
+  const resetToEmptyState = useCallback(() => {
+    setActiveReportId(null);
+    setActiveSessionId(null);
+    setCompanyName("");
+    setReportData(null);
+    setReportPdfBase64(null);
+    setActiveReportStatus("draft");
+    setActiveViewMode("report");
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("equigen_active_report_id");
+      }
+    } catch {}
+    if (typeof window !== "undefined" && window.location.pathname !== "/") {
+      try {
+        const state = { ...(window.history.state || {}), __NA: true };
+        window.history.replaceState(state, "", "/");
+      } catch {
+        window.history.replaceState(null, "", "/");
+      }
+    }
+    router.replace("/");
+  }, [router]);
 
   // Toast Helper
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
@@ -154,6 +201,13 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         }
       }
 
+      // If coverage universe is completely empty (all reports were deleted or DB reset)
+      if (uniqueItems.length === 0) {
+        setHistory([]);
+        resetToEmptyState();
+        return;
+      }
+
       // When merging background updates into history, preserve any active/running jobs without creating ghost duplicates
       setHistory((prev) => {
         const runningFromPrev = prev.filter((p) => {
@@ -176,8 +230,9 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           (i) => i.id === activeReportId || i.id.replace(/^rep_/, "") === cleanActiveId || i.id === `rep_${cleanActiveId}`
         );
         if (existing) {
-          if (existing.id !== activeReportId) {
-            setActiveReportId(existing.id);
+          const cleanExistingId = existing.id.replace(/^rep_/, "");
+          if (cleanExistingId !== cleanActiveId) {
+            setActiveReportId(cleanExistingId);
           }
           setActiveReportStatus(existing.status || "published");
           if (existing.reportData) {
@@ -209,6 +264,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             return;
           }
         }
+
+        // Active report was deleted or no longer exists: fallback to first report or reset to empty
+        if (uniqueItems.length > 0) {
+          handleSelectReport(uniqueItems[0]);
+        } else {
+          resetToEmptyState();
+        }
+        return;
       }
 
       if (isInitial || !activeReportId) {
@@ -231,8 +294,9 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
         if (targetItem) {
           const targetMode = initialReportId ? initialViewMode : activeViewMode;
-          setActiveReportId(targetItem.id);
-          setActiveSessionId(targetItem.id.replace(/^rep_/, ""));
+          const cleanTargetId = targetItem.id.replace(/^rep_/, "");
+          setActiveReportId(cleanTargetId);
+          setActiveSessionId(cleanTargetId);
           setCompanyName(targetItem.companyName);
           setReportData(targetItem.reportData);
           setReportPdfBase64(targetItem.reportPdfBase64);
@@ -241,14 +305,9 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           setSebiRegNo(targetItem.sebiRegNo || user?.sebiRegNo || "");
           setApprovedAt(targetItem.approvedAt || null);
           setActiveViewMode(targetMode);
-          syncUrl(targetItem.id, targetMode);
+          syncUrl(cleanTargetId, targetMode);
         } else {
-          setActiveReportId(null);
-          setActiveSessionId(null);
-          setCompanyName("");
-          setReportData(null);
-          setReportPdfBase64(null);
-          setActiveReportStatus("draft");
+          resetToEmptyState();
         }
       }
     } catch (err) {
@@ -282,13 +341,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   const handleSelectReport = (item: DashboardHistoryItem) => {
     // Retain user's current view mode (Report vs Agent) unless target item is actively running
     const targetMode = item.status === "running" || item.status === "pending" ? "agent" : activeViewMode;
-    setActiveReportId(item.id);
+    const cleanId = item.id.replace(/^rep_/, "");
+    setActiveReportId(cleanId);
     try {
       if (typeof window !== "undefined") {
-        localStorage.setItem("equigen_active_report_id", item.id);
+        localStorage.setItem("equigen_active_report_id", cleanId);
       }
     } catch { }
-    setActiveSessionId(item.id.replace(/^rep_/, ""));
+    setActiveSessionId(cleanId);
     setCompanyName(item.companyName);
     setReportData(item.reportData);
     setReportPdfBase64(item.reportPdfBase64);
@@ -297,7 +357,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     setSebiRegNo(item.sebiRegNo || user?.sebiRegNo || "");
     setApprovedAt(item.approvedAt || null);
     setActiveViewMode(targetMode);
-    syncUrl(item.id, targetMode);
+    syncUrl(cleanId, targetMode);
   };
 
   // Delete Report
@@ -306,19 +366,25 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     const cleanId = id.replace(/^rep_/, "");
     const repId = `rep_${cleanId}`;
 
-    setHistory((prev) => prev.filter((h) => h.id !== id && h.id !== cleanId && h.id !== repId));
+    let remainingAfterDelete: DashboardHistoryItem[] = [];
+    setHistory((prev) => {
+      const filtered = prev.filter((h) => h.id !== id && h.id !== cleanId && h.id !== repId);
+      remainingAfterDelete = filtered;
+      return filtered;
+    });
 
     try {
       await fetch(`/api/history?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (activeReportId === id || activeReportId === cleanId || activeReportId === repId) {
-        const remaining = history.filter((h) => h.id !== id && h.id !== cleanId && h.id !== repId);
-        if (remaining.length > 0) {
-          handleSelectReport(remaining[0]);
-        } else {
-          setReportData(null);
-          setActiveReportId(null);
-        }
+      const isCurrentActive = activeReportId === id || activeReportId === cleanId || activeReportId === repId;
+
+      if (remainingAfterDelete.length === 0) {
+        // All reports deleted from the universe: cleanly reset state and redirect to http://localhost:3000/
+        resetToEmptyState();
+      } else if (isCurrentActive) {
+        // Current report was deleted, switch to the next available report in the universe
+        handleSelectReport(remainingAfterDelete[0]);
       }
+
       showToast("Report deleted from universe", "info");
       fetchHistory();
     } catch {
@@ -414,7 +480,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     setReportPdfBase64(null);
     setActiveReportStatus("running");
     setActiveViewMode("agent");
-    syncUrl(tempPlanId, "agent");
     showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
 
     try {
@@ -519,7 +584,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     setReportPdfBase64(null);
     setActiveReportStatus("running");
     setActiveViewMode("agent");
-    syncUrl(tempJobId, "agent");
     showToast(`Uploading and parsing ${file.name}...`, "info");
 
     try {
@@ -858,8 +922,8 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               </p>
             </div>
           </main>
-        ) : activeViewMode === "report" ? (
-          /* Mode 1: Complete Equity Research Report Page */
+        ) : activeViewMode === "report" || (!activeReportId && !reportData && history.length === 0) ? (
+          /* Mode 1 & Universe Empty State: Complete Equity Research Report Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto p-4 sm:p-6 transition-all duration-300">
             {reportData ? (
               <UnifiedReportView
@@ -905,7 +969,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           /* Mode 2: Complete ChatGPT-Style AI Agent & Chat Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-white animate-fadeIn">
             <AgentChatView
-              key={activeReportId || "agent_view_empty"}
+              key={activeSessionId || activeReportId?.replace(/^rep_/, "") || "agent_view_empty"}
               reportId={activeReportId}
               companyName={companyName}
               ticker={ticker}
