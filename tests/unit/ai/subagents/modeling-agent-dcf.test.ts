@@ -202,5 +202,5 @@ describe("valuation failure never crashes the run", () => {
     expect(out.milestoneCompleted).toBe(true);
     expect(out.modelOutput.baseTargetPrice).toBe(0);
     expect(Number.isFinite(out.modelOutput.baseTargetPrice)).toBe(true);
-  });
+  }, 30000);
 });

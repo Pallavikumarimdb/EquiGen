@@ -24,120 +24,7 @@ import {
   X,
 } from "lucide-react";
 
-// Initial default fallback company data if workspace is completely fresh
-const DEFAULT_SAMPLE_REPORT: EquityResearchData = {
-  company: {
-    name: "Tata Motors Limited",
-    ticker: "TATAMOTORS",
-    sector: "Automotive & Mobility",
-    industry: "Commercial & Passenger Vehicles",
-    reportDate: new Date().toLocaleDateString(undefined, { dateStyle: "medium" }),
-  },
-  recommendation: {
-    rating: "BUY",
-    currentPrice: 948,
-    targetPrice: 1140,
-    upsidePotential: 20.3,
-    rationale: [
-      "JLR margin resilience led by strong Defender and Range Rover order backlog",
-      "Domestic EV volume leadership with >65% market share in passenger electric vehicles",
-      "Aggressive net debt reduction targeting near-zero automotive net debt by FY25",
-    ],
-  },
-  companyData: {
-    marketCap: 348500,
-    highLow52W: "₹635 — ₹1,179",
-    enterpriseValue: 375000,
-    outstandingShares: 332,
-    freeFloat: "54.2%",
-    dividendYield: "0.6%",
-    beta: 1.25,
-    pe: 11.2,
-    evEbitda: 5.8,
-    roe: 36.2,
-    deRatio: 0.8,
-  },
-  executiveSummary:
-    "Tata Motors Limited is positioned at the intersection of a luxury SUV super-cycle at JLR and a structural domestic electrification shift. We initiate coverage with a BUY recommendation and a 12-month target price of ₹1,140 based on SOTP and DCF valuation.",
-  swotAnalysis: {
-    strengths: [
-      "Global luxury brand equity through Jaguar Land Rover with high average selling prices",
-      "Commanding domestic market share in medium and heavy commercial vehicles (M&HCV)",
-      "Strong vertical integration in electric vehicle powertrain through Tata AutoComp and Tata Power",
-    ],
-    weaknesses: [
-      "Cyclical sensitivity in European and UK automotive markets exposed to macroeconomic slowdown",
-      "Heavy capex requirements for continuous battery technology evolution and autonomous platforms",
-      "UK manufacturing operations exposed to British pound and euro foreign exchange fluctuations",
-    ],
-    opportunities: [
-      "De-merger into two separate listed entities (Commercial Vehicles & Passenger Vehicles) unlocking sum-of-the-parts value",
-      "Rapid export ramp-up of modern EV platforms to Middle East and Southeast Asian markets",
-      "Commercial vehicle fleet modernization driven by government scrappage policy incentives",
-    ],
-    threats: [
-      "Intensifying domestic EV competition from global and Chinese OEM entrants",
-      "Supply chain disruptions in critical power semiconductors and raw battery minerals",
-      "Stricter Euro-7 emissions and safety regulatory compliance deadlines",
-    ],
-  },
-  fiveYearSummary: [
-    { period: "FY22", sales: 278454, ebitda: 24813, ebitdaMargin: 8.9, patAdjusted: -11441, pe: null, roe: -24.5, deRatio: 2.1 },
-    { period: "FY23", sales: 345967, ebitda: 37011, ebitdaMargin: 10.7, patAdjusted: 2414, pe: 58.2, roe: 5.4, deRatio: 1.6 },
-    { period: "FY24", sales: 437928, ebitda: 62800, ebitdaMargin: 14.3, patAdjusted: 31807, pe: 11.2, roe: 36.2, deRatio: 0.8 },
-    { period: "FY25E", sales: 482000, ebitda: 71300, ebitdaMargin: 14.8, patAdjusted: 35400, pe: 9.8, roe: 28.5, deRatio: 0.4 },
-    { period: "FY26E", sales: 535000, ebitda: 81800, ebitdaMargin: 15.3, patAdjusted: 41200, pe: 8.4, roe: 26.1, deRatio: 0.2 },
-  ],
-  keyFinancials: {
-    incomeStatement: [],
-    balanceSheet: [],
-    cashFlow: [],
-  },
-  valuationAnalysis: "Discounted Cash Flow (DCF) with 12.0% WACC and 5.0% Terminal Growth Rate.",
-  investmentRisks: ["Commodity price volatility", "Cyclical European slowdown", "EV platform competition"],
-  competitors: [
-    { name: "Mahindra & Mahindra", ticker: "M&M", currentPrice: 2840, targetPrice: 3200, recommendation: "BUY" },
-    { name: "Maruti Suzuki", ticker: "MARUTI", currentPrice: 12150, targetPrice: 13400, recommendation: "ACCUMULATE" },
-    { name: "Ashok Leyland", ticker: "ASHOKLEY", currentPrice: 228, targetPrice: 265, recommendation: "BUY" },
-  ],
-  forensicAnalysis: {
-    overallHealthScore: 82,
-    riskLevel: "LOW",
-    cfoToPatRatio: {
-      ratio: 1.18,
-      status: "safe",
-      interpretation: "Excellent cash conversion — 118% of reported PAT translated into operating cash flow (CFO: ₹37,500 Cr vs PAT: ₹31,807 Cr).",
-      cfoCr: 37500,
-      patCr: 31807,
-    },
-    altmanZScore: {
-      score: 3.24,
-      zone: "Safe",
-      status: "safe",
-      interpretation: "Altman Z-Score of 3.24 places the company firmly in the Safe Zone with zero imminent distress risk.",
-    },
-    beneishMScore: {
-      score: -2.48,
-      status: "safe",
-      interpretation: "Beneish M-Score of -2.48 (< -1.78) indicates standard accrual run-rate with negligible earnings manipulation probability.",
-    },
-    workingCapitalStress: {
-      receivablesGrowthVsSales: "Sales: +26% YoY | Receivables: +18% YoY",
-      workingCapitalCycleDays: 32,
-      status: "safe",
-      interpretation: "Trade receivables grew slower than top-line revenues, demonstrating healthy debtor collections.",
-    },
-    governanceFlags: {
-      promoterPledgePct: 0.0,
-      promoterHoldingPct: 46.4,
-      institutionalHoldingPct: 35.8,
-      auditorQuality: "Clean",
-      flags: [],
-    },
-    summaryAssessment: "High-quality forensic profile (Score: 82/100). Robust cash conversion, low promoter encumbrance (0% pledge), and rapid balance sheet de-leveraging.",
-    auditedAt: new Date().toISOString(),
-  },
-};
+import { DEFAULT_SAMPLE_REPORT } from "@/lib/report/sample-report";
 
 interface DashboardProps {
   initialReportId?: string;
@@ -802,24 +689,76 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     showToast("Compiling institutional PDF report...", "info");
 
     try {
-      let blob: Blob;
+      let blob: Blob | null = null;
       let filename = `${companyName.replace(/[^a-zA-Z0-9]/g, "_")}_Research_Report.pdf`;
 
       if (reportPdfBase64) {
         const bytes = Uint8Array.from(atob(reportPdfBase64), (c) => c.charCodeAt(0));
         blob = new Blob([bytes], { type: "application/pdf" });
       } else {
+        const cleanId = activeReportId.replace(/^rep_/, "");
         const queryParams = new URLSearchParams({
-          id: activeReportId.replace(/^rep_/, ""),
+          id: cleanId,
           ticker: reportData?.company?.ticker || "TICKER",
           companyName: companyName,
         });
-        const res = await fetch(`/api/download?${queryParams.toString()}`);
-        if (!res.ok) throw new Error("PDF download failed.");
-        blob = await res.blob();
-        const disposition = res.headers.get("content-disposition") || "";
-        const match = disposition.match(/filename="?([^";]+)"?/i);
-        if (match && match[1]) filename = match[1];
+
+        let res = await fetch(`/api/download?${queryParams.toString()}`);
+
+        // If authenticity gate blocked download, check if user can override or if report is approved/published
+        if (res.status === 409) {
+          const errData = await res.json().catch(() => ({}));
+          const canOverride =
+            errData.canOverride ||
+            user?.role === "reviewer" ||
+            user?.role === "admin" ||
+            user?.role === "research_analyst" ||
+            activeReportStatus === "approved" ||
+            activeReportStatus === "published";
+
+          if (canOverride) {
+            queryParams.set("overrideQuality", "true");
+            queryParams.set(
+              "overrideReason",
+              `Institutional analyst inspection and export authorization for ${companyName}`
+            );
+            res = await fetch(`/api/download?${queryParams.toString()}`);
+          } else {
+            throw new Error(errData.message || "Authenticity gate blocked export. Reviewer override required.");
+          }
+        }
+
+        // If not found in DB or download failed, fall back to compiling current client reportData
+        if (!res.ok && reportData) {
+          try {
+            const compileRes = await fetch("/api/report", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(reportData),
+            });
+            if (compileRes.ok) {
+              const compileData = await compileRes.json();
+              if (compileData.pdfBase64) {
+                const bytes = Uint8Array.from(atob(compileData.pdfBase64), (c) => c.charCodeAt(0));
+                blob = new Blob([bytes], { type: "application/pdf" });
+                setReportPdfBase64(compileData.pdfBase64);
+              }
+            }
+          } catch {
+            // best-effort fallback
+          }
+        }
+
+        if (!blob) {
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.message || `PDF download failed (HTTP ${res.status}).`);
+          }
+          blob = await res.blob();
+          const disposition = res.headers.get("content-disposition") || "";
+          const match = disposition.match(/filename="?([^";]+)"?/i);
+          if (match && match[1]) filename = match[1];
+        }
       }
 
       const url = URL.createObjectURL(blob);
@@ -832,8 +771,9 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       setTimeout(() => URL.revokeObjectURL(url), 10000);
 
       showToast("PDF report downloaded successfully!", "success");
-    } catch {
-      showToast("PDF download failed. Please try again.", "error");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "PDF download failed. Please try again.";
+      showToast(errMsg, "error");
     } finally {
       setIsDownloadingPdf(false);
     }

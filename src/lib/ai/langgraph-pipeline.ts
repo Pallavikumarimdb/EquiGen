@@ -108,6 +108,44 @@ export const SwotAndThesisSchema = z.object({
     .describe("Key growth drivers and pipeline plans"),
 });
 
+export const DetailedFinancialRowSchema = z
+  .object({
+    metric: z
+      .string()
+      .describe(
+        "Financial line item or metric name (e.g. Sales, EBITDA, Net Profit, Current Assets, Total Debt)",
+      ),
+    fy20: z.union([z.string(), z.number()]).nullable().optional(),
+    fy21: z.union([z.string(), z.number()]).nullable().optional(),
+    fy22: z.union([z.string(), z.number()]).nullable().optional(),
+    fy23: z.union([z.string(), z.number()]).nullable().optional(),
+    fy24: z.union([z.string(), z.number()]).nullable().optional(),
+    fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    fy27: z.union([z.string(), z.number()]).nullable().optional(),
+    fy28: z.union([z.string(), z.number()]).nullable().optional(),
+    fy24a: z.union([z.string(), z.number()]).nullable().optional(),
+    fy25a: z.union([z.string(), z.number()]).nullable().optional(),
+    fy25e: z.union([z.string(), z.number()]).nullable().optional(),
+    fy26e: z.union([z.string(), z.number()]).nullable().optional(),
+    fy27e: z.union([z.string(), z.number()]).nullable().optional(),
+    fy28e: z.union([z.string(), z.number()]).nullable().optional(),
+    q1fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    q2fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    q3fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    q4fy25: z.union([z.string(), z.number()]).nullable().optional(),
+    q1fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    q2fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    q3fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    q4fy26: z.union([z.string(), z.number()]).nullable().optional(),
+    col1: z.union([z.string(), z.number()]).nullable().optional(),
+    col2: z.union([z.string(), z.number()]).nullable().optional(),
+    col3: z.union([z.string(), z.number()]).nullable().optional(),
+    col4: z.union([z.string(), z.number()]).nullable().optional(),
+    col5: z.union([z.string(), z.number()]).nullable().optional(),
+  })
+  .describe("A financial statement row with line-item metric and period columns");
+
 export const FinancialsSchema = z.object({
   revenue: z
     .array(
@@ -246,19 +284,19 @@ export const FinancialsSchema = z.object({
   detailedFinancials: z
     .object({
       incomeStatement: z
-        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .array(DetailedFinancialRowSchema)
         .nullable()
         .optional(),
       balanceSheet: z
-        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .array(DetailedFinancialRowSchema)
         .nullable()
         .optional(),
       cashFlow: z
-        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .array(DetailedFinancialRowSchema)
         .nullable()
         .optional(),
       ratios: z
-        .array(z.record(z.union([z.string(), z.number(), z.null()])))
+        .array(DetailedFinancialRowSchema)
         .nullable()
         .optional(),
     })

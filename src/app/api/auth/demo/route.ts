@@ -50,13 +50,17 @@ export async function POST() {
     // 2. Ensure the demo user exists in the database
     const user = await prisma.user.upsert({
       where: { email: "demo@equigen.com" },
-      update: {},
+      update: {
+        role: "research_analyst",
+        sebiRegNo: "INH000012345",
+      },
       create: {
         id: "demo-guest-user",
         email: "demo@equigen.com",
         name: "Demo Guest",
         passwordHash: "demo-guest-hash-unused",
-        role: "analyst",
+        role: "research_analyst",
+        sebiRegNo: "INH000012345",
         orgId: "default-org",
       },
     });

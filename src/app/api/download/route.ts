@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
 import { pdfGenerationService } from "@/lib/pdf";
+import { DEFAULT_SAMPLE_REPORT } from "@/lib/report/sample-report";
 
 import { evaluateDistributionGate } from "@/lib/eval/distribution-gate";
 import { isTenantFailure, requireTenantSession, canAccessTenantRecord, tenantForbidden } from "@/lib/utils/tenant";
@@ -67,6 +68,21 @@ export async function GET(req: NextRequest) {
       });
     } catch {
       report = null;
+    }
+
+    // Default sample report fallback for workspace onboarding & demo exploration
+    if (!report && (cleanId === "default_sample" || id === "rep_default_sample")) {
+      report = {
+        id: "rep_default_sample",
+        orgId: orgId,
+        companyName: "Tata Motors Limited",
+        status: "draft",
+        reportData: DEFAULT_SAMPLE_REPORT,
+        pdfBase64: null,
+        reviewerName: session?.name || "Research Analyst",
+        sebiRegNo: session?.sebiRegNo || "INH000012345",
+        approvedAt: new Date(),
+      };
     }
 
     // 2. No persisted report exists for this id.
@@ -201,10 +217,12 @@ export async function GET(req: NextRequest) {
           },
         );
 
-        await prisma.reportHistory.update({
-          where: { id: report.id },
-          data: { pdfBase64: reportBuffer.toString("base64") },
-        });
+        if (report.id !== "rep_default_sample") {
+          await prisma.reportHistory.update({
+            where: { id: report.id },
+            data: { pdfBase64: reportBuffer.toString("base64") },
+          }).catch(() => null);
+        }
 
         return new NextResponse(new Uint8Array(reportBuffer), {
           headers: {
@@ -279,10 +297,12 @@ export async function GET(req: NextRequest) {
         },
       );
 
-      await prisma.reportHistory.update({
-        where: { id: report.id },
-        data: { pdfBase64: reportBuffer.toString("base64") },
-      });
+      if (report.id !== "rep_default_sample") {
+        await prisma.reportHistory.update({
+          where: { id: report.id },
+          data: { pdfBase64: reportBuffer.toString("base64") },
+        }).catch(() => null);
+      }
 
       return new NextResponse(new Uint8Array(reportBuffer), {
         headers: {

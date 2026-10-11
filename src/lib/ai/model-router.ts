@@ -84,7 +84,7 @@ export function getFallbackGroqModel(options: AIServiceOptions): BaseChatModel {
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
       },
-      modelName: "meta-llama/llama-3.3-70b-instruct:free",
+      modelName: "meta-llama/llama-3.3-70b-instruct",
       temperature: 0.1,
       maxRetries: 3,
       timeout: 120000,
@@ -187,12 +187,12 @@ export async function getModelForRequest(
           configuration: {
             baseURL: "https://openrouter.ai/api/v1",
           },
-          modelName: "meta-llama/llama-3.3-70b-instruct:free",
+          modelName: "meta-llama/llama-3.3-70b-instruct",
           temperature: 0.1,
           maxRetries: 3,
           timeout: 120000,
         }),
-        modelName: "meta-llama/llama-3.3-70b-instruct:free",
+        modelName: "meta-llama/llama-3.3-70b-instruct",
         downgraded: true,
       };
     }

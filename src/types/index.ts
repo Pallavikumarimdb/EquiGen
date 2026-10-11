@@ -173,6 +173,8 @@ export interface EquityResearchData {
   forensicAnalysis?: ForensicQualityData | null;
   modelingData?: Record<string, unknown> | null;
   financialAudit?: Record<string, unknown> | null;
+  consistencyCheck?: Record<string, unknown> | null;
+  complianceAudit?: Record<string, unknown> | null;
 }
 
 export interface ForensicRedFlag {

@@ -111,4 +111,18 @@ describe("normalizeEquityResearchData", () => {
     expect(cData.marketCap).toBeNull();
     expect(normalized.recommendation.targetPrice).toBeNull();
   });
+
+  it("preserves consistencyCheck and complianceAudit", () => {
+    const raw = {
+      companyName: "Audited Corp",
+      ticker: "AUDIT",
+      consistencyCheck: { isConsistent: true, score: 1 },
+      complianceAudit: { isCompliant: true, score: 98 },
+    };
+
+    const normalized = normalizeEquityResearchData(raw);
+    expect(normalized.consistencyCheck).toEqual({ isConsistent: true, score: 1 });
+    expect(normalized.complianceAudit).toEqual({ isCompliant: true, score: 98 });
+  });
 });
+
