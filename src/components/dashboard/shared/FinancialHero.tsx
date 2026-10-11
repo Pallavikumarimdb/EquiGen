@@ -14,7 +14,6 @@ import {
   AlertTriangle,
   AlertCircle,
   ShieldCheck,
-  CheckCircle2,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 
