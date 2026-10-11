@@ -13,21 +13,18 @@ import { useEffect } from "react";
  */
 export function GlobalClientListeners() {
   useEffect(() => {
-    const preventFileDropNavigation = (e: DragEvent) => {
-      // If the drag event carries files, prevent browser default navigation
-      if (e.dataTransfer?.types?.includes("Files")) {
-        e.preventDefault();
-      }
+    const prevent = (e: DragEvent) => {
+      e.preventDefault();
     };
 
-    window.addEventListener("dragenter", preventFileDropNavigation, false);
-    window.addEventListener("dragover", preventFileDropNavigation, false);
-    window.addEventListener("drop", preventFileDropNavigation, false);
+    window.addEventListener("dragenter", prevent, true);
+    window.addEventListener("dragover", prevent, true);
+    window.addEventListener("drop", prevent, true);
 
     return () => {
-      window.removeEventListener("dragenter", preventFileDropNavigation, false);
-      window.removeEventListener("dragover", preventFileDropNavigation, false);
-      window.removeEventListener("drop", preventFileDropNavigation, false);
+      window.removeEventListener("dragenter", prevent, true);
+      window.removeEventListener("dragover", prevent, true);
+      window.removeEventListener("drop", prevent, true);
     };
   }, []);
 

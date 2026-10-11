@@ -105,22 +105,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     fetchUser();
   }, [router]);
 
-  // Global prevention for unintended browser file navigation (e.g. dropping a PDF outside the drop zone)
-  // This prevents the browser from attempting to navigate to file:/// links, which triggers Security Errors
-  useEffect(() => {
-    const preventFileDropNavigation = (e: DragEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("dragenter", preventFileDropNavigation, true);
-    window.addEventListener("dragover", preventFileDropNavigation, true);
-    window.addEventListener("drop", preventFileDropNavigation, true);
-    return () => {
-      window.removeEventListener("dragenter", preventFileDropNavigation, true);
-      window.removeEventListener("dragover", preventFileDropNavigation, true);
-      window.removeEventListener("drop", preventFileDropNavigation, true);
-    };
-  }, []);
-
   // Fetch History and Plans
   const fetchHistory = async (isInitial = false) => {
     try {

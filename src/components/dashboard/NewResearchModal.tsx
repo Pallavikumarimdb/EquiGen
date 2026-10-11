@@ -37,26 +37,6 @@ export function NewResearchModal({
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Global window drop prevention so the browser never attempts to navigate to file:///
-  React.useEffect(() => {
-    const handleGlobalDragOver = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
-        e.preventDefault();
-      }
-    };
-    const handleGlobalDrop = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
-        e.preventDefault();
-      }
-    };
-    window.addEventListener("dragover", handleGlobalDragOver, false);
-    window.addEventListener("drop", handleGlobalDrop, false);
-    return () => {
-      window.removeEventListener("dragover", handleGlobalDragOver, false);
-      window.removeEventListener("drop", handleGlobalDrop, false);
-    };
-  }, []);
-
   if (!isOpen) return null;
 
   const validateAndSetFile = (file: File) => {
