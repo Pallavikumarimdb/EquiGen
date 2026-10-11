@@ -163,9 +163,10 @@ export function AgentChatView({
       onPlanComplete?.(effectiveJobId);
     });
 
-    // 2. Periodic status check for ExtractionJob records
+    // 2. Periodic status check for ExtractionJob records (only for uploaded document jobs)
     const pollInterval = setInterval(async () => {
       if (!isSubscribed) return;
+      if (!effectiveJobId || !effectiveJobId.startsWith("job_")) return;
       try {
         const res = await fetch(`/api/extract/status?jobId=${encodeURIComponent(effectiveJobId)}`);
         if (res.ok) {
@@ -602,12 +603,12 @@ export function AgentChatView({
       // Non-secret preferences remain.
       let userProvider: string | undefined;
       let userModelName: string | undefined;
+      let userBaseUrl: string | undefined;
       try {
         if (typeof window !== "undefined") {
           userProvider = localStorage.getItem("equigen_ai_provider") || undefined;
-          if (userProvider === "groq") {
-            userModelName = localStorage.getItem("equigen_groq_model") || undefined;
-          }
+          userModelName = localStorage.getItem("equigen_groq_model") || undefined;
+          userBaseUrl = localStorage.getItem("equigen_ollama_base_url") || undefined;
         }
       } catch {}
 
@@ -640,6 +641,7 @@ export function AgentChatView({
           currentPersona: "institutional",
           provider: userProvider,
           apiKey: userApiKey,
+          baseUrl: userBaseUrl,
           modelName: userModelName,
           stream: true,
         }),

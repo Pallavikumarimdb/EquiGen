@@ -51,6 +51,7 @@ export default function UserSettingsPage() {
     openrouter: false,
     openai: false,
     anthropic: false,
+    ollama: false,
   });
 
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -58,6 +59,7 @@ export default function UserSettingsPage() {
     openrouter: "",
     openai: "",
     anthropic: "",
+    ollama: "",
   });
 
   const [showKey, setShowKey] = useState<Record<string, boolean>>({
@@ -65,6 +67,7 @@ export default function UserSettingsPage() {
     openrouter: false,
     openai: false,
     anthropic: false,
+    ollama: false,
   });
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function UserSettingsPage() {
   };
 
   const fetchKeysStatus = async () => {
-    const providers = ["groq", "openrouter", "openai", "anthropic"];
+    const providers = ["groq", "openrouter", "openai", "anthropic", "ollama"];
     const configuredMap: Record<string, boolean> = {};
 
     for (const p of providers) {
@@ -130,6 +133,8 @@ export default function UserSettingsPage() {
       const localGroq = localStorage.getItem("equigen_groq_api_key");
       const localOpenai = localStorage.getItem("equigen_openai_api_key");
       const localOpenrouter = localStorage.getItem("equigen_openrouter_api_key");
+      const localAnthropic = localStorage.getItem("equigen_anthropic_api_key");
+      const localOllama = localStorage.getItem("equigen_ollama_base_url");
       const localProvider = localStorage.getItem("equigen_ai_provider");
       const localModel = localStorage.getItem("equigen_groq_model");
 
@@ -141,6 +146,8 @@ export default function UserSettingsPage() {
         groq: localGroq || prev.groq,
         openai: localOpenai || prev.openai,
         openrouter: localOpenrouter || prev.openrouter,
+        anthropic: localAnthropic || prev.anthropic,
+        ollama: localOllama || prev.ollama || "http://localhost:11434",
       }));
     } catch {
       // ignore
@@ -226,6 +233,9 @@ export default function UserSettingsPage() {
     try {
       localStorage.setItem("equigen_ai_provider", defaultProvider);
       localStorage.setItem("equigen_groq_model", defaultModel);
+      if (keyInputs.ollama) {
+        localStorage.setItem("equigen_ollama_base_url", keyInputs.ollama);
+      }
       setSaveSuccess("AI model preferences saved successfully.");
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch {
@@ -379,27 +389,82 @@ export default function UserSettingsPage() {
                     <label className="text-[11px] font-semibold text-slate-400 block mb-1.5">Provider</label>
                     <select
                       value={defaultProvider}
-                      onChange={(e) => setDefaultProvider(e.target.value)}
+                      onChange={(e) => {
+                        const prov = e.target.value;
+                        setDefaultProvider(prov);
+                        if (prov === "groq") setDefaultModel("openai/gpt-oss-120b");
+                        else if (prov === "openrouter") setDefaultModel("openrouter/free");
+                        else if (prov === "ollama") setDefaultModel("llama3.3");
+                        else if (prov === "anthropic") setDefaultModel("claude-3-5-sonnet-20241022");
+                        else if (prov === "openai") setDefaultModel("gpt-4o");
+                      }}
                       className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
                     >
-                      <option value="groq">Groq (Ultra-Low Latency LPU)</option>
-                      <option value="openrouter">OpenRouter (GPT OSS 120B / DeepSeek)</option>
-                      <option value="openai">OpenAI (GPT-4o / Mini)</option>
+                      <option value="groq">⚡ Groq (Ultra-Low Latency Cloud LPU)</option>
+                      <option value="openrouter">🌐 OpenRouter (Freemium Cloud Router)</option>
+                      <option value="ollama">🦙 Ollama (Local &amp; Offline — Zero Limits &amp; 100% Private)</option>
+                      <option value="anthropic">🧠 Anthropic Claude (Commercial BYOK)</option>
+                      <option value="openai">🤖 OpenAI (Commercial BYOK)</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-semibold text-slate-400 block mb-1.5">Model Engine</label>
-                    <select
-                      value={defaultModel}
-                      onChange={(e) => setDefaultModel(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
-                    >
-                      <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Primary Synthesis)</option>
-                      <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Fast Analysis)</option>
-                      <option value="deepseek/deepseek-chat">deepseek/deepseek-chat (Deep Financial Model)</option>
-                      <option value="gpt-4o">gpt-4o (OpenAI Flagship)</option>
-                    </select>
+                    {defaultProvider === "groq" && (
+                      <select
+                        value={defaultModel}
+                        onChange={(e) => setDefaultModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                      >
+                        <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Primary 70B/120B Flagship)</option>
+                        <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Fast 8B/20B Workhorse)</option>
+                        <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (27B Secondary Fallback)</option>
+                      </select>
+                    )}
+                    {defaultProvider === "openrouter" && (
+                      <select
+                        value={defaultModel}
+                        onChange={(e) => setDefaultModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                      >
+                        <option value="openrouter/free">openrouter/free (Dynamic Free Auto-Router)</option>
+                        <option value="meta-llama/llama-3.3-70b-instruct:free">meta-llama/llama-3.3-70b-instruct:free (128k Free)</option>
+                        <option value="deepseek/deepseek-chat">deepseek/deepseek-chat (DeepSeek V3)</option>
+                        <option value="anthropic/claude-3.5-sonnet">anthropic/claude-3.5-sonnet (via OpenRouter)</option>
+                      </select>
+                    )}
+                    {defaultProvider === "ollama" && (
+                      <div className="space-y-1">
+                        <input
+                          type="text"
+                          value={defaultModel}
+                          onChange={(e) => setDefaultModel(e.target.value)}
+                          placeholder="e.g. llama3.3, qwen2.5:32b, deepseek-r1:14b"
+                          className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                        />
+                        <span className="text-[10px] text-slate-500">Run `ollama run &lt;model&gt;` in your terminal</span>
+                      </div>
+                    )}
+                    {defaultProvider === "anthropic" && (
+                      <select
+                        value={defaultModel}
+                        onChange={(e) => setDefaultModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                      >
+                        <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet (Institutional Gold Standard)</option>
+                        <option value="claude-3-5-haiku-20241022">claude-3-5-haiku (Fast &amp; Accurate)</option>
+                      </select>
+                    )}
+                    {defaultProvider === "openai" && (
+                      <select
+                        value={defaultModel}
+                        onChange={(e) => setDefaultModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#16161e] border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-sans"
+                      >
+                        <option value="gpt-4o">gpt-4o (OpenAI Flagship)</option>
+                        <option value="gpt-4o-mini">gpt-4o-mini (Fast / Cost Efficient)</option>
+                      </select>
+                    )}
                   </div>
                 </div>
 
@@ -414,7 +479,7 @@ export default function UserSettingsPage() {
 
               {/* API Keys List */}
               <div className="space-y-4">
-                <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">Provider API Keys</div>
+                <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">Provider API Keys &amp; Endpoints</div>
 
                 {[
                   {
@@ -427,7 +492,19 @@ export default function UserSettingsPage() {
                     id: "openrouter",
                     name: "OpenRouter API Key",
                     placeholder: "sk-or-...",
-                    desc: "Powers GPT-OSS-120B institutional report generation and sector syntheses.",
+                    desc: "Powers openrouter/free auto-routing and 128k context fallback models.",
+                  },
+                  {
+                    id: "ollama",
+                    name: "Ollama Local Endpoint",
+                    placeholder: "http://localhost:11434",
+                    desc: "Local offline LLM runner. 100% private, zero rate limits. Defaults to http://localhost:11434.",
+                  },
+                  {
+                    id: "anthropic",
+                    name: "Anthropic Claude API Key",
+                    placeholder: "sk-ant-...",
+                    desc: "Powers Claude 3.5 Sonnet for institutional research and balance sheet analysis.",
                   },
                   {
                     id: "openai",

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const provider = searchParams.get("provider");
 
-    const allowedProviders = ["groq", "openai", "openrouter", "anthropic", "deepseek"];
+    const allowedProviders = ["groq", "openai", "openrouter", "anthropic", "deepseek", "ollama"];
     if (!provider || !allowedProviders.includes(provider)) {
       return NextResponse.json(
         { message: `Invalid provider. Allowed: ${allowedProviders.join(", ")}` },
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { provider, apiKey } = body;
 
-    const allowedProviders = ["groq", "openai", "openrouter", "anthropic", "deepseek"];
+    const allowedProviders = ["groq", "openai", "openrouter", "anthropic", "deepseek", "ollama"];
     if (!provider || !allowedProviders.includes(provider)) {
       return NextResponse.json(
         { message: `Invalid provider. Allowed: ${allowedProviders.join(", ")}` },

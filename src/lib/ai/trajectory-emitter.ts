@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db";
 class TrajectoryEventEmitter extends EventEmitter {}
 
 const globalEmitter = new TrajectoryEventEmitter();
+globalEmitter.setMaxListeners(100);
 const eventHistoryCache = new Map<string, TrajectoryEvent[]>();
 
 export class TrajectoryBus {

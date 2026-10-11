@@ -87,12 +87,12 @@ export function CopilotDrawer({
       // storage.
       let userProvider: string | undefined;
       let userModelName: string | undefined;
+      let userBaseUrl: string | undefined;
       try {
         if (typeof window !== "undefined") {
           userProvider = localStorage.getItem("equigen_ai_provider") || undefined;
-          if (userProvider === "groq") {
-            userModelName = localStorage.getItem("equigen_groq_model") || undefined;
-          }
+          userModelName = localStorage.getItem("equigen_groq_model") || undefined;
+          userBaseUrl = localStorage.getItem("equigen_ollama_base_url") || undefined;
         }
       } catch {}
 
@@ -111,6 +111,7 @@ export function CopilotDrawer({
           reportData: reportContext,
           provider: userProvider,
           apiKey: userApiKey,
+          baseUrl: userBaseUrl,
           modelName: userModelName,
         }),
       });

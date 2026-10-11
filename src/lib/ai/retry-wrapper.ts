@@ -68,6 +68,36 @@ export async function withRateLimitRetry<T>(
         (err as { response?: { status?: number } })?.response?.status;
       const message = err instanceof Error ? err.message : String(err);
 
+      const isRequestTooLarge =
+        status === 413 ||
+        message.includes("413") ||
+        message.includes("Request too large") ||
+        message.includes("reduce your message size");
+
+      if (isRequestTooLarge) {
+        console.warn(
+          `\n[RetryWrapper] ⚠️ REQUEST TOO LARGE (HTTP 413 / TPM ceiling exceeded). Retrying on same model will not help.`,
+        );
+        if (fallback) {
+          try {
+            console.warn(
+              `[RetryWrapper] 🔄 Switching immediately to fallback model...`,
+            );
+            return await fallback();
+          } catch (fbErr: unknown) {
+            lastError = fbErr;
+            console.warn(
+              "[RetryWrapper] ❌ Fallback model execution also failed:",
+              fbErr instanceof Error ? fbErr.message : fbErr,
+            );
+          }
+        }
+        throw new RateLimitError(
+          lastError instanceof Error ? lastError.message : message,
+          0,
+        );
+      }
+
       if (
         status === 429 ||
         message.includes("rate_limit_exceeded") ||

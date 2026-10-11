@@ -22,8 +22,9 @@ export interface CentralizedChatRequest {
   rating?: string;
   persona?: string;
   // BYOK & model routing parameters
-  provider?: "groq" | "openai" | "openrouter";
+  provider?: "groq" | "openai" | "openrouter" | "ollama" | "anthropic";
   apiKey?: string;
+  baseUrl?: string;
   modelName?: string;
   temperature?: number;
   maxTokens?: number;
@@ -35,7 +36,7 @@ export interface CentralizedChatRequest {
 export interface CentralizedChatResponse {
   content: string;
   modelUsed: string;
-  source: "openrouter" | "groq" | "openai" | "fallback_synthesis";
+  source: "openrouter" | "groq" | "openai" | "ollama" | "anthropic" | "fallback_synthesis";
   visitedUrls?: string[];
 }
 
@@ -240,7 +241,7 @@ Guidelines:
 }
 
 export type ChatStreamEvent =
-  | { type: "meta"; modelUsed: string; source: "groq" | "openai" | "openrouter" | "fallback_synthesis"; visitedUrls: string[] }
+  | { type: "meta"; modelUsed: string; source: "groq" | "openai" | "openrouter" | "ollama" | "anthropic" | "fallback_synthesis"; visitedUrls: string[] }
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; error: string };
@@ -308,7 +309,7 @@ export async function* executeCentralizedAIChatStream(
   async function* streamFromModel(
     model: BaseChatModel,
     modelUsed: string,
-    source: "groq" | "openai" | "openrouter" | "fallback_synthesis",
+    source: "groq" | "openai" | "openrouter" | "ollama" | "anthropic" | "fallback_synthesis",
   ) {
     let sentMeta = false;
     let accumulated = "";
@@ -330,19 +331,20 @@ export async function* executeCentralizedAIChatStream(
     yield { type: "done" as const };
   }
 
-  // 1. Direct BYOK execution (if user passed specific API key or selected provider)
-  if (req.apiKey && req.provider) {
+  // 1. Direct BYOK execution (if user passed specific API key or selected provider like Ollama)
+  if ((req.apiKey || req.provider === "ollama") && req.provider) {
     try {
       const byokModel = createLangChainChatModel({
         provider: req.provider,
         apiKey: req.apiKey,
+        baseUrl: req.baseUrl,
         modelName: req.modelName,
         temperature: req.temperature ?? 0.2,
         maxTokens: req.maxTokens ?? 4096,
       });
 
-      const modelUsed = req.modelName || (req.provider === "groq" ? "openai/gpt-oss-120b" : "custom-model");
-      const source = req.provider === "openrouter" ? "openrouter" : req.provider === "openai" ? "openai" : "groq";
+      const modelUsed = req.modelName || (req.provider === "groq" ? "openai/gpt-oss-120b" : req.provider === "ollama" ? "llama3.3" : "custom-model");
+      const source = req.provider === "openrouter" ? "openrouter" : req.provider === "openai" ? "openai" : req.provider === "ollama" ? "ollama" : req.provider === "anthropic" ? "anthropic" : "groq";
       let yieldedAny = false;
       for await (const event of streamFromModel(byokModel, modelUsed, source)) {
         yieldedAny = true;
@@ -437,7 +439,7 @@ export async function executeCentralizedAIChat(
 ): Promise<CentralizedChatResponse> {
   let content = "";
   let modelUsed = "openai/gpt-oss-120b";
-  let source: "groq" | "openai" | "openrouter" | "fallback_synthesis" = "groq";
+  let source: CentralizedChatResponse["source"] = "groq";
   let visitedUrls: string[] = [];
 
   for await (const event of executeCentralizedAIChatStream(req)) {

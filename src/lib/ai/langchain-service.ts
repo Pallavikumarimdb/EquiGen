@@ -1,20 +1,22 @@
 import { ChatGroq } from "@langchain/groq";
 import { ChatOpenAI } from "@langchain/openai";
+import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { EquityResearchData } from "@/types";
 import { AIExtractionResult } from "./schema";
 import { runOrResumeResearchPipeline } from "./langgraph-pipeline";
 
 export interface AIServiceOptions {
-  provider: "groq" | "openai" | "openrouter";
+  provider: "groq" | "openai" | "openrouter" | "ollama" | "anthropic";
   modelName?: string;
   apiKey?: string;
+  baseUrl?: string;
   temperature?: number;
   maxTokens?: number;
 }
 
 /**
- * Central factory to instantiate LangChain chat models for Groq, OpenAI, and OpenRouter.
+ * Central factory to instantiate LangChain chat models for Groq, OpenRouter, Ollama, Anthropic, and OpenAI.
  * Automatically injects user BYOK (Bring-Your-Own-Key) credentials or falls back to system env keys.
  */
 export function createLangChainChatModel(options: AIServiceOptions): BaseChatModel {
@@ -25,9 +27,13 @@ export function createLangChainChatModel(options: AIServiceOptions): BaseChatMod
       ? process.env.GROQ_API_KEY
       : provider === "openrouter"
         ? process.env.OPENROUTER_API_KEY
-        : process.env.OPENAI_API_KEY);
+        : provider === "anthropic"
+          ? process.env.ANTHROPIC_API_KEY
+          : provider === "ollama"
+            ? (options.apiKey || "ollama")
+            : process.env.OPENAI_API_KEY);
 
-  if (!apiKey) {
+  if (!apiKey && provider !== "ollama") {
     throw new Error(`API key for provider "${provider}" is not configured.`);
   }
 
@@ -37,16 +43,45 @@ export function createLangChainChatModel(options: AIServiceOptions): BaseChatMod
   switch (provider) {
     case "groq":
       return new ChatGroq({
-        apiKey,
+        apiKey: apiKey!,
         model: options.modelName || "openai/gpt-oss-120b",
         temperature,
         maxTokens,
         maxRetries: 3,
       });
 
+    case "ollama": {
+      const ollamaBaseUrl =
+        options.baseUrl ||
+        process.env.OLLAMA_BASE_URL ||
+        "http://localhost:11434/v1";
+      return new ChatOpenAI({
+        apiKey: apiKey || "ollama",
+        configuration: {
+          baseURL: ollamaBaseUrl.endsWith("/v1")
+            ? ollamaBaseUrl
+            : `${ollamaBaseUrl.replace(/\/+$/, "")}/v1`,
+        },
+        modelName: options.modelName || "llama3.3",
+        temperature,
+        maxTokens,
+        maxRetries: 2,
+      });
+    }
+
+    case "anthropic": {
+      return new ChatAnthropic({
+        apiKey: apiKey!,
+        modelName: options.modelName || "claude-3-5-sonnet-20241022",
+        temperature,
+        maxTokens,
+        maxRetries: 3,
+      });
+    }
+
     case "openrouter":
       return new ChatOpenAI({
-        apiKey,
+        apiKey: apiKey!,
         configuration: {
           baseURL: "https://openrouter.ai/api/v1",
           defaultHeaders: {
@@ -54,7 +89,7 @@ export function createLangChainChatModel(options: AIServiceOptions): BaseChatMod
             "X-Title": "EquiGen",
           },
         },
-        model: options.modelName || "meta-llama/llama-3.3-70b-instruct",
+        model: options.modelName || "meta-llama/llama-3.3-70b-instruct:free",
         temperature,
         maxTokens,
         maxRetries: 3,
@@ -62,7 +97,7 @@ export function createLangChainChatModel(options: AIServiceOptions): BaseChatMod
 
     case "openai":
       return new ChatOpenAI({
-        apiKey,
+        apiKey: apiKey!,
         model: options.modelName || "gpt-4o-mini",
         temperature,
         maxTokens,

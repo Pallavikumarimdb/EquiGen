@@ -11,6 +11,7 @@
 
 import { ChatGroq } from "@langchain/groq";
 import { ChatOpenAI } from "@langchain/openai";
+import { ChatAnthropic } from "@langchain/anthropic";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { tokenBudgetManager, estimateTokens } from "./rate-limiter";
 import { modelLimitRegistry, MODEL_IDS } from "./budget/model-limit-registry";
@@ -122,6 +123,50 @@ export async function getModelForRequest(
   onWaitStart?: (waitMs: number) => void,
   forcePreferred = false,
 ): Promise<ModelChoice> {
+  // 1. Ollama local provider (zero rate limits, zero API keys required)
+  if (options.provider === "ollama") {
+    const ollamaBaseUrl =
+      options.baseUrl ||
+      process.env.OLLAMA_BASE_URL ||
+      "http://localhost:11434/v1";
+    const targetModel = options.modelName || "llama3.3";
+    return {
+      model: new ChatOpenAI({
+        apiKey: options.apiKey || "ollama",
+        configuration: {
+          baseURL: ollamaBaseUrl.endsWith("/v1")
+            ? ollamaBaseUrl
+            : `${ollamaBaseUrl.replace(/\/+$/, "")}/v1`,
+        },
+        modelName: targetModel,
+        temperature: 0.1,
+        maxRetries: 2,
+      }),
+      modelName: targetModel,
+      downgraded: false,
+    };
+  }
+
+  // 2. Anthropic Claude provider
+  if (options.provider === "anthropic") {
+    const anthropicKey = options.apiKey || process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) {
+      throw new Error(`API key for provider "anthropic" is not configured.`);
+    }
+    const targetModel = options.modelName || "claude-3-5-sonnet-20241022";
+    return {
+      model: new ChatAnthropic({
+        apiKey: anthropicKey,
+        modelName: targetModel,
+        temperature: 0.1,
+        maxTokens: 4096,
+        maxRetries: 3,
+      }),
+      modelName: targetModel,
+      downgraded: false,
+    };
+  }
+
   const targetModel =
     options.provider === "groq" && options.modelName
       ? options.modelName
@@ -141,17 +186,22 @@ export async function getModelForRequest(
     !!openRouterKey;
 
   if (isOpenRouter) {
+    const effectiveModel = options.modelName || targetModel;
     return {
       model: new ChatOpenAI({
         apiKey: openRouterKey,
         configuration: {
           baseURL: "https://openrouter.ai/api/v1",
+          defaultHeaders: {
+            "HTTP-Referer": "https://equigen.ai",
+            "X-Title": "EquiGen",
+          },
         },
-        modelName: targetModel,
+        modelName: effectiveModel,
         temperature: 0.1,
         maxRetries: 3,
       }),
-      modelName: targetModel,
+      modelName: effectiveModel,
       downgraded: false,
     };
   }

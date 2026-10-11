@@ -746,8 +746,8 @@ async function extractFinancialsNode(
   if (!contextText || contextText.trim().length === 0) {
     contextText = state.condensedContext || state.rawText;
   }
-  if (contextText && contextText.length > 18000) {
-    contextText = contextText.slice(0, 18000);
+  if (contextText && contextText.length > 12000) {
+    contextText = contextText.slice(0, 12000);
   }
   let feedback = "";
   if (state.mathErrors && state.mathErrors.length > 0) {

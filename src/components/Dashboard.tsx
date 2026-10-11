@@ -184,13 +184,18 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         });
       }
 
-      // When merging background updates into history, preserve any active/running jobs
+      // When merging background updates into history, preserve any active/running jobs without creating ghost duplicates
       setHistory((prev) => {
-        const runningFromPrev = prev.filter(
-          (p) =>
-            (p.status === "running" || p.status === "pending" || p.status === "throttled") &&
-            !uniqueItems.some((u) => u.id === p.id)
-        );
+        const runningFromPrev = prev.filter((p) => {
+          const isRunning = p.status === "running" || p.status === "pending" || p.status === "throttled";
+          if (!isRunning) return false;
+          const cleanPId = p.id.replace(/^rep_/, "");
+          const alreadyInUnique = uniqueItems.some((u) => {
+            const cleanUId = u.id.replace(/^rep_/, "");
+            return u.id === p.id || cleanUId === cleanPId || (p.id.startsWith("plan_") && u.sourceType === "autonomous" && u.companyName === p.companyName);
+          });
+          return !alreadyInUnique;
+        });
         return [...runningFromPrev, ...uniqueItems];
       });
 

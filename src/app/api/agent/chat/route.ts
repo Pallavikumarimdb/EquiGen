@@ -40,13 +40,14 @@ export async function POST(req: NextRequest) {
     const cleanPrompt = prompt.trim().slice(0, 20000);
 
     // Validate provider allowlist
-    const validProviders = ["groq", "openai", "openrouter"] as const;
+    const validProviders = ["groq", "openai", "openrouter", "ollama", "anthropic"] as const;
     const validatedProvider =
       typeof provider === "string" && validProviders.includes(provider as typeof validProviders[number])
         ? (provider as typeof validProviders[number])
         : undefined;
 
     const validatedApiKey = typeof apiKey === "string" && apiKey.trim().length > 5 ? apiKey.trim() : undefined;
+    const validatedBaseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim().length > 0 ? body.baseUrl.trim() : undefined;
     const validatedModelName = typeof modelName === "string" && modelName.trim().length > 0 ? modelName.trim() : undefined;
 
     // 1. If a valid DB ResearchSession exists, try agent orchestrator first
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
       prompt: cleanPrompt,
       provider: validatedProvider,
       apiKey: validatedApiKey,
+      baseUrl: validatedBaseUrl,
       modelName: validatedModelName,
       companyName: companyName || reportData?.company?.name || undefined,
       ticker: ticker || reportData?.company?.ticker || undefined,

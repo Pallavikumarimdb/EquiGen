@@ -49,7 +49,7 @@ const ARTIFACT_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "@napi-rs/canvas", "@sparticuz/chromium", "puppeteer-core"],
+  serverExternalPackages: ["pdfkit", "@napi-rs/canvas", "@sparticuz/chromium", "puppeteer-core", "unpdf"],
   outputFileTracingIncludes: {
     "/api/report": ["./src/lib/pdf/fonts/**/*"],
   },
