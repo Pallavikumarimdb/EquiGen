@@ -13,18 +13,37 @@ import { useEffect } from "react";
  */
 export function GlobalClientListeners() {
   useEffect(() => {
-    const prevent = (e: DragEvent) => {
-      e.preventDefault();
+    const preventFileDropNavigation = (e: DragEvent) => {
+      // Check if event targets an input element or an explicit dropzone
+      const target = e.target as HTMLElement | null;
+      const isInsideDropzone = target?.closest(
+        'input[type="file"], [data-dropzone="true"]'
+      );
+
+      // If dropped or dragged outside a valid drop area, suppress native navigation to file:///
+      if (!isInsideDropzone) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = "none";
+        }
+      }
     };
 
-    window.addEventListener("dragenter", prevent, true);
-    window.addEventListener("dragover", prevent, true);
-    window.addEventListener("drop", prevent, true);
+    window.addEventListener("dragenter", preventFileDropNavigation, true);
+    window.addEventListener("dragover", preventFileDropNavigation, true);
+    window.addEventListener("drop", preventFileDropNavigation, true);
+    document.addEventListener("dragenter", preventFileDropNavigation, true);
+    document.addEventListener("dragover", preventFileDropNavigation, true);
+    document.addEventListener("drop", preventFileDropNavigation, true);
 
     return () => {
-      window.removeEventListener("dragenter", prevent, true);
-      window.removeEventListener("dragover", prevent, true);
-      window.removeEventListener("drop", prevent, true);
+      window.removeEventListener("dragenter", preventFileDropNavigation, true);
+      window.removeEventListener("dragover", preventFileDropNavigation, true);
+      window.removeEventListener("drop", preventFileDropNavigation, true);
+      document.removeEventListener("dragenter", preventFileDropNavigation, true);
+      document.removeEventListener("dragover", preventFileDropNavigation, true);
+      document.removeEventListener("drop", preventFileDropNavigation, true);
     };
   }, []);
 

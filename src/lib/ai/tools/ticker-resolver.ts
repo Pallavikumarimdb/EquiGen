@@ -84,10 +84,14 @@ export async function resolveCompanyTicker(
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
           "Accept": "application/json",
         },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(2000),
       });
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        // If Yahoo Finance blocked or returned 403 / 429, don't keep hammering
+        if (res.status === 403 || res.status === 429) break;
+        continue;
+      }
 
       const data = await res.json();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,6 +119,8 @@ export async function resolveCompanyTicker(
       }
     } catch (err) {
       console.warn(`[TickerResolver] Search error for "${query}":`, err instanceof Error ? err.message : String(err));
+      // If network timed out or connection dropped, cloud IP is likely blocked; break immediately to fast-fallback
+      break;
     }
   }
 

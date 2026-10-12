@@ -213,8 +213,10 @@ export class MasterPlannerAgent {
   ): Promise<ResearchPlanRecord> {
     const { depth, ticker, goalText, sessionId } = goal;
 
-    // Step 1: Extract peer tickers from the goal text (LLM-assisted)
-    const peerTickers = await extractPeerTickers(goalText, ticker, apiKey);
+    // Step 1: Extract peer tickers from the goal text (LLM-assisted, bounded to 3s to prevent serverless timeouts)
+    const peerPromise = extractPeerTickers(goalText, ticker, apiKey);
+    const peerTimeout = new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 3000));
+    const peerTickers = await Promise.race([peerPromise, peerTimeout]);
 
     // Step 2: Build ordered milestone list
     const milestones: MilestonePlan[] = [

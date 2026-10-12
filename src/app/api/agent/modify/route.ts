@@ -541,3 +541,4 @@ If no explicit modification is requested, return {"changes": []}. Do not output 
 }
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;

@@ -563,7 +563,10 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       }
     } catch (err) {
       console.error("[Dashboard] handleLaunchAutonomous error:", err);
-      const msg = err instanceof Error ? err.message : "Error dispatching swarm";
+      let msg = err instanceof Error ? err.message : "Error dispatching swarm";
+      if (msg.includes("NetworkError") || msg.includes("Failed to fetch")) {
+        msg = "Network timeout while deploying research swarm. Please retry.";
+      }
       showToast(msg, "error");
     } finally {
       setLoading(false);

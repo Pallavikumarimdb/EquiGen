@@ -277,6 +277,7 @@ export function NewResearchModal({
                   handleFileDrop(e);
                 }}
                 onClick={() => fileInputRef.current?.click()}
+                data-dropzone="true"
                 className={`p-6 border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all ${
                   isDragActive
                     ? "border-amber-400 bg-amber-400/5"
