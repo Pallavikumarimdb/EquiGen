@@ -81,14 +81,14 @@ export function isExemptOrg(orgId: string): boolean {
 
 export function isAdminUser(user?: UserContext | null): boolean {
   if (!user) return false;
-  if (user.role && user.role.toLowerCase() === "admin") return true;
   if (user.email && ADMIN_EMAILS.has(user.email.toLowerCase().trim())) return true;
   return false;
 }
 
 /**
  * Checks if an organization or user context is exempt from quota restrictions.
- * Grants unrestricted "desk" plan access to admins and exempt orgs.
+ * Grants unrestricted "desk" plan access strictly to platform administrators (ADMIN_EMAILS)
+ * and the internal default-org tenant. Ordinary tenant administrators are NOT exempt.
  */
 export async function isExempt(orgId?: string | null, user?: UserContext | null): Promise<boolean> {
   if (orgId && isExemptOrg(orgId)) return true;
@@ -98,7 +98,7 @@ export async function isExempt(orgId?: string | null, user?: UserContext | null)
     try {
       const dbUser = await prisma.user.findUnique({
         where: { id: user.userId },
-        select: { role: true, email: true },
+        select: { email: true },
       });
       if (dbUser && isAdminUser(dbUser)) return true;
     } catch {
@@ -111,10 +111,7 @@ export async function isExempt(orgId?: string | null, user?: UserContext | null)
       const adminInOrg = await prisma.user.findFirst({
         where: {
           orgId,
-          OR: [
-            { role: "admin" },
-            { email: { in: Array.from(ADMIN_EMAILS) } },
-          ],
+          email: { in: Array.from(ADMIN_EMAILS) },
         },
         select: { id: true },
       });

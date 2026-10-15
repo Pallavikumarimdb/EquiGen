@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { batchProcessorService } from "@/lib/queue/batch-processor";
 import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { checkReportQuota, recordReportUsage } from "@/lib/billing/entitlements";
 
 /**
  * POST /api/extract/batch
@@ -26,7 +27,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Plan-tier quota check: prevents bypassing monthly note limit via batch extract API
+    try {
+      const quota = await checkReportQuota(orgId, session);
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            message: quota.reason,
+            code: "quota_exceeded",
+            billing: {
+              planId: quota.plan.id,
+              planName: quota.plan.name,
+              reportsUsed: quota.reportsUsed,
+              reportsLimit: quota.reportsLimit,
+              resetsAt: quota.resetsAt.toISOString(),
+              upgradeUrl: "/billing",
+            },
+          },
+          { status: 402 },
+        );
+      }
+
+      if (quota.reportsLimit !== null && quota.reportsUsed + items.length > quota.reportsLimit) {
+        return NextResponse.json(
+          {
+            message: `Batch contains ${items.length} documents, which exceeds your remaining monthly allowance of ${quota.reportsLimit - quota.reportsUsed} reports. Please upgrade to Pro/Desk.`,
+            code: "quota_exceeded",
+          },
+          { status: 402 },
+        );
+      }
+    } catch (quotaError) {
+      console.warn("[Billing] Quota check failed, allowing batch extraction:", quotaError);
+    }
+
     const batchResult = await batchProcessorService.submitBatch(items, userId, orgId);
+
+    // Record immutable report usage for each batch job
+    for (const jobId of batchResult.jobIds) {
+      await recordReportUsage({
+        orgId,
+        referenceId: jobId,
+        userId,
+        companyName: "Batch Extraction",
+        ticker: null,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

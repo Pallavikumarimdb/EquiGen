@@ -50,6 +50,17 @@ export async function POST(req: NextRequest) {
   if (isTenantFailure(guard)) return guard.response;
   const session = guard;
   try {
+    // RBAC: Managing enterprise LLM API keys requires Organization Administrator access
+    const isAdmin =
+      session.isPlatformOperator ||
+      (session.role ?? "").toLowerCase() === "admin";
+    if (!isAdmin) {
+      return NextResponse.json(
+        { message: "Forbidden. Organization Administrator access required to configure API keys." },
+        { status: 403 },
+      );
+    }
+
     const body = await req.json();
     const { provider, apiKey } = body;
 

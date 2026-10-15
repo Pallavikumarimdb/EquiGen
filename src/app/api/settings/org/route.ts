@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/utils/password";
 import { isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { checkSeatQuota } from "@/lib/billing/entitlements";
 
 export async function GET(req: NextRequest) {
   const guard = await requireTenantSession(req);
@@ -76,6 +77,18 @@ export async function POST(req: NextRequest) {
 
     // Action: Create and add a new user to the organization
     if (action === "addUser") {
+      // Enforce organization seat quota based on active subscription tier
+      const seatDecision = await checkSeatQuota(session.orgId, session);
+      if (!seatDecision.allowed) {
+        return NextResponse.json(
+          {
+            message: seatDecision.reason || "Organization seat limit reached. Please upgrade your subscription to add more team members.",
+            code: "seat_limit_exceeded",
+          },
+          { status: 402 },
+        );
+      }
+
       const { name, email, password, role, sebiRegNo } = body;
       const rawEmail = (email || "").trim().toLowerCase();
       const trimmedName = (name || "").trim();

@@ -75,10 +75,20 @@ export async function POST(req: NextRequest) {
     // then writes a sandboxArtifact, so a caller-chosen runId was a cross-tenant write.
     if (runId) {
       const run = await prisma.subagentRun
-        .findUnique({ where: { id: runId }, select: { id: true } })
+        .findUnique({
+          where: { id: runId },
+          select: {
+            id: true,
+            plan: { select: { session: { select: { orgId: true } } } },
+          },
+        })
         .catch(() => null);
       if (!run) {
         return NextResponse.json({ message: "runId not found." }, { status: 404 });
+      }
+      const runOrgId = run.plan?.session?.orgId;
+      if (!session.isPlatformOperator && runOrgId !== session.orgId) {
+        return NextResponse.json({ message: "Forbidden. Access denied to target runId." }, { status: 403 });
       }
     }
 

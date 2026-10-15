@@ -17,6 +17,7 @@ import { tokenBudgetManager, estimateTokens } from "./rate-limiter";
 import { modelLimitRegistry, MODEL_IDS } from "./budget/model-limit-registry";
 import { ensureLimitsDiscovered } from "./budget/limit-discovery";
 import { AIServiceOptions } from "./langchain-service";
+import { isSafeOutboundUrl } from "@/lib/utils/ssrf-guard";
 
 export interface ModelChoice {
   model: BaseChatModel;
@@ -125,10 +126,11 @@ export async function getModelForRequest(
 ): Promise<ModelChoice> {
   // 1. Ollama local provider (zero rate limits, zero API keys required)
   if (options.provider === "ollama") {
-    const ollamaBaseUrl =
-      options.baseUrl ||
-      process.env.OLLAMA_BASE_URL ||
-      "http://localhost:11434/v1";
+    let candidateUrl = options.baseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1";
+    if (options.baseUrl && !isSafeOutboundUrl(options.baseUrl) && !options.baseUrl.includes("localhost") && !options.baseUrl.includes("127.0.0.1")) {
+      throw new Error("Prohibited or internal baseUrl rejected for SSRF protection.");
+    }
+    const ollamaBaseUrl = candidateUrl;
     const targetModel = options.modelName || "llama3.3";
     return {
       model: new ChatOpenAI({

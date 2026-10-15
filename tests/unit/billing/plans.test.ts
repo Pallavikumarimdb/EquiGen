@@ -269,10 +269,8 @@ describe("tier gating arithmetic", () => {
 });
 
 describe("admin exemption and loophole prevention", () => {
-  it("recognizes admin users by role regardless of casing", () => {
-    expect(isAdminUser({ role: "admin" })).toBe(true);
-    expect(isAdminUser({ role: "ADMIN" })).toBe(true);
-    expect(isAdminUser({ role: "Admin" })).toBe(true);
+  it("does not grant platform exemption to arbitrary tenant admins without platform admin email", () => {
+    expect(isAdminUser({ role: "admin", email: "regular_admin@firm.com" })).toBe(false);
     expect(isAdminUser({ role: "member" })).toBe(false);
     expect(isAdminUser(null)).toBe(false);
     expect(isAdminUser(undefined)).toBe(false);

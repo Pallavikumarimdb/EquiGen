@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { agentOrchestrator } from "@/lib/ai/agent-orchestrator";
 import { executeCentralizedAIChat, executeCentralizedAIChatStream } from "@/lib/ai/central-client";
 import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { isSafeOutboundUrl } from "@/lib/utils/ssrf-guard";
 
 /**
  * POST /api/agent/chat
@@ -48,7 +49,17 @@ export async function POST(req: NextRequest) {
         : undefined;
 
     const validatedApiKey = typeof apiKey === "string" && apiKey.trim().length > 5 ? apiKey.trim() : undefined;
-    const validatedBaseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim().length > 0 ? body.baseUrl.trim() : undefined;
+    let validatedBaseUrl: string | undefined = undefined;
+    if (typeof body.baseUrl === "string" && body.baseUrl.trim().length > 0) {
+      const candidateUrl = body.baseUrl.trim();
+      if (!isSafeOutboundUrl(candidateUrl)) {
+        return NextResponse.json(
+          { message: "Invalid or prohibited baseUrl. Requests targeting internal networks or cloud metadata are blocked." },
+          { status: 400 },
+        );
+      }
+      validatedBaseUrl = candidateUrl;
+    }
     const validatedModelName = typeof modelName === "string" && modelName.trim().length > 0 ? modelName.trim() : undefined;
 
     // Validate & sanitize incoming conversation history turns

@@ -5,6 +5,7 @@ import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { triggerBackgroundJob } from "@/lib/queue/worker";
 import { currentSchemaVersion } from "@/lib/ai/versions";
 import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
+import { checkReportQuota, recordReportUsage } from "@/lib/billing/entitlements";
 
 const MAX_RAW_TEXT_BYTES = 100 * 1024 * 1024; // 100 MB — matches the upload cap for large filings
 
@@ -46,6 +47,30 @@ export async function POST(req: NextRequest) {
         { message: "Invalid payload", errors: parsedPayload.error.flatten() },
         { status: 400 },
       );
+    }
+
+    // Plan-tier quota check: prevents bypassing monthly note limit via raw extract API
+    try {
+      const quota = await checkReportQuota(orgId, session);
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            message: quota.reason,
+            code: "quota_exceeded",
+            billing: {
+              planId: quota.plan.id,
+              planName: quota.plan.name,
+              reportsUsed: quota.reportsUsed,
+              reportsLimit: quota.reportsLimit,
+              resetsAt: quota.resetsAt.toISOString(),
+              upgradeUrl: "/billing",
+            },
+          },
+          { status: 402 },
+        );
+      }
+    } catch (quotaError) {
+      console.warn("[Billing] Quota check failed, allowing extract job:", quotaError);
     }
 
     const {
@@ -143,6 +168,17 @@ export async function POST(req: NextRequest) {
         targetingVerdict: targetingVerdict ?? null,
         schemaVersion: currentSchemaVersion(),
       },
+    });
+
+    // Record immutable report usage event to prevent quota reset loopholes
+    await recordReportUsage({
+      orgId,
+      referenceId: activeJobId,
+      userId,
+      companyName: effectiveCompanyName,
+      ticker: null,
+    }).catch((err) => {
+      console.warn("[Billing] Failed to record report usage for extraction job:", err);
     });
 
     // Fire background execution trigger without waiting
