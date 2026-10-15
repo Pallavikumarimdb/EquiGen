@@ -757,8 +757,8 @@ export class MasterOrchestrator {
         completedAt: new Date().toISOString(),
         dataFetchedAt: reportedFetchedAt,
         dataAsOf,
-        shareholding: (effectiveFin as unknown as Record<string, unknown>)?.shareholding ?? (documentOutput as unknown as Record<string, unknown>)?.shareholding ?? (documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials && ((documentOutput as unknown as Record<string, unknown>).uploadedDocFinancials as Record<string, unknown>).shareholding ?? null,
-        promoterPledge: (effectiveFin as unknown as Record<string, unknown>)?.promoterPledge ?? (documentOutput as unknown as Record<string, unknown>)?.promoterPledge ?? (documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials && ((documentOutput as unknown as Record<string, unknown>).uploadedDocFinancials as Record<string, unknown>).promoterPledge ?? null,
+        shareholding: (effectiveFin as unknown as Record<string, unknown>)?.shareholding ?? (documentOutput as unknown as Record<string, unknown>)?.shareholding ?? ((documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials as Record<string, unknown> | undefined)?.shareholding ?? null,
+        promoterPledge: (effectiveFin as unknown as Record<string, unknown>)?.promoterPledge ?? (documentOutput as unknown as Record<string, unknown>)?.promoterPledge ?? ((documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials as Record<string, unknown> | undefined)?.promoterPledge ?? null,
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
         companyData: effectiveFin ? {
           marketCap:        effectiveFin.marketCapCr    ?? effectiveFin.marketCap ?? null,
