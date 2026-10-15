@@ -111,20 +111,20 @@ export function AgentChatView({
 
   // Live execution pipeline tracking state
   const [liveStepIndex, setLiveStepIndex] = useState<number>(() => {
-    if (status === "completed" || status === "published" || status === "approved") return 6;
+    if (status === "completed" || status === "published") return 6;
     if (typeof rawReportData?.stepIndex === "number" && rawReportData.stepIndex > 0) {
       return rawReportData.stepIndex;
     }
-    return status === "running" ? 2 : 0;
+    return status === "running" || status === "pending" || status === "approved" ? 1 : 0;
   });
   const [liveStepMessage, setLiveStepMessage] = useState<string>("");
 
   // Sync stepIndex when status or report changes
   useEffect(() => {
-    if (status === "completed" || status === "published" || status === "approved") {
+    if (status === "completed" || status === "published") {
       setLiveStepIndex(6);
-    } else if (status === "running") {
-      setLiveStepIndex((prev) => (prev > 0 ? prev : 2));
+    } else if (status === "running" || status === "pending" || status === "approved") {
+      setLiveStepIndex((prev) => (prev > 0 ? prev : 1));
     }
   }, [status, reportId]);
 
@@ -558,7 +558,7 @@ export function AgentChatView({
               )}
             </div>
             <p className="text-[11px] font-medium leading-none mt-0.5">
-              {status === "running" ? (
+              {status === "running" || status === "pending" || status === "approved" ? (
                 <span className="text-amber-700 font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                   {isUploadJob
@@ -590,7 +590,7 @@ export function AgentChatView({
 
         {/* Center/Right: Studio View Selector & Actions */}
         <div className="flex items-center flex-wrap gap-2">
-          {status === "running" && onStopAgent && (
+          {(status === "running" || status === "pending" || status === "approved") && onStopAgent && (
             <button
               type="button"
               onClick={onStopAgent}
@@ -1158,7 +1158,7 @@ export function AgentChatView({
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[10px] font-mono text-emerald-800 font-bold uppercase">
-                  {status === "running" ? "Stream Live" : "SEBI RA Compliant"}
+                  {status === "running" || status === "pending" || status === "approved" ? "Stream Live" : "SEBI RA Compliant"}
                 </span>
               </div>
             </div>
@@ -1168,7 +1168,7 @@ export function AgentChatView({
               <div className="p-3 bg-white border-b border-[#E3DFD5] space-y-2 shrink-0">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#7A7569] uppercase tracking-wider">
                   <span>Ordered Research Milestones</span>
-                  <span>{status === "running" ? "Executing..." : "6/6 Completed"}</span>
+                  <span>{status === "running" || status === "pending" || status === "approved" ? "Executing..." : "6/6 Completed"}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {displayedMilestones.map((m) => (

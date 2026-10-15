@@ -13,7 +13,7 @@ import {
   type PlanId,
 } from "@/lib/billing/plans";
 import { verifyWebhookSignature, getDodoConfig } from "@/lib/billing/dodo";
-import { nextMonthStart, isExemptOrg, EXEMPT_ORG_ID, isAdminUser, ADMIN_EMAILS } from "@/lib/billing/entitlements";
+import { nextMonthStart, isExemptOrg, EXEMPT_ORG_ID, isAdminUser } from "@/lib/billing/entitlements";
 
 describe("plan catalog", () => {
   it("falls back to the free plan for unknown ids", () => {

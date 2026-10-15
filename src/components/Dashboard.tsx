@@ -59,7 +59,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
   // Status & Notifications
-  const [_loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState<DashboardToast[]>([]);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
@@ -199,7 +199,6 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           rd.recommendation?.targetPrice != null ||
           it.status === "completed" ||
           it.status === "pending_review" ||
-          it.status === "approved" ||
           it.status === "published"
         );
       };
@@ -230,6 +229,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       }
 
       // When merging background updates into history, preserve any active/running jobs without creating ghost duplicates
+      // and ALWAYS pin running/pending items to the top of the history list
       setHistory((prev) => {
         const runningFromPrev = prev.filter((p) => {
           const isRunning = p.status === "running" || p.status === "pending" || p.status === "throttled";
@@ -241,7 +241,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           });
           return !alreadyInUnique;
         });
-        return [...runningFromPrev, ...uniqueItems];
+
+        const merged = [...runningFromPrev, ...uniqueItems];
+        const running = merged.filter((i) => i.status === "running" || i.status === "pending" || i.status === "throttled");
+        const nonRunning = merged.filter((i) => !(i.status === "running" || i.status === "pending" || i.status === "throttled"));
+        return [...running, ...nonRunning];
       });
 
       // If activeReportId is set and this is a background sync/refetch
@@ -255,7 +259,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           if (cleanExistingId !== cleanActiveId) {
             setActiveReportId(cleanExistingId);
           }
-          setActiveReportStatus(existing.status || "published");
+          // Do not let "approved" or pending DB status downgrade active running state
+          const isActivelyRunning = activeReportStatus === "running" || activeReportStatus === "pending";
+          const existingIsRunning = existing.status === "running" || existing.status === "pending" || existing.status === "approved" || existing.status === "throttled";
+          if (isActivelyRunning && existingIsRunning) {
+            setActiveReportStatus("running");
+          } else {
+            setActiveReportStatus(existing.status || "published");
+          }
+
           if (existing.reportData && (isRichItem(existing) || !reportData || !isRichItem({ reportData } as DashboardHistoryItem))) {
             setReportData(existing.reportData);
           }
@@ -268,13 +280,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           return;
         }
 
-        // If active report is currently executing or pending, NEVER fall back to another company
-        if (
+        // If active report is currently executing, pending, or in loading state, NEVER fall back to another company
+        const isCurrentlyBusy =
           activeReportStatus === "running" ||
           activeReportStatus === "pending" ||
           activeReportId.startsWith("plan_") ||
-          activeReportId.startsWith("job_")
-        ) {
+          activeReportId.startsWith("job_") ||
+          loading;
+
+        if (isCurrentlyBusy) {
           // If activeReportId was an extraction job and a generated report for it is now present
           if (activeReportId.startsWith("job_")) {
             const generatedReport = uniqueItems.find(

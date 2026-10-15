@@ -170,30 +170,40 @@ export async function GET(req: NextRequest) {
           !existingCleanIds.has(cleanPId)
         );
       })
-      .map((p) => ({
-        id: p.id,
-        companyName: p.companyName || p.ticker || "Target Company",
-        fileName: "Autonomous Research",
-        reportData: {
-          sourceType: "autonomous",
-          ticker: p.ticker,
-          companyName: p.companyName || p.ticker,
-          planId: p.id,
-          status: p.status,
-        },
-        pdfBase64: null,
-        status: p.status,
-        reviewerName: null,
-        sebiRegNo: null,
-        approvedAt: null,
-        contentHash: null,
-        versionNo: 1,
-        modelUsedForFinancials: "Groq Llama 3.3 / Master Orchestrator",
-        createdAt: p.createdAt.toISOString(),
-      }));
+      .map((p) => {
+        // If a plan is "approved", it is queued/executing.
+        // It must be presented as "running" so it doesn't trigger false "completed" states.
+        const effectiveStatus = p.status === "approved" || p.status === "pending" ? "running" : p.status;
+        return {
+          id: p.id,
+          companyName: p.companyName || p.ticker || "Target Company",
+          fileName: "Autonomous Research",
+          reportData: {
+            sourceType: "autonomous",
+            ticker: p.ticker,
+            companyName: p.companyName || p.ticker,
+            planId: p.id,
+            status: effectiveStatus,
+          },
+          pdfBase64: null,
+          status: effectiveStatus,
+          reviewerName: null,
+          sebiRegNo: null,
+          approvedAt: null,
+          contentHash: null,
+          versionNo: 1,
+          modelUsedForFinancials: "Groq Llama 3.3 / Master Orchestrator",
+          createdAt: p.createdAt.toISOString(),
+        };
+      });
 
-    // Authoritative persisted reports first, followed by running jobs and plans
-    const combined = [...reports, ...activeJobItems, ...activePlanItems];
+    // In-progress runs (running, pending, throttled) MUST be pinned at the TOP of the history list,
+    // sorted by newest createdAt, so active runs never slide to the bottom.
+    const activeRunningItems = [...activeJobItems, ...activePlanItems].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    const combined = [...activeRunningItems, ...reports];
     return NextResponse.json(combined);
   } catch (error) {
     console.error("Failed to fetch history (returning empty list fallback):", error);

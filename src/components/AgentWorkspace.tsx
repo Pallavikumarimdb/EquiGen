@@ -192,7 +192,7 @@ export function AgentWorkspace({
             setRightTab("trajectory");
           }
         } else if (propCompanyName) {
-          // If no plan record exists in DB for this report, provide the completed agent plan view
+          const isPreparing = cleanPlanId.startsWith("plan_");
           const fallbackPlan: ResearchPlanRecord = {
             id: cleanPlanId,
             sessionId: sessionId || "session-demo",
@@ -200,22 +200,22 @@ export function AgentWorkspace({
             ticker: targetTick,
             goalText: `Initiation of coverage on ${targetComp} — 5-year DCF valuation, peer benchmarking, and SEBI compliance audit`,
             depth: "standard",
-            status: "completed",
+            status: isPreparing ? "running" : "completed",
             createdAt: new Date().toISOString(),
             costEstimate: 0.05,
             latencyEstS: 4.2,
             milestones: [
-              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
-              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: "completed" },
-              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
-              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
-              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
-              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
+              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: isPreparing ? "running" : "completed" },
+              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: isPreparing ? "pending" : "completed" },
+              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: isPreparing ? "pending" : "completed" },
+              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: isPreparing ? "pending" : "completed" },
+              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: isPreparing ? "pending" : "completed" },
+              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: isPreparing ? "pending" : "completed" },
             ] as unknown as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
-          setRightTab("copilot");
+          setRightTab(isPreparing ? "trajectory" : "copilot");
         } else {
           setActivePlan(null);
           setSections([]);
@@ -224,6 +224,7 @@ export function AgentWorkspace({
       .catch((err) => {
         if (isCancelled || err?.name === "AbortError") return;
         if (propCompanyName) {
+          const isPreparing = cleanPlanId.startsWith("plan_");
           const fallbackPlan: ResearchPlanRecord = {
             id: cleanPlanId,
             sessionId: sessionId || "session-demo",
@@ -231,22 +232,22 @@ export function AgentWorkspace({
             ticker: targetTick,
             goalText: `Initiation of coverage on ${targetComp} — 5-year DCF valuation, peer benchmarking, and SEBI compliance audit`,
             depth: "standard",
-            status: "completed",
+            status: isPreparing ? "running" : "completed",
             createdAt: new Date().toISOString(),
             costEstimate: 0.05,
             latencyEstS: 4.2,
             milestones: [
-              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: "completed" },
-              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: "completed" },
-              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: "completed" },
-              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: "completed" },
-              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: "completed" },
-              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: "completed" },
+              { id: "m1", label: "Fetch Exchange Filings (BSE/NSE)", agentType: "document", status: isPreparing ? "running" : "completed" },
+              { id: "m2", label: "Extract Financial Statements", agentType: "modeling", status: isPreparing ? "pending" : "completed" },
+              { id: "m3", label: "Quantitative DCF Valuation", agentType: "modeling", status: isPreparing ? "pending" : "completed" },
+              { id: "m4", label: "Peer Benchmarking & Multiples", agentType: "market_intel", status: isPreparing ? "pending" : "completed" },
+              { id: "m5", label: "Synthesise Living Draft Note", agentType: "synthesis", status: isPreparing ? "pending" : "completed" },
+              { id: "m6", label: "SEBI Compliance Audit", agentType: "compliance", status: isPreparing ? "pending" : "completed" },
             ] as unknown as MilestonePlan[],
           };
           setActivePlan(fallbackPlan);
           setSections(buildSectionsFromReport(targetComp, targetTick, reportData));
-          setRightTab("copilot");
+          setRightTab(isPreparing ? "trajectory" : "copilot");
         } else {
           setActivePlan(null);
           setSections([]);

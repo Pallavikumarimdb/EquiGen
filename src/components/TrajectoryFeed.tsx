@@ -58,25 +58,58 @@ export function TrajectoryFeed({ planId, altPlanId, autoScroll = true, onPlanCom
   const [filterType, setFilterType] = useState<string>("all");
   const [isConnected, setIsConnected] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const activeCleanPlanIdRef = useRef<string>("");
 
   const onPlanCompleteRef = useRef(onPlanComplete);
   useEffect(() => {
     onPlanCompleteRef.current = onPlanComplete;
   }, [onPlanComplete]);
 
+  const cleanPlanId = (planId || "").replace(/^rep_/, "");
+  const cleanAltId = (altPlanId || "").replace(/^rep_/, "");
+
   useEffect(() => {
-    setEvents([]);
-    if (!planId || planId === "demo-plan-id" || planId.startsWith("plan_")) {
+    // Only reset events if genuinely switching to a completely different plan
+    if (activeCleanPlanIdRef.current && cleanPlanId && activeCleanPlanIdRef.current !== cleanPlanId) {
+      setEvents([]);
+    }
+    if (cleanPlanId) {
+      activeCleanPlanIdRef.current = cleanPlanId;
+    }
+
+    if (!cleanPlanId || cleanPlanId === "demo-plan-id") {
       return;
     }
 
-    const queryUrl = `/api/agent/stream?planId=${encodeURIComponent(planId)}${
-      altPlanId ? `&altPlanId=${encodeURIComponent(altPlanId)}` : ""
+    // While client-side temporary plan ID is active (before DB record is committed),
+    // display an optimistic initialization step so stream is never blank on start
+    if (cleanPlanId.startsWith("plan_")) {
+      setEvents((prev) => {
+        if (prev.length > 0) return prev;
+        return [
+          {
+            eventType: "planner_thought",
+            timestamp: new Date().toISOString(),
+            planId: cleanPlanId,
+            data: {
+              reasoning: "Master Orchestrator initiated: Uploading source filings & decomposing research goal into milestones...",
+            },
+          },
+        ];
+      });
+      return;
+    }
+
+    const queryUrl = `/api/agent/stream?planId=${encodeURIComponent(cleanPlanId)}${
+      cleanAltId && cleanAltId !== cleanPlanId ? `&altPlanId=${encodeURIComponent(cleanAltId)}` : ""
     }`;
     const eventSource = new EventSource(queryUrl);
 
     eventSource.onopen = () => setIsConnected(true);
-    eventSource.onerror = () => setIsConnected(false);
+    eventSource.onerror = () => {
+      // Disconnected or completed — keep all existing events in UI for inspection
+      setIsConnected(false);
+    };
 
     const eventTypes: TrajectoryEventType[] = [
       "planner_thought",
@@ -96,22 +129,25 @@ export function TrajectoryFeed({ planId, altPlanId, autoScroll = true, onPlanCom
       eventSource.addEventListener(type, (e: MessageEvent) => {
         try {
           const parsed: TrajectoryEvent = JSON.parse(e.data);
+          const parsedCleanId = (parsed.planId || "").replace(/^rep_/, "");
           const isMatch =
             !parsed.planId ||
-            parsed.planId === planId ||
-            parsed.planId === altPlanId ||
-            (altPlanId && parsed.planId.includes(altPlanId)) ||
-            parsed.planId.includes(planId);
+            parsed.planId === cleanPlanId ||
+            parsedCleanId === cleanPlanId ||
+            (cleanAltId && parsedCleanId === cleanAltId) ||
+            parsed.planId.includes(cleanPlanId);
 
           if (isMatch) {
             setEvents((prev) => {
-              // Deduplicate
-              const key = `${parsed.timestamp}_${parsed.eventType}`;
-              if (prev.some((p) => `${p.timestamp}_${p.eventType}` === key)) return prev;
+              // Deduplicate by timestamp + eventType + payload snippet
+              const key = `${parsed.timestamp}_${parsed.eventType}_${JSON.stringify(parsed.data).slice(0, 30)}`;
+              if (prev.some((p) => `${p.timestamp}_${p.eventType}_${JSON.stringify(p.data).slice(0, 30)}` === key)) {
+                return prev;
+              }
               return [...prev, parsed];
             });
             if (type === "plan_complete") {
-              onPlanCompleteRef.current?.(parsed.planId || planId);
+              onPlanCompleteRef.current?.(parsed.planId || cleanPlanId);
             }
           }
         } catch {
@@ -124,7 +160,7 @@ export function TrajectoryFeed({ planId, altPlanId, autoScroll = true, onPlanCom
       eventSource.close();
       setIsConnected(false);
     };
-  }, [planId, altPlanId]);
+  }, [cleanPlanId, cleanAltId]);
 
   useEffect(() => {
     if (autoScroll && feedEndRef.current) {
