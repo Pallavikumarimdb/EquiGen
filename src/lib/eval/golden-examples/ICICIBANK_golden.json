@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "ICICIBANK",
+    "companyName": "ICICI Bank Limited",
+    "fiscalYear": "FY2024-FY2025",
+    "source": "RBI / BSE Annual Disclosures + NSE filings",
+    "lastUpdated": "2024-10-01",
+    "notes": "Values from audited consolidated financial results"
+  },
+  "revenue": {
+    "valueMinCr": 140000,
+    "valueMaxCr": 220000,
+    "label": "Total Income / Revenue (TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 700000,
+    "valueMaxCr": 980000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.35,
+    "valueMax": 0.58,
+    "label": "Operating Profit Margin (decimal, 35–58%)"
+  },
+  "trailingPE": {
+    "valueMin": 15,
+    "valueMax": 25,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.9,
+    "valueMax": 1.45,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 950,
+    "valueMax": 1450,
+    "label": "Current Market Price (₹/share)"
+  }
+}

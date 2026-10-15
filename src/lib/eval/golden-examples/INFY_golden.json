@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "INFY",
+    "companyName": "Infosys Limited",
+    "fiscalYear": "FY2024-FY2025",
+    "source": "BSE Annual Report + SEC 20-F + NSE filings",
+    "lastUpdated": "2024-10-01",
+    "notes": "Values from audited consolidated IFRS / Ind AS financials"
+  },
+  "revenue": {
+    "valueMinCr": 145000,
+    "valueMaxCr": 175000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 550000,
+    "valueMaxCr": 820000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.22,
+    "valueMax": 0.28,
+    "label": "EBITDA Margin (decimal, 22–28%)"
+  },
+  "trailingPE": {
+    "valueMin": 22,
+    "valueMax": 36,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.7,
+    "valueMax": 1.25,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 1350,
+    "valueMax": 2100,
+    "label": "Current Market Price (₹/share)"
+  }
+}

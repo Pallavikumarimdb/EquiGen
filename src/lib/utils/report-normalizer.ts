@@ -111,10 +111,10 @@ export function normalizeEquityResearchData(raw: any): EquityResearchData {
     derivedRating = raw.recommendation.rating;
   } else if (targetPrice != null && cmp != null && cmp > 0) {
     if (upside !== null) {
-      if (upside < -20 || targetPrice <= 0) derivedRating = "SELL";
-      else if (upside < -5) derivedRating = "REDUCE";
+      if (upside < -15 || targetPrice <= 0) derivedRating = "SELL";
+      else if (upside < -10) derivedRating = "REDUCE";
       else if (upside <= 10) derivedRating = "HOLD";
-      else if (upside <= 20) derivedRating = "ACCUMULATE";
+      else if (upside < 15) derivedRating = "ACCUMULATE";
       else derivedRating = "BUY";
     }
   }

@@ -25,6 +25,7 @@ interface FinancialHeroProps {
   onDownloadExcel?: () => void;
   isDownloadingPdf?: boolean;
   isDownloadingExcel?: boolean;
+  onViewAudit?: () => void;
 }
 
 export function FinancialHero({
@@ -35,6 +36,7 @@ export function FinancialHero({
   onDownloadExcel,
   isDownloadingPdf,
   isDownloadingExcel,
+  onViewAudit,
 }: FinancialHeroProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement>(null);
@@ -140,14 +142,19 @@ const auditFreshness = useMemo(
             {/* Financial Authenticity & Audit Certification Badge */}
             {financialAudit && (
               <span
+                onClick={onViewAudit}
+                role={onViewAudit ? "button" : undefined}
+                tabIndex={onViewAudit ? 0 : undefined}
                 title={
                   auditVerdict === "CERTIFIED_AUTHENTIC"
-                    ? `Institutional Audit Score: ${auditScore}/100. Audited against exchange filings & mathematical circularity.`
+                    ? `Institutional Audit Score: ${auditScore}/100. Click to view detailed correctness evaluation scorecard.`
                     : auditVerdict === "VALIDATED_WITH_WARNINGS"
-                    ? `Validated with Warnings: ${auditScore}/100. Review assumptions before publication.`
-                    : `Audit Failed: Unreliable or unverified data sources detected.`
+                    ? `Validated with Warnings: ${auditScore}/100. Click to view evaluation scorecard.`
+                    : `Audit Failed: Click to inspect discrepancies.`
                 }
-                className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition-all ${
+                  onViewAudit ? "cursor-pointer hover:shadow-xs hover:scale-[1.02]" : ""
+                } ${
                   auditVerdict === "CERTIFIED_AUTHENTIC"
                     ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                     : auditVerdict === "VALIDATED_WITH_WARNINGS"

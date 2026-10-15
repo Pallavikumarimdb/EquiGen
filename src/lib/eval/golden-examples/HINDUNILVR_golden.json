@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "HINDUNILVR",
+    "companyName": "Hindustan Unilever Limited",
+    "fiscalYear": "FY2024-FY2025",
+    "source": "BSE Annual Report + NSE filings",
+    "lastUpdated": "2024-10-01",
+    "notes": "Values from audited consolidated financials"
+  },
+  "revenue": {
+    "valueMinCr": 58000,
+    "valueMaxCr": 70000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 500000,
+    "valueMaxCr": 720000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.21,
+    "valueMax": 0.28,
+    "label": "EBITDA Margin (decimal, 21–28%)"
+  },
+  "trailingPE": {
+    "valueMin": 48,
+    "valueMax": 68,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 0.45,
+    "valueMax": 0.9,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 2100,
+    "valueMax": 3000,
+    "label": "Current Market Price (₹/share)"
+  }
+}

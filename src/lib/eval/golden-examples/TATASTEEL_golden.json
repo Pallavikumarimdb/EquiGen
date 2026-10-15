@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "TATASTEEL",
+    "companyName": "Tata Steel Limited",
+    "fiscalYear": "FY2024-FY2025",
+    "source": "BSE Annual Report + NSE filings",
+    "lastUpdated": "2024-10-01",
+    "notes": "Values from audited consolidated financials"
+  },
+  "revenue": {
+    "valueMinCr": 200000,
+    "valueMaxCr": 265000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 160000,
+    "valueMaxCr": 250000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.08,
+    "valueMax": 0.19,
+    "label": "EBITDA Margin (decimal, 8–19%)"
+  },
+  "trailingPE": {
+    "valueMin": 10,
+    "valueMax": 50,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 1.2,
+    "valueMax": 1.95,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 120,
+    "valueMax": 210,
+    "label": "Current Market Price (₹/share)"
+  }
+}

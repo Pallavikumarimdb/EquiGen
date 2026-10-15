@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "ticker": "TATAMOTORS",
+    "companyName": "Tata Motors Limited",
+    "fiscalYear": "FY2024-FY2025",
+    "source": "BSE Annual Report + NSE exchange filings",
+    "lastUpdated": "2024-10-01",
+    "notes": "Values from audited consolidated financials (JLR + Commercial + Passenger Vehicles)"
+  },
+  "revenue": {
+    "valueMinCr": 400000,
+    "valueMaxCr": 475000,
+    "label": "Total Revenue (Consolidated TTM, ₹ Cr)"
+  },
+  "marketCap": {
+    "valueMinCr": 250000,
+    "valueMaxCr": 430000,
+    "label": "Market Capitalisation (₹ Cr)"
+  },
+  "ebitdaMargin": {
+    "valueMin": 0.10,
+    "valueMax": 0.18,
+    "label": "EBITDA Margin (decimal, 10–18%)"
+  },
+  "trailingPE": {
+    "valueMin": 8,
+    "valueMax": 26,
+    "label": "Trailing P/E ratio"
+  },
+  "beta": {
+    "valueMin": 1.1,
+    "valueMax": 1.9,
+    "label": "5-Year Beta"
+  },
+  "currentPrice": {
+    "valueMin": 650,
+    "valueMax": 1250,
+    "label": "Current Market Price (₹/share)"
+  }
+}

@@ -21,6 +21,8 @@ import { ScenarioModeler } from "../shared/ScenarioModeler";
 import { SwotMatrix } from "../shared/SwotMatrix";
 import { ForensicAuditCard } from "../shared/ForensicAuditCard";
 import { ValuationBandsChart } from "../shared/ValuationBandsChart";
+import { AgentEvalScorecard } from "../shared/AgentEvalScorecard";
+import type { FinancialEvaluationReport } from "@/lib/eval/financial-eval-engine";
 
 export interface UnifiedReportViewProps {
   reportData: EquityResearchData;
@@ -38,7 +40,7 @@ export interface UnifiedReportViewProps {
   status?: string;
 }
 
-export type ReportTab = "thesis" | "valuation" | "statements" | "forensic" | "compliance";
+export type ReportTab = "thesis" | "valuation" | "statements" | "forensic" | "compliance" | "eval";
 
 export function UnifiedReportView({
   reportData,
@@ -57,6 +59,9 @@ export function UnifiedReportView({
 }: UnifiedReportViewProps) {
   const [activeTab, setActiveTab] = useState<ReportTab>("thesis");
   const [copiedMemo, setCopiedMemo] = useState(false);
+
+  // Deep financial audit & correctness evaluation report
+  const financialAudit = (reportData as unknown as { financialAudit?: FinancialEvaluationReport })?.financialAudit ?? null;
 
   const isApproved = status === "approved" || status === "published" || Boolean(approvedAt);
   const rec = reportData?.recommendation;
@@ -114,6 +119,7 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
         onDownloadExcel={onDownloadExcel}
         isDownloadingPdf={isDownloadingPdf}
         isDownloadingExcel={isDownloadingExcel}
+        onViewAudit={() => setActiveTab("eval")}
       />
 
       {/* ── 2. Primary Financial Multiples & Key Metrics Grid ─────────────── */}
@@ -250,6 +256,31 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
           >
             <Scale className="w-3.5 h-3.5" />
             <span>Regulatory Disclosures</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("eval")}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === "eval"
+                ? "bg-[#1A1917] text-white shadow-xs"
+                : "text-[#7A7569] hover:text-[#1A1917] hover:bg-[#EFECE6]"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Agent Correctness & Eval</span>
+            {financialAudit && (
+              <span
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
+                  financialAudit.verdict === "CERTIFIED_AUTHENTIC"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : financialAudit.verdict === "VALIDATED_WITH_WARNINGS"
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-rose-100 text-rose-800"
+                }`}
+              >
+                {financialAudit.overallScore}/100
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -678,6 +709,15 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
             <div>Audit Status: PASSED ALL CHECKS</div>
           </div>
         </div>
+      )}
+
+      {/* ── Tab 6: Agent Run Correctness & Startup Eval Scorecard ──────────── */}
+      {activeTab === "eval" && (
+        <AgentEvalScorecard
+          auditData={financialAudit}
+          ticker={ticker}
+          companyName={companyName}
+        />
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Unit tests for GET /api/eval/run
  *
  * This route originally performed no auth call and no org filter, so any
@@ -175,6 +175,22 @@ describe("GET /api/eval/run — snapshot honesty", () => {
       dataQualityScore: 1.0,
       hasFallbackData: false,
       recommendation: "Approved for publication",
+      categoryScores: {
+        sourceAuthenticity: 100,
+        arithmeticConsistency: 100,
+        valuationSanity: 100,
+        groundingAndFactuality: 100,
+        regulatoryCompliance: 100,
+      },
+      metrics: {
+        citationGroundingRate: 98,
+        totalAssertedFacts: 45,
+        verifiedFactsCount: 44,
+        sebiComplianceScore: 100,
+        liveSourceCount: 3,
+        totalLiveSources: 3,
+        repairedErrorsCount: 0,
+      },
     });
 
     const res = await GET(await sessionRequest("acme", "?ticker=RELIANCE"));
@@ -210,6 +226,13 @@ describe("GET /api/eval/run — snapshot honesty", () => {
       dataQualityScore: 0,
       hasFallbackData: true,
       recommendation: "Blocked",
+      categoryScores: {
+        sourceAuthenticity: 0,
+        arithmeticConsistency: 0,
+        valuationSanity: 0,
+        groundingAndFactuality: 0,
+        regulatoryCompliance: 0,
+      },
     });
 
     await GET(await sessionRequest("acme", "?ticker=TATAMOTORS"));
@@ -241,6 +264,13 @@ describe("GET /api/eval/run — snapshot honesty", () => {
       dataQualityScore: 0.5,
       hasFallbackData: true,
       recommendation: "Review",
+      categoryScores: {
+        sourceAuthenticity: 50,
+        arithmeticConsistency: 50,
+        valuationSanity: 50,
+        groundingAndFactuality: 50,
+        regulatoryCompliance: 50,
+      },
     });
 
     await GET(await sessionRequest("acme", "?ticker=UNKNOWN"));

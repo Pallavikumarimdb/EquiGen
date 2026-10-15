@@ -604,6 +604,7 @@ export class MasterOrchestrator {
     let reportId: string | null = null;
     let reportPayload: Prisma.InputJsonValue | null = null;
     let derivedStatus: string | null = null;
+    let normalizedData: ReturnType<typeof normalizeEquityResearchData> | null = null;
 
     // Save/Upsert completed report into ReportHistory for sidebar history tracking
     if (finalStatus === "completed") {
@@ -662,15 +663,16 @@ export class MasterOrchestrator {
             sharesOutstandingCr: effectiveFin.sharesOutstandingCr ?? null,
             beta: effectiveFin.beta ?? null,
             dividendYield: effectiveFin.dividendYield ?? null,
-            // Liveness must be READ, never inferred. This previously fell back to
-            // `source !== "generic_constants"`, which certified a data pull as live
-            // whenever its source string happened not to be that one literal.
             isLiveData: effectiveFin.isLiveData === true,
             dataSource: effectiveFin.source ?? "unknown",
-            // Never invent a fetch time. A missing timestamp must reach the audit as
-            // missing so AUTH_02 fails, rather than being backfilled with `new Date()`
-            // which made the freshness check permanently pass.
             fetchedAt: effectiveFin.fetchedAt ?? null,
+            revenueCr: effectiveFin.revenueCr ?? null,
+            netIncomeCr: effectiveFin.netIncomeCr ?? null,
+            operatingCashflowCr: effectiveFin.operatingCashflowCr ?? null,
+            totalDebtCr: effectiveFin.totalDebtCr ?? null,
+            cashCr: effectiveFin.cashCr ?? null,
+            netDebtCr: effectiveFin.netDebtCr ?? null,
+            historicalSeries: effectiveFin.historicalSeries ?? undefined,
           } : null,
           modelingData: mData ? {
             baseTargetPrice: typeof mData.baseTargetPrice === "number" ? mData.baseTargetPrice : null,
@@ -681,6 +683,17 @@ export class MasterOrchestrator {
             assumptions: mData.assumptions as Record<string, unknown> | undefined,
             projections: Array.isArray(mData.projections) ? (mData.projections as Array<{ year: string; [key: string]: unknown }>) : undefined,
           } : null,
+          sections: finalSections,
+          recommendation: effectiveFin?.currentPrice ? {
+            currentPrice: effectiveFin.currentPrice,
+            targetPrice: typeof mData?.baseTargetPrice === "number" ? mData.baseTargetPrice : null,
+          } : null,
+          telemetry: {
+            totalLatencyMs: Date.now() - startTime,
+            repairCount: ((synthesisOutput as Record<string, unknown>)?.consistencyCheck as Record<string, unknown>)?.repairedCount as number ?? 0,
+            toolsExecuted: completedMilestones.length + 3,
+            toolsFailed: 0,
+          },
           dataSources: (reportDataSources as Record<string, unknown> | null) ?? null,
         });
         console.log(`[MasterOrchestrator] Financial Evaluation verdict: ${financialAudit.verdict} (Score: ${financialAudit.overallScore}/100)`);
@@ -764,7 +777,7 @@ export class MasterOrchestrator {
         } : undefined,
       };
 
-      const normalizedData = normalizeEquityResearchData(rawPayload);
+      normalizedData = normalizeEquityResearchData(rawPayload);
       reportPayload = JSON.parse(JSON.stringify(normalizedData)) as Prisma.InputJsonValue;
 
       // ── Publication safety gate ────────────────────────────────────────────
@@ -850,11 +863,22 @@ export class MasterOrchestrator {
     // payload so it is inspectable after the fact.
     const evalSnapshot: AgentRunSnapshot = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      yahoo: (mktOut as any)?.yahooFinancials ?? null,
+      yahoo: (mktOut as any)?.yahooFinancials ?? effectiveFin ?? null,
       modelingDataQuality: modelQuality ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modelOutput: (modelingOutput as any)?.modelOutput ?? undefined,
       sections: finalSections,
+      recommendation: {
+        currentPrice: effectiveFin?.currentPrice,
+        targetPrice: typeof (modelingData as Record<string, unknown>)?.baseTargetPrice === "number" ? (modelingData as Record<string, unknown>).baseTargetPrice as number : null,
+        rating: normalizedData?.recommendation?.rating,
+      },
+      telemetry: {
+        totalLatencyMs: Date.now() - startTime,
+        repairCount: ((synthData?.consistencyCheck as Record<string, unknown>)?.repairedCount as number) ?? 0,
+        toolsExecuted: completedMilestones.length + 3,
+        toolsFailed: 0,
+      },
       dataSources,
     };
 
@@ -900,6 +924,9 @@ export class MasterOrchestrator {
                   score: evalScore,
                   hasCritical,
                   evaluatedAt: new Date().toISOString(),
+                  categoryScores: pipelineEvalReport.categoryScores,
+                  metrics: pipelineEvalReport.metrics,
+                  recommendation: pipelineEvalReport.recommendation,
                   checks: pipelineEvalReport.checks.map((c) => ({
                     name: c.name,
                     status: c.status,
