@@ -52,11 +52,10 @@ export function createLangChainChatModel(options: AIServiceOptions): BaseChatMod
       });
 
     case "ollama": {
-      let candidateUrl = options.baseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1";
       if (options.baseUrl && !isSafeOutboundUrl(options.baseUrl) && !options.baseUrl.includes("localhost") && !options.baseUrl.includes("127.0.0.1")) {
         throw new Error("Prohibited or internal baseUrl rejected for SSRF protection.");
       }
-      const ollamaBaseUrl = candidateUrl;
+      const ollamaBaseUrl = options.baseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1";
       return new ChatOpenAI({
         apiKey: apiKey || "ollama",
         configuration: {
