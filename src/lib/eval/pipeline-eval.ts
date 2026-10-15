@@ -422,7 +422,7 @@ function checkDataFreshness(snapshot: AgentRunSnapshot): EvalCheckResult {
 
   const ageMs = Date.now() - new Date(fetchedAt).getTime();
   const ageHours = ageMs / (1000 * 60 * 60);
-  const isStale = ageHours > 48;
+  const isStale = ageHours > 24;
 
   return {
     name: "Data Freshness",

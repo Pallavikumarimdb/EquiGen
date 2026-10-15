@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import type { FinancialEvaluationReport, FinancialAuditCheck, FinancialAuditCategory } from "@/lib/eval/financial-eval-engine";
+import type { FinancialEvaluationReport, FinancialAuditCheck } from "@/lib/eval/financial-eval-engine";
 
 interface AgentEvalScorecardProps {
   auditData?: FinancialEvaluationReport | null;
@@ -26,7 +26,7 @@ interface AgentEvalScorecardProps {
 
 export function AgentEvalScorecard({
   auditData,
-  pipelineEval,
+  pipelineEval: _pipelineEval,
   ticker,
   companyName,
 }: AgentEvalScorecardProps) {

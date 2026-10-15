@@ -808,11 +808,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
-  const handlePlanComplete = useCallback((completedJobId?: string) => {
+  const handlePlanComplete = (completedJobId?: string) => {
     void completedJobId;
     fetchHistory(false);
     showToast("Autonomous research completed! Full research note is ready.", "success");
-  }, []);
+  };
 
   const handleSwitchToReport = useCallback(() => {
     setActiveViewMode("report");

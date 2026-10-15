@@ -18,7 +18,7 @@ import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { forensicAgent } from "../subagents/forensic-agent";
 import { ExtractedFinancials, fetchYahooFinancials, toModelingInputRecord } from "../tools/yahoo-financials-tool";
-import { fetchBseCompanyFinancials } from "../tools/bse-financial-data-tool";
+import { fetchBseCompanyFinancials, type BseCompanyFinancials } from "../tools/bse-financial-data-tool";
 import { aiService } from "@/lib/ai";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
@@ -279,7 +279,7 @@ export class MasterOrchestrator {
           ) as unknown as { config?: { uploadedDocument?: { fileName?: string; textSummary?: string; url?: string; documentId?: string } } })?.config?.uploadedDocument;
 
           // 1. If filing PDF is attached, extract structured statements using AI service
-          let docExtractedFinancials: any = null;
+          let docExtractedFinancials: { fiveYearSummary?: Array<{ sales?: number; ebitda?: number; patAdjusted?: number }> } | null = null;
           if (uploadedDocFromMilestones?.textSummary) {
             trajectoryBus.emitEvent(planId, "planner_thought", {
               reasoning: `Parsing audited financial statements and key balance sheet disclosures from uploaded filing (${uploadedDocFromMilestones.fileName})...`,
@@ -288,7 +288,7 @@ export class MasterOrchestrator {
               docExtractedFinancials = await aiService.extractFinancialData(
                 companyName,
                 uploadedDocFromMilestones.textSummary
-              );
+              ) as unknown as { fiveYearSummary?: Array<{ sales?: number; ebitda?: number; patAdjusted?: number }> };
               console.log(`[MasterOrchestrator] ✓ Extracted financial data from uploaded document: ${uploadedDocFromMilestones.fileName}`);
             } catch (docErr) {
               console.warn(`[MasterOrchestrator] Document extraction warning:`, docErr);
@@ -296,7 +296,7 @@ export class MasterOrchestrator {
           }
 
           // 2. Fetch official BSE financial results (5-year P&L, quarterly results, shareholding pattern)
-          let bseFinancials: any = null;
+          let bseFinancials: BseCompanyFinancials | null = null;
           try {
             trajectoryBus.emitEvent(planId, "planner_thought", {
               reasoning: `Extracting official BSE India financial results and shareholding disclosures for ${ticker}...`,
@@ -322,7 +322,7 @@ export class MasterOrchestrator {
             reasoning: `Cross-verifying historical figures across exchange filings and financial disclosures to eliminate discrepancies...`,
           }, milestone.id);
 
-          const unifiedFin: any = {
+          const unifiedFin: Record<string, unknown> = {
             ticker,
             companyName,
             isLiveData: Boolean(yfFinancials?.isLiveData || bseFinancials?.isLiveData || docExtractedFinancials),
@@ -376,10 +376,11 @@ export class MasterOrchestrator {
           if (!documentOutput) {
             documentOutput = {};
           }
-          (documentOutput as any).extractedFinancials = toModelingInputRecord(unifiedFin);
-          (documentOutput as any).rawExtractedFinancials = unifiedFin;
-          (documentOutput as any).bseFinancials = bseFinancials;
-          effectiveFin = unifiedFin;
+          const docOutRec = documentOutput as Record<string, unknown>;
+          docOutRec.extractedFinancials = toModelingInputRecord(unifiedFin as unknown as ExtractedFinancials);
+          docOutRec.rawExtractedFinancials = unifiedFin;
+          docOutRec.bseFinancials = bseFinancials;
+          effectiveFin = unifiedFin as unknown as ExtractedFinancials & Record<string, unknown>;
 
           completedMilestones.push(milestone.id);
 
@@ -638,7 +639,7 @@ export class MasterOrchestrator {
           ticker,
           companyName,
           financials: effectiveFin,
-          bseData: (documentOutput as any)?.bseFinancials ?? screenerPrimary,
+          bseData: ((documentOutput as Record<string, unknown>)?.bseFinancials as Record<string, unknown>) ?? screenerPrimary,
           documentData: documentOutput,
           apiKey,
         });

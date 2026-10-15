@@ -39,8 +39,7 @@ export function CoverageSidebar({
   onSelectReport,
   onDeleteReport,
   onStopProcess,
-  historyFilter,
-  onFilterChange,
+  historyFilter = "all",
   searchQuery,
   onOpenNewResearch,
   isLoading = false,
@@ -63,8 +62,12 @@ export function CoverageSidebar({
     setDeleteTarget(null);
   }, []);
 
-  // Filter history based on search query
+  // Filter history based on historyFilter and search query
   const filteredHistory = history.filter((item) => {
+    if (historyFilter !== "all") {
+      if (historyFilter === "autonomous" && item.sourceType === "manual") return false;
+      if (historyFilter === "manual" && item.sourceType !== "manual") return false;
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchComp = item.companyName.toLowerCase().includes(q);
