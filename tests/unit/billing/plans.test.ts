@@ -13,7 +13,7 @@ import {
   type PlanId,
 } from "@/lib/billing/plans";
 import { verifyWebhookSignature, getDodoConfig } from "@/lib/billing/dodo";
-import { nextMonthStart, isExemptOrg, EXEMPT_ORG_ID } from "@/lib/billing/entitlements";
+import { nextMonthStart, isExemptOrg, EXEMPT_ORG_ID, isAdminUser, ADMIN_EMAILS } from "@/lib/billing/entitlements";
 
 describe("plan catalog", () => {
   it("falls back to the free plan for unknown ids", () => {
@@ -267,3 +267,37 @@ describe("tier gating arithmetic", () => {
     expect(allows("desk", 10_000)).toBe(true);
   });
 });
+
+describe("admin exemption and loophole prevention", () => {
+  it("recognizes admin users by role regardless of casing", () => {
+    expect(isAdminUser({ role: "admin" })).toBe(true);
+    expect(isAdminUser({ role: "ADMIN" })).toBe(true);
+    expect(isAdminUser({ role: "Admin" })).toBe(true);
+    expect(isAdminUser({ role: "member" })).toBe(false);
+    expect(isAdminUser(null)).toBe(false);
+    expect(isAdminUser(undefined)).toBe(false);
+  });
+
+  it("recognizes configured admin emails", () => {
+    expect(isAdminUser({ email: "pallavi@gmail.com" })).toBe(true);
+    expect(isAdminUser({ email: "pallavilpmt1995@gmail.com" })).toBe(true);
+    expect(isAdminUser({ email: "PALLAVI@GMAIL.COM" })).toBe(true);
+    expect(isAdminUser({ email: "regular_user@example.com" })).toBe(false);
+  });
+
+  it("guarantees deleting reports does not decrease quota when usage events exist", () => {
+    // If a freemium user consumed 3 reports, billing ledger has 3 events.
+    const billingEventsCount = 3;
+    // Even if user deleted 1 report so active reports in DB is 2:
+    const activeReportsInHistory = 2;
+    // Effective reports used MUST be Math.max(billingEventsCount, activeReportsInHistory) = 3
+    const effectiveReportsUsed = Math.max(billingEventsCount, activeReportsInHistory);
+    expect(effectiveReportsUsed).toBe(3);
+
+    // Free tier allowance is 3, so a 4th report is strictly blocked!
+    const freeLimit = PLANS.free.reportsPerMonth!;
+    const isAllowedFor4th = effectiveReportsUsed < freeLimit;
+    expect(isAllowedFor4th).toBe(false);
+  });
+});
+

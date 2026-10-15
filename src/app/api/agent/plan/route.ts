@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { resolveCompanyTicker } from "@/lib/ai/tools/ticker-resolver";
 import { getDecryptedApiKey } from "@/lib/utils/api-keys";
 import { canAccessTenantRecord, isTenantFailure, requireTenantSession } from "@/lib/utils/tenant";
-import { checkReportQuota } from "@/lib/billing/entitlements";
+import { checkReportQuota, recordReportUsage } from "@/lib/billing/entitlements";
 
 /**
  * POST /api/agent/plan
@@ -75,7 +75,10 @@ export async function POST(req: NextRequest) {
 
     // Plan-tier quota check: prevents exceeding monthly research allowance
     try {
-      const quota = await checkReportQuota(orgId);
+      const quota = await checkReportQuota(orgId, {
+        userId: authSession.userId,
+        role: authSession.role,
+      });
       if (!quota.allowed) {
         return NextResponse.json(
           {
@@ -145,6 +148,17 @@ export async function POST(req: NextRequest) {
     };
 
     const plan = await masterPlannerAgent.createPlan(goal, apiKey);
+
+    // Record immutable report usage event to prevent quota reset loopholes on deletion
+    await recordReportUsage({
+      orgId,
+      referenceId: plan.id,
+      userId,
+      companyName: resolvedCompanyName,
+      ticker: resolvedTicker,
+    }).catch((err) => {
+      console.warn("[Billing] Failed to record report usage event:", err);
+    });
 
     return NextResponse.json({ success: true, plan });
   } catch (error: unknown) {

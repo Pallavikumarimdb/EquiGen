@@ -24,7 +24,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Plan entitlements are per-org, so one lookup covers every seat.
-    const subscription = await getOrgSubscription(user.orgId).catch(() => null);
+    const subscription = await getOrgSubscription(user.orgId, {
+      userId: user.id,
+      role: user.role,
+      email: user.email,
+    }).catch(() => null);
     const plan = getPlan(subscription?.planId);
 
     return NextResponse.json({

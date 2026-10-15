@@ -31,7 +31,10 @@ export async function POST(req: NextRequest) {
     // Plan-tier gate: blocks new research runs once the org exhausts its
     // monthly note allowance. Best-effort — a billing outage must not block uploads.
     try {
-      const quota = await checkReportQuota(orgId);
+      const quota = await checkReportQuota(orgId, {
+        userId: session.userId,
+        role: session.role,
+      });
       if (!quota.allowed) {
         return NextResponse.json(
           {

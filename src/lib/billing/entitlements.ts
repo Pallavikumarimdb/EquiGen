@@ -7,8 +7,9 @@ import { getPlan, type Plan, type PlanId } from "./plans";
  * Billing is per-organization, not per-user: one subscription row per org and
  * every seat in that org shares the quota.
  *
- * The internal `default-org` tenant (demo guest + agent bypass) is exempt from
- * quota enforcement so the public demo workspace can never dead-end.
+ * The internal `default-org` tenant (demo guest + agent bypass) and designated
+ * administrator accounts are exempt from quota enforcement so they can test
+ * and audit the application with unlimited runs.
  */
 
 /**
@@ -21,6 +22,19 @@ import { getPlan, type Plan, type PlanId } from "./plans";
 const ENTITLED_STATUSES = new Set(["active", "pending", "past_due"]);
 
 export const EXEMPT_ORG_ID = "default-org";
+
+/** Admin accounts with unrestricted, unlimited access */
+export const ADMIN_EMAILS = new Set<string>([
+  "pallavi@gmail.com",
+  "pallavilpmt1995@gmail.com",
+  ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.toLowerCase().trim()] : []),
+]);
+
+export interface UserContext {
+  role?: string | null;
+  email?: string | null;
+  userId?: string | null;
+}
 
 export interface OrgSubscription {
   planId: PlanId;
@@ -65,8 +79,56 @@ export function isExemptOrg(orgId: string): boolean {
   return orgId === EXEMPT_ORG_ID;
 }
 
-export async function getOrgSubscription(orgId: string): Promise<OrgSubscription> {
-  if (isExemptOrg(orgId)) {
+export function isAdminUser(user?: UserContext | null): boolean {
+  if (!user) return false;
+  if (user.role && user.role.toLowerCase() === "admin") return true;
+  if (user.email && ADMIN_EMAILS.has(user.email.toLowerCase().trim())) return true;
+  return false;
+}
+
+/**
+ * Checks if an organization or user context is exempt from quota restrictions.
+ * Grants unrestricted "desk" plan access to admins and exempt orgs.
+ */
+export async function isExempt(orgId?: string | null, user?: UserContext | null): Promise<boolean> {
+  if (orgId && isExemptOrg(orgId)) return true;
+  if (isAdminUser(user)) return true;
+
+  if (user?.userId) {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { role: true, email: true },
+      });
+      if (dbUser && isAdminUser(dbUser)) return true;
+    } catch {
+      // Ignore DB errors in exemption check
+    }
+  }
+
+  if (orgId) {
+    try {
+      const adminInOrg = await prisma.user.findFirst({
+        where: {
+          orgId,
+          OR: [
+            { role: "admin" },
+            { email: { in: Array.from(ADMIN_EMAILS) } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (adminInOrg) return true;
+    } catch {
+      // Ignore DB errors
+    }
+  }
+
+  return false;
+}
+
+export async function getOrgSubscription(orgId: string, user?: UserContext | null): Promise<OrgSubscription> {
+  if (await isExempt(orgId, user)) {
     return {
       ...freeSubscription(),
       planId: "desk",
@@ -93,23 +155,75 @@ export async function getOrgSubscription(orgId: string): Promise<OrgSubscription
   };
 }
 
-export async function getUsageSnapshot(orgId: string): Promise<UsageSnapshot> {
-  const subscription = await getOrgSubscription(orgId);
+/**
+ * Records an immutable report usage entry in BillingEvent.
+ * This ensures deleting a generated report from the UI history NEVER refunds
+ * or rolls back consumed monthly research quota.
+ */
+export async function recordReportUsage(params: {
+  orgId: string;
+  referenceId: string;
+  userId?: string | null;
+  companyName?: string | null;
+  ticker?: string | null;
+}): Promise<void> {
+  const { orgId, referenceId, userId, companyName, ticker } = params;
+  if (!orgId || isExemptOrg(orgId)) return;
+
+  const eventId = `usage_${referenceId}`;
+  try {
+    await prisma.billingEvent.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        eventType: "report_usage",
+        orgId,
+        payload: {
+          referenceId,
+          userId: userId ?? null,
+          companyName: companyName ?? null,
+          ticker: ticker ?? null,
+          timestamp: new Date().toISOString(),
+        },
+      },
+      update: {},
+    });
+  } catch (err) {
+    console.warn("[Billing] Failed to record immutable usage event:", err);
+  }
+}
+
+export async function getUsageSnapshot(orgId: string, user?: UserContext | null): Promise<UsageSnapshot> {
+  const exempt = await isExempt(orgId, user);
+  const subscription = await getOrgSubscription(orgId, user);
   const plan = getPlan(subscription.planId);
-  const exempt = isExemptOrg(orgId);
 
   const windowStart = new Date();
   windowStart.setUTCDate(1);
   windowStart.setUTCHours(0, 0, 0, 0);
 
-  const [reportsUsed, seatsUsed] = await Promise.all([
+  // LOOPHOLE FIX:
+  // Count immutable "report_usage" billing events PLUS existing report history records.
+  // Using Math.max guarantees that:
+  // 1. Any report run creates a permanent record in BillingEvent that is NOT deleted when a report is deleted.
+  // 2. Legacy reports created before this fix still count against quota.
+  // 3. Deleting an existing report does NOT refund quota.
+  const [billingEventsCount, existingReportsCount, seatsUsed] = await Promise.all([
+    prisma.billingEvent.count({
+      where: {
+        orgId,
+        eventType: "report_usage",
+        createdAt: { gte: windowStart },
+      },
+    }).catch(() => 0),
     prisma.reportHistory.count({
       where: { orgId, createdAt: { gte: windowStart } },
-    }),
-    prisma.user.count({ where: { orgId } }),
+    }).catch(() => 0),
+    prisma.user.count({ where: { orgId } }).catch(() => 1),
   ]);
 
-  const reportsLimit = plan.reportsPerMonth;
+  const reportsUsed = Math.max(billingEventsCount, existingReportsCount);
+  const reportsLimit = exempt ? null : plan.reportsPerMonth;
 
   return {
     plan,
@@ -136,8 +250,8 @@ export interface QuotaDecision {
  * Gate for starting a new research run. Returns a decision rather than throwing
  * so callers can map it onto their own HTTP semantics (402 for plan limits).
  */
-export async function checkReportQuota(orgId: string): Promise<QuotaDecision> {
-  const snapshot = await getUsageSnapshot(orgId);
+export async function checkReportQuota(orgId: string, user?: UserContext | null): Promise<QuotaDecision> {
+  const snapshot = await getUsageSnapshot(orgId, user);
 
   if (snapshot.exempt) {
     return {
@@ -156,7 +270,7 @@ export async function checkReportQuota(orgId: string): Promise<QuotaDecision> {
     allowed,
     reason: allowed
       ? undefined
-      : `Your ${snapshot.plan.name} plan includes ${reportsLimit} research note${reportsLimit === 1 ? "" : "s"} per month. Upgrade to continue, or wait for the quota to reset.`,
+      : `Your ${snapshot.plan.name} plan includes ${reportsLimit} research note${reportsLimit === 1 ? "" : "s"} per month. You have consumed all ${reportsLimit} reports for this month. Deleting saved reports does not refund consumed quota. Upgrade to Pro for higher limits, or wait for the monthly quota to reset.`,
     plan: snapshot.plan,
     reportsUsed: snapshot.reportsUsed,
     reportsLimit,
@@ -165,8 +279,8 @@ export async function checkReportQuota(orgId: string): Promise<QuotaDecision> {
 }
 
 /** Gate for inviting additional analysts to the org. */
-export async function checkSeatQuota(orgId: string): Promise<QuotaDecision> {
-  const snapshot = await getUsageSnapshot(orgId);
+export async function checkSeatQuota(orgId: string, user?: UserContext | null): Promise<QuotaDecision> {
+  const snapshot = await getUsageSnapshot(orgId, user);
 
   if (snapshot.exempt) {
     return {

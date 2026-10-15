@@ -487,6 +487,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     const newSessionId = `session_${Date.now()}`;
     const reportFileName = file ? file.name : "Autonomous Research";
 
+    const prevActiveReportId = activeReportId;
+    const prevActiveSessionId = activeSessionId;
+    const prevCompanyName = companyName;
+    const prevReportData = reportData;
+    const prevReportPdfBase64 = reportPdfBase64;
+    const prevActiveReportStatus = activeReportStatus;
+    const prevActiveViewMode = activeViewMode;
+
     // 1. Immediately create optimistic item in sidebar (using file.name if attached)
     const optimisticPlanItem: DashboardHistoryItem = {
       id: tempPlanId,
@@ -542,8 +550,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               const uploadData = await uploadRes.json();
               rawText = uploadData.text || "";
               documentId = uploadData.targeting?.documentId ?? null;
+            } else if (uploadRes.status === 402) {
+              const quotaErr = await uploadRes.json().catch(() => ({}));
+              throw new Error(quotaErr.message || "Monthly research limit reached. Deleting reports does not refund quota. Please upgrade in Settings & Billing.");
             }
-          } catch {
+          } catch (uploadErr) {
+            if (uploadErr instanceof Error && uploadErr.message.includes("Monthly research limit")) {
+              throw uploadErr;
+            }
             // Fall through to client-side extraction
           }
         }
@@ -626,10 +640,23 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         }
       } else {
         const errData = await res.json().catch(() => ({}));
+        if (res.status === 402 || errData.code === "quota_exceeded") {
+          throw new Error(errData.message || "Monthly research report limit reached (3/3 on Freemium plan). Deleting saved reports does not refund quota. Please upgrade in Settings & Billing.");
+        }
         throw new Error(errData.message || "Failed to dispatch plan");
       }
     } catch (err) {
       console.error("[Dashboard] handleLaunchResearch error:", err);
+      // Clean up the optimistic temporary plan item from history and rollback view state
+      setHistory((prev) => prev.filter((h) => h.id !== tempPlanId));
+      setActiveReportId(prevActiveReportId);
+      setActiveSessionId(prevActiveSessionId);
+      setCompanyName(prevCompanyName);
+      setReportData(prevReportData);
+      setReportPdfBase64(prevReportPdfBase64);
+      setActiveReportStatus(prevActiveReportStatus);
+      setActiveViewMode(prevActiveViewMode);
+
       let msg = err instanceof Error ? err.message : "Error dispatching swarm";
       if (msg.includes("NetworkError") || msg.includes("Failed to fetch")) {
         msg = "Network timeout while deploying research swarm. Please retry.";

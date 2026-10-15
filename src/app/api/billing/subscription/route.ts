@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
   if (isTenantFailure(guard)) return guard.response;
   const session = guard;
   try {
-    const snapshot = await getUsageSnapshot(session.orgId);
+    const snapshot = await getUsageSnapshot(session.orgId, {
+      userId: session.userId,
+      role: session.role,
+    });
 
     return NextResponse.json({
       planId: snapshot.plan.id,
