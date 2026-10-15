@@ -42,7 +42,10 @@ function newPending(depth: ResearchDepth): MilestoneStatus {
   return "pending";
 }
 
-function makeFetchMilestone(depth: ResearchDepth): FetchDocumentsMilestone {
+function makeFetchMilestone(
+  depth: ResearchDepth,
+  uploadedDocument?: ResearchGoal["uploadedDocument"]
+): FetchDocumentsMilestone {
   const sourceTypes: FetchDocumentsMilestone["config"]["sourceTypes"] =
     depth === "quick"
       ? ["annual_report", "quarterly_results"]
@@ -53,8 +56,10 @@ function makeFetchMilestone(depth: ResearchDepth): FetchDocumentsMilestone {
   return {
     id: "m_fetch",
     type: "fetch_documents",
-    label: "Fetch Company Filings",
-    description: `Fetch ${sourceTypes.join(", ")} from BSE/NSE/SEBI archives.`,
+    label: uploadedDocument ? `Fetch Filings (+ Parse ${uploadedDocument.fileName})` : "Fetch Company Filings",
+    description: uploadedDocument
+      ? `Ingest ${uploadedDocument.fileName} and fetch complementary filings from BSE/NSE archives.`
+      : `Fetch ${sourceTypes.join(", ")} from BSE/NSE/SEBI archives.`,
     agentType: "document",
     estimatedMinutes: Math.ceil(MILESTONE_LATENCY_S.fetch_documents[depth] / 60),
     estimatedCostUsd: MILESTONE_COST_USD.fetch_documents[depth],
@@ -62,6 +67,7 @@ function makeFetchMilestone(depth: ResearchDepth): FetchDocumentsMilestone {
     config: {
       sourceTypes,
       yearsBack: depth === "quick" ? 2 : depth === "standard" ? 4 : 6,
+      uploadedDocument,
     },
   };
 }
@@ -220,7 +226,7 @@ export class MasterPlannerAgent {
 
     // Step 2: Build ordered milestone list
     const milestones: MilestonePlan[] = [
-      makeFetchMilestone(depth),
+      makeFetchMilestone(depth, goal.uploadedDocument),
       makeExtractMilestone(depth),
       makeModelingMilestone(depth),
       makePeerMilestone(depth, peerTickers),

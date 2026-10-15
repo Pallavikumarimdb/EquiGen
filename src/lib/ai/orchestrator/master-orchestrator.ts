@@ -648,6 +648,11 @@ export class MasterOrchestrator {
         );
       }
 
+      const uploadedDocFromMilestones = (milestones.find(
+        (m) => m.type === "fetch_documents" && (m as unknown as { config?: { uploadedDocument?: { fileName?: string } } })?.config?.uploadedDocument
+      ) as unknown as { config?: { uploadedDocument?: { fileName?: string } } })?.config?.uploadedDocument;
+      const finalReportFileName = uploadedDocFromMilestones?.fileName || "Autonomous Research";
+
       try {
         await prisma.reportHistory.upsert({
           where: { id: reportId },
@@ -658,7 +663,7 @@ export class MasterOrchestrator {
             reviewerName: finalAnalystName,
             sebiRegNo: finalSebiRegNo,
             companyName: companyName || ticker,
-            fileName: "Autonomous Research",
+            fileName: finalReportFileName,
             status: derivedStatus,
             dataQuality: derivedDataQuality,
             modelUsedForFinancials: "Groq Llama 3.3 / OpenRouter Free",
@@ -668,6 +673,7 @@ export class MasterOrchestrator {
             orgId: activeOrgId,
             reviewerName: finalAnalystName,
             sebiRegNo: finalSebiRegNo,
+            fileName: finalReportFileName,
             status: derivedStatus,
             dataQuality: derivedDataQuality,
             reportData: reportPayload,

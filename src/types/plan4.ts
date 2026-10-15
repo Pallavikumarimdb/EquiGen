@@ -20,6 +20,13 @@ export interface ResearchGoal {
   depth: ResearchDepth;
   /** sessionId (ResearchSession FK) */
   sessionId: string;
+  /** Optional user-uploaded filing (Annual Report / DRHP PDF) to enrich the swarm */
+  uploadedDocument?: {
+    fileName: string;
+    textSummary?: string;
+    url?: string;
+    documentId?: string;
+  };
 }
 
 // ─── Research Plan Milestones ──────────────────────────────────────────────────
@@ -51,6 +58,12 @@ export interface FetchDocumentsMilestone extends BaseMilestone {
   config: {
     sourceTypes: ("annual_report" | "quarterly_results" | "concall_transcript" | "drhp" | "credit_rating")[];
     yearsBack: number;
+    uploadedDocument?: {
+      fileName: string;
+      textSummary?: string;
+      url?: string;
+      documentId?: string;
+    };
   };
 }
 

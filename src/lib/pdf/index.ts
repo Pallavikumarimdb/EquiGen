@@ -1,4 +1,5 @@
 import { HtmlReportGenerator, type HtmlReportOptions } from "@/lib/ai/html-report-generator";
+import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
 import fs from "fs";
 import path from "path";
 
@@ -31,10 +32,12 @@ export class PDFGenerationService {
     status = "draft",
     metadata?: ReportPDFMetadata,
   ): Promise<Buffer> {
-    const isAutonomous = data?.sourceType === "autonomous" || Array.isArray(data?.sections);
-
-    // 1. Generate the full HTML report
-    console.log(`[PDF] Generating ${isAutonomous ? "Autonomous" : "Standard"} HTML report...`);
+    // 1. Generate the full HTML report using the institutional template
+    //    (html-report-generator.ts) regardless of whether the data came from
+    //    the autonomous swarm or the Assisted Document Upload pipeline.
+    //    Normalizing guarantees full EquityResearchData structure even with raw sections.
+    console.log(`[PDF] Generating institutional HTML report...`);
+    const normalizedData = normalizeEquityResearchData(data);
     const htmlOptions: HtmlReportOptions = {
       status: status as "draft" | "published",
       reviewerName: metadata?.reviewerName,
@@ -44,9 +47,7 @@ export class PDFGenerationService {
       complianceEmail: metadata?.complianceEmail,
       website: metadata?.website,
     };
-    const html = isAutonomous
-      ? HtmlReportGenerator.generateAutonomousHTML(data, htmlOptions)
-      : await HtmlReportGenerator.generateHTML(data, htmlOptions);
+    const html = await HtmlReportGenerator.generateHTML(normalizedData, htmlOptions);
 
     // Optional: cache the HTML alongside the PDF for debugging.
     //

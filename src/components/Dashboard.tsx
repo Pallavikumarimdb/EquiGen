@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { HeaderNav } from "./dashboard/HeaderNav";
 import { CoverageSidebar } from "./dashboard/CoverageSidebar";
-import { NewResearchModal } from "./dashboard/NewResearchModal";
+import { NewResearchModal, type LaunchResearchParams } from "./dashboard/NewResearchModal";
 import { AgentChatView } from "./dashboard/views/AgentChatView";
 import { SignoffModal } from "./dashboard/SignoffModal";
 import { UnifiedReportView } from "./dashboard/views/UnifiedReportView";
@@ -460,13 +460,14 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
-  // Launch Autonomous Swarm
-  const handleLaunchAutonomous = async (
-    compName: string,
-    tickerInput?: string,
-    depth: "quick" | "standard" | "deep" = "standard",
-    goalText?: string
-  ) => {
+  // Launch Unified Research Swarm (Autonomous AI Swarm + Optional PDF Filing Enrichment)
+  const handleLaunchResearch = async ({
+    companyName: compName,
+    ticker: tickerInput,
+    depth = "standard",
+    promptGoal: goalText,
+    file,
+  }: LaunchResearchParams) => {
     setIsNewResearchOpen(false);
     setLoading(true);
 
@@ -474,17 +475,19 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     const derivedTicker = cleanInputTicker || compName.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10) || "TICKER";
     const tempPlanId = `plan_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
     const newSessionId = `session_${Date.now()}`;
+    const reportFileName = file ? file.name : "Autonomous Research";
 
-    // 1. Immediately create optimistic item in sidebar
+    // 1. Immediately create optimistic item in sidebar (using file.name if attached)
     const optimisticPlanItem: DashboardHistoryItem = {
       id: tempPlanId,
       companyName: compName,
-      fileName: "Autonomous Research",
+      fileName: reportFileName,
       createdAt: new Date().toISOString(),
       reportData: {
         company: { name: compName, ticker: derivedTicker },
         sourceType: "autonomous",
         planId: tempPlanId,
+        fileName: reportFileName,
         status: "running",
       } as unknown as EquityResearchData,
       reportPdfBase64: null,
@@ -501,9 +504,60 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     setReportPdfBase64(null);
     setActiveReportStatus("running");
     setActiveViewMode("agent");
-    showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
+
+    if (file) {
+      showToast(`Uploading ${file.name} & deploying multi-agent research swarm for ${compName}...`, "info");
+    } else {
+      showToast(`Deploying multi-agent research swarm for ${compName}...`, "info");
+    }
 
     try {
+      let uploadedDocPayload: { fileName: string; textSummary?: string; documentId?: string } | undefined = undefined;
+
+      // If a filing PDF is provided, process it and pass text excerpt / documentId to swarm
+      if (file) {
+        let rawText = "";
+        let documentId: string | null = null;
+        const isLargeFile = file.size > 4 * 1024 * 1024;
+
+        if (!isLargeFile) {
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const uploadRes = await fetch("/api/upload", {
+              method: "POST",
+              body: formData,
+            });
+            if (uploadRes.ok) {
+              const uploadData = await uploadRes.json();
+              rawText = uploadData.text || "";
+              documentId = uploadData.targeting?.documentId ?? null;
+            }
+          } catch {
+            // Fall through to client-side extraction
+          }
+        }
+
+        if (!rawText) {
+          try {
+            const { extractText } = await import("unpdf");
+            const arrayBuffer = await file.arrayBuffer();
+            const extracted = await extractText(new Uint8Array(arrayBuffer), { mergePages: true });
+            rawText = (extracted.text as string) || "";
+          } catch (unpdfErr) {
+            console.warn("[Dashboard] Client-side PDF extraction error:", unpdfErr);
+          }
+        }
+
+        if (rawText) {
+          uploadedDocPayload = {
+            fileName: file.name,
+            textSummary: rawText.slice(0, 15000), // Rich context chunk for LLM planning & synthesis
+            documentId: documentId || undefined,
+          };
+        }
+      }
+
       const fullGoal = goalText || `Initiation of coverage on ${compName}${cleanInputTicker ? ` (${cleanInputTicker})` : ""} — 5-year DCF, peer multiples, and SEBI compliance audit`;
       const res = await fetch("/api/agent/plan", {
         method: "POST",
@@ -514,6 +568,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           ticker: cleanInputTicker || undefined,
           depth,
           sessionId: newSessionId,
+          uploadedDocument: uploadedDocPayload,
         }),
       });
 
@@ -528,9 +583,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
                 ? {
                   ...item,
                   id: plan.id,
+                  fileName: reportFileName,
                   reportData: {
                     ...(item.reportData as unknown as Record<string, unknown>),
                     planId: plan.id,
+                    fileName: reportFileName,
                   } as unknown as EquityResearchData,
                 }
                 : item
@@ -562,167 +619,11 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         throw new Error(errData.message || "Failed to dispatch plan");
       }
     } catch (err) {
-      console.error("[Dashboard] handleLaunchAutonomous error:", err);
+      console.error("[Dashboard] handleLaunchResearch error:", err);
       let msg = err instanceof Error ? err.message : "Error dispatching swarm";
       if (msg.includes("NetworkError") || msg.includes("Failed to fetch")) {
         msg = "Network timeout while deploying research swarm. Please retry.";
       }
-      showToast(msg, "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Launch Assisted PDF Upload using standard File API + FormData upload form
-  const handleLaunchUpload = async (file: File, uploadCompanyName: string) => {
-    setIsNewResearchOpen(false);
-    setLoading(true);
-
-    const targetComp = uploadCompanyName || file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
-    const tempJobId = "job_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
-
-    // 1. Immediately create optimistic item in sidebar
-    const optimisticItem: DashboardHistoryItem = {
-      id: tempJobId,
-      companyName: targetComp,
-      fileName: file.name,
-      createdAt: new Date().toISOString(),
-      reportData: {
-        company: { name: targetComp },
-        sourceType: "upload",
-        fileName: file.name,
-        jobId: tempJobId,
-        status: "running",
-      } as unknown as EquityResearchData,
-      reportPdfBase64: null,
-      status: "running",
-      sourceType: "manual",
-    };
-
-    // 2. Immediately switch active report, clear old chat/reportData, and sync URL
-    setHistory((prev) => [optimisticItem, ...prev.filter((h) => h.id !== tempJobId)]);
-    setActiveReportId(tempJobId);
-    setActiveSessionId(tempJobId);
-    setCompanyName(targetComp);
-    setReportData(null);
-    setReportPdfBase64(null);
-    setActiveReportStatus("running");
-    setActiveViewMode("agent");
-    showToast(`Uploading and parsing ${file.name}...`, "info");
-
-    try {
-      let rawText = "";
-      let documentId: string | null = null;
-      let targetingVerdict: string | null = null;
-
-      // Vercel serverless functions enforce a strict 4.5 MB request body limit.
-      // Financial filings are frequently 10-60 MB. For files > 4MB, parse client-side
-      // using the HTML5 File API and unpdf to send only extracted text (hundreds of KB).
-      // For files <= 4MB, try /api/upload first and fall back gracefully if needed.
-      const isLargeFile = file.size > 4 * 1024 * 1024;
-
-      if (!isLargeFile) {
-        try {
-          const formData = new FormData();
-          formData.append("file", file);
-
-          const uploadRes = await fetch("/api/upload", {
-            method: "POST",
-            body: formData,
-          });
-
-          if (uploadRes.ok) {
-            const uploadData = await uploadRes.json();
-            rawText = uploadData.text || "";
-            documentId = uploadData.targeting?.documentId ?? null;
-            targetingVerdict = uploadData.targeting?.verdict ?? null;
-          }
-        } catch {
-          // Fall through to in-browser extraction
-        }
-      }
-
-      // If server upload skipped or failed (due to Vercel body limits or network constraints),
-      // parse the document in the browser directly using the File API + unpdf
-      if (!rawText) {
-        showToast(`Reading document in browser (${(file.size / (1024 * 1024)).toFixed(1)} MB)...`, "info");
-        const { extractText } = await import("unpdf");
-        const arrayBuffer = await file.arrayBuffer();
-        const extracted = await extractText(new Uint8Array(arrayBuffer), { mergePages: true });
-        rawText = (extracted.text as string) || "";
-      }
-
-      if (!rawText || rawText.trim().length === 0) {
-        throw new Error("Unable to extract text content from the uploaded document. Please check the PDF.");
-      }
-
-      // 2. Trigger background extraction job with parsed text (passing pre-generated tempJobId)
-      showToast(`Analyzing financial statements & ratios for ${targetComp}...`, "info");
-      const extractRes = await fetch("/api/extract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jobId: tempJobId,
-          companyName: targetComp,
-          rawText,
-          fileName: file.name,
-          documentId,
-          targetingVerdict,
-        }),
-      });
-
-      if (!extractRes.ok) {
-        const errData = await extractRes.json().catch(() => ({}));
-        throw new Error(errData.message || "Failed to initialize extraction job.");
-      }
-
-      const extractData = await extractRes.json();
-      const finalJobId = extractData.jobId || tempJobId;
-
-      setLoading(false);
-      showToast(`Document uploaded! Processing ${targetComp} in live workspace...`, "success");
-
-      // Refetch history in background to synchronize with server state
-      fetchHistory(false);
-
-      // Background status tracking (non-blocking)
-      (async () => {
-        let attempts = 0;
-        const maxAttempts = 60; // Up to 2.5 minutes
-        let completed = false;
-
-        while (attempts < maxAttempts && !completed) {
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          attempts++;
-
-          try {
-            const statusRes = await fetch(`/api/extract/status?jobId=${encodeURIComponent(finalJobId)}`);
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              if (statusData.status === "completed") {
-                completed = true;
-                showToast(`Financial extraction completed for ${targetComp}!`, "success");
-                await fetchHistory(false);
-                if (statusData.reportId) {
-                  setActiveReportId(statusData.reportId);
-                  setActiveReportStatus("completed");
-                }
-                break;
-              } else if (statusData.status === "failed") {
-                showToast(statusData.errorMessage || "Extraction job failed.", "error");
-                break;
-              }
-            }
-          } catch {
-            // Ignore background polling glitches
-          }
-        }
-      })();
-    } catch (err: unknown) {
-      console.error("[Dashboard] handleLaunchUpload error:", err);
-      const msg = err instanceof Error ? err.message : "Extraction failed";
       showToast(msg, "error");
     } finally {
       setLoading(false);
@@ -1026,8 +927,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
       <NewResearchModal
         isOpen={isNewResearchOpen}
         onClose={() => setIsNewResearchOpen(false)}
-        onLaunchAutonomous={handleLaunchAutonomous}
-        onLaunchUpload={handleLaunchUpload}
+        onLaunchResearch={handleLaunchResearch}
       />
 
       {/* 2. SEBI Compliance Sign-off Modal */}

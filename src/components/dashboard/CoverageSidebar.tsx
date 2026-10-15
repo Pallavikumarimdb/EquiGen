@@ -24,8 +24,8 @@ interface CoverageSidebarProps {
   onSelectReport: (item: DashboardHistoryItem) => void;
   onDeleteReport: (e: React.MouseEvent, id: string) => void;
   onStopProcess?: (e: React.MouseEvent, id: string) => void;
-  historyFilter: HistoryFilterType;
-  onFilterChange: (filter: HistoryFilterType) => void;
+  historyFilter?: HistoryFilterType;
+  onFilterChange?: (filter: HistoryFilterType) => void;
   searchQuery: string;
   onOpenNewResearch: () => void;
   isLoading?: boolean;
@@ -63,24 +63,8 @@ export function CoverageSidebar({
     setDeleteTarget(null);
   }, []);
 
-  const isAutonomousItem = (item: DashboardHistoryItem) => {
-    return (
-      item.sourceType === "autonomous" ||
-      item.fileName === "Autonomous Research" ||
-      (item.fileName ? item.fileName.toLowerCase().includes("autonomous") : false) ||
-      item.companyName.toLowerCase().startsWith("initiation of coverage") ||
-      item.id.startsWith("plan_") ||
-      (item.reportData as unknown as Record<string, unknown> | null)?.sourceType === "autonomous"
-    );
-  };
-
-  // Filter history based on search and type
+  // Filter history based on search query
   const filteredHistory = history.filter((item) => {
-    const isAuto = isAutonomousItem(item);
-
-    if (historyFilter === "autonomous" && !isAuto) return false;
-    if (historyFilter === "manual" && isAuto) return false;
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchComp = item.companyName.toLowerCase().includes(q);
@@ -89,9 +73,6 @@ export function CoverageSidebar({
     }
     return true;
   });
-
-  const autoCount = history.filter(isAutonomousItem).length;
-  const pdfCount = history.length - autoCount;
 
   return (
     <aside
@@ -119,48 +100,6 @@ export function CoverageSidebar({
         </button>
       </div>
 
-      {isOpen && (
-        <>
-          {/* Source Tabs: All / Autonomous / PDF */}
-          <div className="px-3 pt-3 pb-2 shrink-0">
-            <div className="grid grid-cols-3 p-1 bg-[#E4E0D6] border border-[#D5D0C3] rounded-xl text-[10px] font-bold">
-              <button
-                onClick={() => onFilterChange("all")}
-                className={`py-1 rounded-lg transition-all text-center ${
-                  historyFilter === "all"
-                    ? "bg-[#1A1917] text-white shadow-xs"
-                    : "text-[#59554A] hover:text-[#1A1917]"
-                }`}
-              >
-                All ({history.length})
-              </button>
-              <button
-                onClick={() => onFilterChange("autonomous")}
-                className={`py-1 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
-                  historyFilter === "autonomous"
-                    ? "bg-[#1A1917] text-white shadow-xs"
-                    : "text-[#59554A] hover:text-[#1A1917]"
-                }`}
-              >
-                <Bot className="w-3 h-3" />
-                Auto ({autoCount})
-              </button>
-              <button
-                onClick={() => onFilterChange("manual")}
-                className={`py-1 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
-                  historyFilter === "manual"
-                    ? "bg-[#1A1917] text-white shadow-xs"
-                    : "text-[#59554A] hover:text-[#1A1917]"
-                }`}
-              >
-                <FileText className="w-3 h-3" />
-                PDF ({pdfCount})
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* History Research List */}
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
         {isLoading ? (
@@ -185,7 +124,7 @@ export function CoverageSidebar({
               </div>
               <p className="text-xs font-bold text-[#1A1917]">No research notes found</p>
               <p className="text-[10px] text-[#7A7569] mt-1 mb-3">
-                {searchQuery ? "Try a different search query" : "Launch an AI swarm or upload a financial report."}
+                {searchQuery ? "Try a different search query" : "Launch an autonomous AI research note."}
               </p>
               <button
                 onClick={onOpenNewResearch}
@@ -198,12 +137,9 @@ export function CoverageSidebar({
         ) : (
           filteredHistory.map((item) => {
             const isSelected = activeReportId === item.id;
-            const isAuto = isAutonomousItem(item);
-
             const rating = item.reportData?.recommendation?.rating;
             const targetPrice = item.reportData?.recommendation?.targetPrice;
             const ticker = item.reportData?.company?.ticker;
-
             const isRunning = item.status === "running" || item.status === "pending";
             const isCancelled = item.status === "cancelled";
 
@@ -220,7 +156,7 @@ export function CoverageSidebar({
                         : "text-[#59554A] hover:bg-[#E4E0D6]"
                     }`}
                   >
-                    {isAuto ? <Bot className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                    <Bot className="w-4 h-4" />
                     {isRunning && (
                       <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                     )}
@@ -251,18 +187,17 @@ export function CoverageSidebar({
               >
                 <div className="flex items-start justify-between gap-1 mb-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    {isAuto ? (
-                      <span className="p-1 rounded-md bg-amber-100 text-amber-800 shrink-0">
-                        <Bot className="w-3 h-3" />
-                      </span>
-                    ) : (
-                      <span className="p-1 rounded-md bg-blue-100 text-blue-800 shrink-0">
-                        <FileText className="w-3 h-3" />
-                      </span>
-                    )}
+                    <span className="p-1 rounded-md bg-amber-100 text-amber-800 shrink-0">
+                      <Bot className="w-3 h-3" />
+                    </span>
                     <span className="text-xs font-bold truncate leading-tight">
                       {item.companyName.replace(/^Initiation of coverage on\s*/i, "")}
                     </span>
+                    {item.fileName && item.fileName !== "Autonomous Research" && (
+                      <span title={`Enriched with ${item.fileName}`} className="text-[#8C877D] shrink-0">
+                        <FileText className="w-3 h-3" />
+                      </span>
+                    )}
                   </div>
 
                   {isRunning ? (

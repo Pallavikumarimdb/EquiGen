@@ -25,6 +25,12 @@ export interface DocumentAgentInput {
   isin?: string;
   milestone: FetchDocumentsMilestone;
   apiKey?: string;
+  uploadedDocument?: {
+    fileName: string;
+    textSummary?: string;
+    url?: string;
+    documentId?: string;
+  };
 }
 
 export interface FetchedDocument {
@@ -69,6 +75,18 @@ export class DocumentAgent {
     const yearsBack = milestone?.config?.yearsBack ?? 3;
 
     const allDocuments: FetchedDocument[] = [];
+    const uploadedDoc = input.uploadedDocument || milestone?.config?.uploadedDocument;
+    if (uploadedDoc) {
+      allDocuments.push({
+        type: "Annual Report / DRHP (User Attached)",
+        title: uploadedDoc.fileName,
+        url: uploadedDoc.url || "local://user_attached_filing",
+        sourceExchange: "SEBI",
+        date: new Date().toISOString(),
+      });
+      console.log(`[DocumentAgent] Ingested user-provided filing: ${uploadedDoc.fileName}`);
+    }
+
     let bseResult: BseFilingsResult = { scripCode: "", companyName, filings: [], fetchedAt: new Date().toISOString() };
     let nseResult: NseFilingsResult = { symbol: ticker, companyName, filings: [], fetchedAt: new Date().toISOString() };
     const concallTranscripts: ConcallTranscriptResult[] = [];
