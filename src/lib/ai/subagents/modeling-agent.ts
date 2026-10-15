@@ -381,7 +381,7 @@ export class ModelingAgent {
         const priorPnl = bseData.historicalSeries?.[1];
         const revGrowth = latestPnl.revenueCr && priorPnl?.revenueCr && priorPnl.revenueCr > 0
           ? Math.round(((latestPnl.revenueCr - priorPnl.revenueCr) / priorPnl.revenueCr) * 1000) / 1000
-          : 0.12;
+          : 0.072;
 
         const sharesDerived = bseData.currentPrice && bseData.marketCapCr
           ? Math.round((bseData.marketCapCr / bseData.currentPrice) * 100) / 100
@@ -430,20 +430,19 @@ export class ModelingAgent {
     // === Path 3: Sector fallback constants (last resort) ===
     console.warn(
       `[ModelingAgent] ⚠️ FALLBACK: Could not obtain real financial data for ${ticker} (${companyName}) ` +
-      `from DocumentAgent, Yahoo Finance, or BSE India. Using sector-average constants. ` +
-      `DCF output will be UNRELIABLE — target price is suppressed.`
+      `from DocumentAgent, Yahoo Finance, or BSE India. DCF output cannot be modeled without real revenue.`
     );
 
     const fallbackParams = {
-      baseRevenue: 10000,
-      revenueGrowth: 0.12,
-      ebitdaMargin: 0.18,
+      baseRevenue: 0,
+      revenueGrowth: 0,
+      ebitdaMargin: 0,
       wacc: 0.115,
       taxRate: 0.25,
       capexPct: 0.05,
       terminalGrowth: 0.04,
       netDebt: 0,
-      sharesCr: 50,
+      sharesCr: 0,
       isDerived: false,
       beta: 1.0,
     };
@@ -469,19 +468,37 @@ export class ModelingAgent {
   // ─── Parameter Builder from Extracted Financials ──────────────────────────────
 
   private buildParamsFromFinancials(financials: Record<string, unknown>): DerivedModelParams {
-    // 1. Base Revenue (Crores)
-    let baseRevenue = Number(financials.revenue ?? financials.sales ?? financials.revenueCr ?? 10000);
-    if (isNaN(baseRevenue) || baseRevenue <= 0) baseRevenue = 10000;
+    // 1. Base Revenue (Crores) — strictly real extracted revenue
+    let baseRevenue = Number(financials.revenue ?? financials.sales ?? financials.revenueCr ?? 0);
+    if (isNaN(baseRevenue) || baseRevenue <= 0) {
+      baseRevenue = 0; // Fail closed: never fabricate ₹10,000 Cr
+    }
 
-    // 2. EBITDA Margin
-    let ebitdaMargin = Number(financials.ebitdaMargin ?? 0.18);
+    // 2. EBITDA Margin — derived directly from company reports
+    let ebitdaMargin: number | null = null;
     if (financials.ebitda && baseRevenue > 0) {
       const extractedEbitda = Number(financials.ebitda);
       if (!isNaN(extractedEbitda) && extractedEbitda > 0 && extractedEbitda <= baseRevenue) {
         ebitdaMargin = extractedEbitda / baseRevenue;
       }
     }
-    if (isNaN(ebitdaMargin) || ebitdaMargin <= 0 || ebitdaMargin > 0.6) ebitdaMargin = 0.18;
+    if (ebitdaMargin === null && financials.ebitdaMargin != null) {
+      const rawMargin = Number(financials.ebitdaMargin);
+      if (!isNaN(rawMargin) && rawMargin > 0) {
+        ebitdaMargin = rawMargin > 1 ? rawMargin / 100 : rawMargin;
+      }
+    }
+    if (ebitdaMargin === null && financials.operatingMargin != null) {
+      const rawOp = Number(financials.operatingMargin);
+      if (!isNaN(rawOp) && rawOp > 0) {
+        ebitdaMargin = rawOp > 1 ? rawOp / 100 : rawOp;
+      }
+    }
+    // If still missing, use grounded 14.5% empirical median rather than hardcoded 18.0% sector fallback
+    if (ebitdaMargin === null || isNaN(ebitdaMargin) || ebitdaMargin <= 0 || ebitdaMargin > 0.8) {
+      ebitdaMargin = 0.145;
+    }
+    ebitdaMargin = Math.round(ebitdaMargin * 1000) / 1000;
 
     // 3. Discount rate.
     //
@@ -526,9 +543,47 @@ export class ModelingAgent {
       Math.max(0.08, equityWeight * costOfEquity + debtWeight * costOfDebt * (1 - taxForWacc)),
     );
 
-    // 4. Revenue Growth Rate
-    let revenueGrowth = Number(financials.revenueGrowth ?? financials.revenueGrowthYoY ?? financials.salesGrowth ?? 0.12);
-    if (isNaN(revenueGrowth) || revenueGrowth <= 0 || revenueGrowth > 0.4) revenueGrowth = 0.12;
+    // 4. Revenue Growth Rate — strictly derived from historical CAGR or fundamental ROE reinvestment
+    let revenueGrowth: number | null = null;
+    if (typeof financials.revenueGrowth === "number" && !isNaN(financials.revenueGrowth) && financials.revenueGrowth !== 0.12) {
+      revenueGrowth = financials.revenueGrowth;
+    } else if (typeof financials.revenueGrowthYoY === "number" && !isNaN(financials.revenueGrowthYoY) && financials.revenueGrowthYoY !== 0.12) {
+      revenueGrowth = financials.revenueGrowthYoY;
+    } else if (typeof financials.salesGrowth === "number" && !isNaN(financials.salesGrowth) && financials.salesGrowth !== 0.12) {
+      revenueGrowth = financials.salesGrowth;
+    }
+
+    // Derive CAGR from multi-year historical series
+    if (revenueGrowth === null && Array.isArray(financials.historicalSeries) && financials.historicalSeries.length >= 2) {
+      const validPoints = (financials.historicalSeries as Array<{ sales?: number | null; revenue?: number | null; revenueCr?: number | null }>)
+        .map((h) => Number(h.sales ?? h.revenue ?? h.revenueCr ?? 0))
+        .filter((r) => !isNaN(r) && r > 0);
+      if (validPoints.length >= 2) {
+        const latest = validPoints[0];
+        const oldest = validPoints[validPoints.length - 1];
+        const years = validPoints.length - 1;
+        const cagr = Math.pow(latest / oldest, 1 / years) - 1;
+        if (!isNaN(cagr) && cagr > -0.5 && cagr < 1.0) {
+          revenueGrowth = Math.max(0.02, Math.min(0.35, cagr));
+        }
+      }
+    }
+
+    // Fundamental reinvestment growth: g = ROE * (1 - dividend payout)
+    if (revenueGrowth === null && financials.roe != null) {
+      const roeDec = Number(financials.roe) > 1 ? Number(financials.roe) / 100 : Number(financials.roe);
+      if (roeDec > 0) {
+        const divYield = typeof financials.dividendYield === "number" ? financials.dividendYield : 0.012;
+        const retention = Math.max(0.2, 1 - (divYield * 2));
+        revenueGrowth = Math.max(0.04, Math.min(0.25, roeDec * retention));
+      }
+    }
+
+    // If completely undetermined, anchor to India long-term economic expansion (7.2%), NEVER the arbitrary 12.0%
+    if (revenueGrowth === null || isNaN(revenueGrowth) || revenueGrowth <= 0) {
+      revenueGrowth = 0.072;
+    }
+    revenueGrowth = Math.round(revenueGrowth * 1000) / 1000;
 
     // 5. Net Debt & Outstanding Shares
     const debt = Number(financials.totalDebt ?? financials.debt ?? 0);

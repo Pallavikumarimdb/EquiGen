@@ -949,6 +949,8 @@ function buildHtml(
     },
   );
 
+  const fiveYear = data.fiveYearSummary ?? [];
+
   // Prefer detailedFinancials column keys (authoritative, match normalizedIncome keys);
   // fall back to keyFinancials periods only when no detailedFinancials are available.
   const detailedPeriodKeys =
@@ -958,19 +960,30 @@ function buildHtml(
         )
       : [];
 
-  const periods = (
+  const periods =
     detailedPeriodKeys.length > 0
       ? detailedPeriodKeys
-      : [...new Set(inc.map((m) => m.period))]
-  ).sort();
+      : fiveYear.length > 0
+      ? fiveYear.map((f) => f.period)
+      : [...new Set(inc.map((m) => m.period))];
 
   const getValues = (metricName: string) => {
     const row = normalizedIncome.find((r) => r.metric === metricName);
+    if (row && periods.some((p) => row[p] !== null && row[p] !== undefined && row[p] !== "-")) {
+      return periods.map((p) => {
+        const val = row[p];
+        return val !== null && val !== undefined && val !== "-"
+          ? parseNum(String(val))
+          : 0;
+      });
+    }
     return periods.map((p) => {
-      const val = row ? row[p] : null;
-      return val !== null && val !== undefined && val !== "-"
-        ? parseNum(String(val))
-        : 0;
+      const f = fiveYear.find((item) => item.period === p);
+      if (!f) return 0;
+      if (metricName === "Sales") return parseNum(f.sales ?? 0);
+      if (metricName === "EBITDA") return parseNum(f.ebitda ?? 0);
+      if (metricName === "Reported PAT") return parseNum(f.patAdjusted ?? 0);
+      return 0;
     });
   };
 
@@ -1044,7 +1057,6 @@ function buildHtml(
   const qf = data.quarterlyFinancials ?? [];
   const recSum = data.recommendationSummary ?? [];
   const recHistoryChart = svgRecommendationChart(recSum);
-  const fiveYear = data.fiveYearSummary ?? [];
 
   // Derive the current quarter label from semantic fields (preferred) or legacy field keys.
   // Uses the first row that has a currentQLabel; falls back to scanning legacy q* keys.
@@ -1572,10 +1584,10 @@ ${watermark}
       <div class="section-header">Outlook &amp; Valuation</div>
       <div class="para">${escape(data.valuationAnalysis || "No valuation outlook available.")}</div>
 
-      <div class="section-header">Quarterly Financials Consolidated</div>
       ${
         qfRows
           ? `
+      <div class="section-header">Quarterly Financials Consolidated</div>
       <table class="fin-table thin-border">
         <thead>
           <tr>
@@ -1589,7 +1601,36 @@ ${watermark}
         </thead>
         <tbody>${qfRows}</tbody>
       </table>`
-          : '<p style="font-size:7pt; color:#64748b;">No quarterly result update data available. See annual financial tables on page 3.</p>'
+          : data.swotAnalysis
+          ? `
+      <div class="section-header">Strategic &amp; Fundamental Matrix (SWOT)</div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 2.5mm; font-size:6.2pt; margin-top: 1mm;">
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:3px; padding:2mm;">
+          <strong style="color:#166534; font-size:6.5pt;">STRENGTHS</strong>
+          <ul style="margin:1mm 0 0 3mm; padding:0; color:#1e293b;">
+            ${(data.swotAnalysis.strengths || []).map((s) => `<li>${escape(s)}</li>`).join("")}
+          </ul>
+        </div>
+        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:3px; padding:2mm;">
+          <strong style="color:#991b1b; font-size:6.5pt;">WEAKNESSES</strong>
+          <ul style="margin:1mm 0 0 3mm; padding:0; color:#1e293b;">
+            ${(data.swotAnalysis.weaknesses || []).map((w) => `<li>${escape(w)}</li>`).join("")}
+          </ul>
+        </div>
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:3px; padding:2mm;">
+          <strong style="color:#1e40af; font-size:6.5pt;">OPPORTUNITIES</strong>
+          <ul style="margin:1mm 0 0 3mm; padding:0; color:#1e293b;">
+            ${(data.swotAnalysis.opportunities || []).map((o) => `<li>${escape(o)}</li>`).join("")}
+          </ul>
+        </div>
+        <div style="background:#fffbeb; border:1px solid #fef3c7; border-radius:3px; padding:2mm;">
+          <strong style="color:#92400e; font-size:6.5pt;">THREATS &amp; RISKS</strong>
+          <ul style="margin:1mm 0 0 3mm; padding:0; color:#1e293b;">
+            ${(data.swotAnalysis.threats || []).map((t) => `<li>${escape(t)}</li>`).join("")}
+          </ul>
+        </div>
+      </div>`
+          : '<p style="font-size:7pt; color:#64748b;">Annual financial statements and detailed model available on pages 2-3.</p>'
       }
     </div>
   </div>
@@ -1615,9 +1656,7 @@ ${watermark}
         <thead>
           <tr>
             <th>Y.E March</th>
-            <th>FY25A</th>
-            <th>FY26E</th>
-            <th>FY27E</th>
+            ${fiveYear.map((f) => `<th>${escape(f.period)}</th>`).join("")}
           </tr>
         </thead>
         <tbody>
@@ -1642,7 +1681,9 @@ ${watermark}
 
     <!-- Right Column (Wide Right Rail) -->
     <div class="right-rail">
-      <div class="section-header" style="margin-top:0;">Old estimates vs New estimates</div>
+      <div class="section-header" style="margin-top:0;">
+        ${estRows ? "Old estimates vs New estimates" : "Forecast Financial Model & Projections"}
+      </div>
       ${
         estRows
           ? `
@@ -1664,6 +1705,24 @@ ${watermark}
           </tr>
         </thead>
         <tbody>${estRows}</tbody>
+      </table>`
+          : fiveYear.length > 0
+          ? `
+      <table class="fin-table thin-border" style="font-size:6.5pt;">
+        <thead>
+          <tr>
+            <th>Metric (₹ Cr)</th>
+            ${fiveYear.map((f) => `<th>${escape(f.period)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric-label">Forecast Revenue</td>${fiveYear.map((f) => `<td>${f.sales != null ? `₹${Number(f.sales).toLocaleString("en-IN")}` : "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Operating EBITDA</td>${fiveYear.map((f) => `<td>${f.ebitda != null ? `₹${Number(f.ebitda).toLocaleString("en-IN")}` : "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">EBITDA Margin</td>${fiveYear.map((f) => `<td>${f.ebitdaMargin || "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Net Profit (PAT)</td>${fiveYear.map((f) => `<td>${f.patAdjusted != null ? `₹${Number(f.patAdjusted).toLocaleString("en-IN")}` : "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">Implied P/E (x)</td>${fiveYear.map((f) => `<td>${f.pe != null ? `${f.pe}x` : "-"}</td>`).join("")}</tr>
+          <tr><td class="metric-label">EV / EBITDA (x)</td>${fiveYear.map((f) => `<td>${f.evEbitda != null ? `${f.evEbitda}x` : "-"}</td>`).join("")}</tr>
+        </tbody>
       </table>`
           : '<p style="font-size:7.5pt; color:#64748b;">No estimates change data available.</p>'
       }

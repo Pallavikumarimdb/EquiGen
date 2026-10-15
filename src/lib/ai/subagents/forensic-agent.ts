@@ -93,33 +93,38 @@ export class ForensicAgent {
       totalAssetsCr: num(bs?.totalAssetsCr),
       retainedEarningsCr: num(bs?.retainedEarningsCr),
       tradeReceivablesCr: num(bs?.tradeReceivablesCr),
-      // `?? 0` implied "no pledge disclosed" and silently awarded a clean result.
-      promoterPledgePct: num(bse?.shareholding?.promoterPledge),
-      promoterHoldingPct: num(bse?.shareholding?.promoters),
+      // Read shareholding from either BSE data or unified financials
+      promoterPledgePct: num(bse?.shareholding?.promoterPledge ?? (fin as unknown as { shareholding?: { promoterPledge?: number } })?.shareholding?.promoterPledge),
+      promoterHoldingPct: num(bse?.shareholding?.promoters ?? (fin as unknown as { shareholding?: { promoters?: number } })?.shareholding?.promoters),
       institutionalHoldingPct:
-        num(bse?.shareholding?.fii) !== null && num(bse?.shareholding?.dii) !== null
-          ? Math.round(((num(bse.shareholding.fii) ?? 0) + (num(bse.shareholding.dii) ?? 0)) * 10) / 10
+        num(bse?.shareholding?.fii ?? (fin as unknown as { shareholding?: { fii?: number } })?.shareholding?.fii) !== null &&
+        num(bse?.shareholding?.dii ?? (fin as unknown as { shareholding?: { dii?: number } })?.shareholding?.dii) !== null
+          ? Math.round(((num(bse?.shareholding?.fii ?? (fin as unknown as { shareholding?: { fii?: number } })?.shareholding?.fii) ?? 0) +
+                       (num(bse?.shareholding?.dii ?? (fin as unknown as { shareholding?: { dii?: number } })?.shareholding?.dii) ?? 0)) * 10) / 10
           : null,
       // Previously never populated, so `auditorQuality` was hardcoded to "Clean" for
       // every company — a clean audit opinion the system had never read.
       auditorOpinionText: typeof bse?.auditorOpinion === "string" ? bse.auditorOpinion : null,
-      historicalYears: bse?.historicalSeries?.map(
-        (h: {
-          period: string;
-          revenueCr?: number;
-          patCr?: number;
-          cfoCr?: number;
-          receivablesCr?: number;
-          totalAssetsCr?: number;
-        }) => ({
+      historicalYears: ((fin?.historicalSeries ?? bse?.historicalSeries) as Array<{
+        period: string;
+        revenueCr?: number;
+        revenue?: number;
+        sales?: number;
+        patCr?: number;
+        pat?: number;
+        cfoCr?: number;
+        cfo?: number;
+        receivablesCr?: number;
+        totalAssetsCr?: number;
+      }> | null)?.map(
+        (h) => ({
           period: h.period,
-          revenueCr: h.revenueCr ?? null,
-          patCr: h.patCr ?? null,
-          cfoCr: h.cfoCr ?? null,
-          // Populating receivables is what makes the receivable-divergence check
-          // reachable; it previously could never fire.
-          receivablesCr: h.receivablesCr ?? null,
-          totalAssetsCr: h.totalAssetsCr ?? null,
+          revenueCr: num(h.revenueCr ?? h.revenue ?? h.sales),
+          patCr: num(h.patCr ?? h.pat),
+          cfoCr: num(h.cfoCr ?? h.cfo),
+          // Populating receivables is what makes the receivable-divergence check reachable
+          receivablesCr: num(h.receivablesCr),
+          totalAssetsCr: num(h.totalAssetsCr),
         }),
       ) ?? [],
     };

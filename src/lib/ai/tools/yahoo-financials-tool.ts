@@ -62,8 +62,19 @@ export interface ExtractedFinancials {
   debtToEquity?: number | null;     // Debt to equity ratio / multiplier
   roe?: number | null;              // Return on equity as percentage
   operatingCashflowCr?: number | null; // CFO in ₹ Crores
+  capexCr?: number | null;             // Capital expenditures in ₹ Crores
+  freeCashflowCr?: number | null;      // FCF in ₹ Crores
   currentRatio?: number | null;     // Current assets / current liabilities
   quickRatio?: number | null;       // Quick ratio
+  historicalSeries?: Array<{
+    period: string;
+    sales?: number | null;
+    revenue?: number | null;
+    revenueCr?: number | null;
+    ebitda?: number | null;
+    pat?: number | null;
+    cfo?: number | null;
+  }> | null;
 
   /**
    * Disclosed balance-sheet lines, in ₹ Crores.
@@ -449,13 +460,13 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
     const crumbData = await fetchYahooCrumb();
 
     const modules = [
-  "summaryDetail",
-  "defaultKeyStatistics",
-  "financialData",
-  "incomeStatementHistory",
-  // Required for the forensic engine's solvency structure and accrual indicator.
-  "balanceSheetHistory",
-].join(",");
+      "summaryDetail",
+      "defaultKeyStatistics",
+      "financialData",
+      "incomeStatementHistory",
+      "balanceSheetHistory",
+      "cashflowStatementHistory",
+    ].join(",");
     const crumbParam = crumbData ? `&crumb=${encodeURIComponent(crumbData.crumb)}` : "";
     const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=${encodeURIComponent(modules)}${crumbParam}`;
 
@@ -488,6 +499,8 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const bsHist  = result.balanceSheetHistory?.balanceSheetStatements ?? [];
         const bs      = bsHist[0] ?? {};
         const balanceSheetLines = parseBalanceSheetLines(bs);
+        const cfHist  = result.cashflowStatementHistory?.cashflowStatements ?? [];
+        const cf      = cfHist[0] ?? {};
 
         const currency = (fin.financialCurrency ?? summary.currency ?? "INR") as string;
 
@@ -528,6 +541,25 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const low52  = safe(summary.fiftyTwoWeekLow?.raw);
         const highLow52W = high52 != null && low52 != null ? `₹${Math.round(low52)} - ₹${Math.round(high52)}` : null;
 
+        // Cash flow lines (operating cash flow, capex, free cash flow)
+        const cfoRaw   = safe(fin.operatingCashflow?.raw) ?? safe(cf.totalCashFromOperatingActivities?.raw);
+        const capexRaw = safe(cf.capitalExpenditures?.raw);
+        const fcfRaw   = safe(fin.freeCashflow?.raw) ?? (cfoRaw !== null && capexRaw !== null ? cfoRaw - Math.abs(capexRaw) : null);
+
+        // Multi-year historical progression
+        const historicalSeries = hist.map((h: Record<string, { raw?: number; fmt?: string }>, idx: number) => {
+          const pDate = h.endDate && typeof h.endDate === "object" ? String((h.endDate as { fmt?: string })?.fmt ?? `FY-${idx}`) : `FY-${idx}`;
+          return {
+            period: pDate,
+            sales: toCrores(safe(h.totalRevenue?.raw), currency),
+            revenue: toCrores(safe(h.totalRevenue?.raw), currency),
+            revenueCr: toCrores(safe(h.totalRevenue?.raw), currency),
+            ebitda: toCrores(safe(h.operatingIncome?.raw), currency),
+            pat: toCrores(safe(h.netIncome?.raw), currency),
+            cfo: toCrores(safe(cfHist[idx]?.totalCashFromOperatingActivities?.raw), currency),
+          };
+        });
+
         // ROE: prefer fin.returnOnEquity, fallback to netIncome / (bookValue * shares)
         let roeVal: number | null = null;
         if (fin.returnOnEquity?.raw != null) {
@@ -561,10 +593,13 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           bookValuePerShare:   safe(stats.bookValue?.raw),
           debtToEquity:        deVal,
           roe:                 roeVal,
-          operatingCashflowCr: toCrores(safe(fin.operatingCashflow?.raw), currency),
+          operatingCashflowCr: toCrores(cfoRaw, currency),
+          capexCr:             toCrores(capexRaw ? Math.abs(capexRaw) : null, currency),
+          freeCashflowCr:      toCrores(fcfRaw, currency),
           currentRatio:        safe(fin.currentRatio?.raw),
           quickRatio:          safe(fin.quickRatio?.raw),
-          balanceSheetLines:   currency === "INR" ? balanceSheetLines : null,
+          balanceSheetLines,
+          historicalSeries:    historicalSeries.length > 0 ? historicalSeries : null,
           currentPrice:        priceRaw,
           marketCapCr:         toCrores(mktCapRaw, currency),
           enterpriseValueCr:   toCrores(evRaw, currency),
@@ -812,11 +847,17 @@ export function toModelingInputRecord(fin: ExtractedFinancials): Record<string, 
     peRatio:           fin.trailingPE,
     bookValue:         fin.bookValuePerShare,
     roe:               fin.roe,
-    deRatio:           fin.debtToEquity,
-    debtToEquity:      fin.debtToEquity,
-    highLow52W:        fin.highLow52W,
-    fiftyTwoWeekHigh:  fin.fiftyTwoWeekHigh,
-    fiftyTwoWeekLow:   fin.fiftyTwoWeekLow,
+    operatingCashflow: fin.operatingCashflowCr,
+    cfo:               fin.operatingCashflowCr,
+    operatingCashflowCr: fin.operatingCashflowCr,
+    capex:             fin.capexCr,
+    capexCr:           fin.capexCr,
+    freeCashflow:      fin.freeCashflowCr,
+    freeCashflowCr:    fin.freeCashflowCr,
+    currentRatio:      fin.currentRatio,
+    quickRatio:        fin.quickRatio,
+    balanceSheetLines: fin.balanceSheetLines,
+    historicalSeries:  fin.historicalSeries,
     // Provenance flags (non-numeric — ModelingAgent ignores unknown keys)
     _source:           `yahoo_finance_${fin.dataSource ?? "unknown"}`,
     _fetchedAt:        fin.fetchedAt,

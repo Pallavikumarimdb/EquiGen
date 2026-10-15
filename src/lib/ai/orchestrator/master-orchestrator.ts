@@ -17,7 +17,9 @@ import { marketIntelAgent } from "../subagents/market-intel-agent";
 import { synthesisAgent } from "../subagents/synthesis-agent";
 import { complianceAgent } from "../subagents/compliance-agent";
 import { forensicAgent } from "../subagents/forensic-agent";
-import { ExtractedFinancials } from "../tools/yahoo-financials-tool";
+import { ExtractedFinancials, fetchYahooFinancials, toModelingInputRecord } from "../tools/yahoo-financials-tool";
+import { fetchBseCompanyFinancials } from "../tools/bse-financial-data-tool";
+import { aiService } from "@/lib/ai";
 import { trajectoryBus } from "../trajectory-emitter";
 import { prisma } from "@/lib/db";
 import { normalizeEquityResearchData } from "@/lib/utils/report-normalizer";
@@ -232,7 +234,11 @@ export class MasterOrchestrator {
       }, milestone.id);
 
       try {
-        if (milestone.type === "fetch_documents" || milestone.type === "extract_financials") {
+        if (milestone.type === "fetch_documents") {
+          const uploadedDocFromMilestones = (milestones.find(
+            (m) => (m as unknown as { config?: { uploadedDocument?: { fileName?: string; textSummary?: string; url?: string; documentId?: string } } })?.config?.uploadedDocument
+          ) as unknown as { config?: { uploadedDocument?: { fileName?: string; textSummary?: string; url?: string; documentId?: string } } })?.config?.uploadedDocument;
+
           const docMilestone = {
             id: milestone.id,
             type: "fetch_documents" as const,
@@ -252,7 +258,129 @@ export class MasterOrchestrator {
             companyName,
             milestone: docMilestone,
             apiKey,
+            uploadedDocument: uploadedDocFromMilestones?.fileName
+              ? {
+                  fileName: uploadedDocFromMilestones.fileName,
+                  textSummary: uploadedDocFromMilestones.textSummary,
+                  url: uploadedDocFromMilestones.url,
+                  documentId: uploadedDocFromMilestones.documentId,
+                }
+              : undefined,
           });
+          completedMilestones.push(milestone.id);
+
+        } else if (milestone.type === "extract_financials") {
+          trajectoryBus.emitEvent(planId, "planner_thought", {
+            reasoning: `Deep multi-source financial extraction & cross-verification for ${companyName} (${ticker}). Extracting 3-statement financials (Income Statement, Balance Sheet, Cash Flows) without generic fallbacks...`,
+          }, milestone.id);
+
+          const uploadedDocFromMilestones = (milestones.find(
+            (m) => (m as unknown as { config?: { uploadedDocument?: { fileName?: string; textSummary?: string; url?: string; documentId?: string } } })?.config?.uploadedDocument
+          ) as unknown as { config?: { uploadedDocument?: { fileName?: string; textSummary?: string; url?: string; documentId?: string } } })?.config?.uploadedDocument;
+
+          // 1. If filing PDF is attached, extract structured statements using AI service
+          let docExtractedFinancials: any = null;
+          if (uploadedDocFromMilestones?.textSummary) {
+            trajectoryBus.emitEvent(planId, "planner_thought", {
+              reasoning: `Parsing audited financial statements and key balance sheet disclosures from uploaded filing (${uploadedDocFromMilestones.fileName})...`,
+            }, milestone.id);
+            try {
+              docExtractedFinancials = await aiService.extractFinancialData(
+                companyName,
+                uploadedDocFromMilestones.textSummary
+              );
+              console.log(`[MasterOrchestrator] ✓ Extracted financial data from uploaded document: ${uploadedDocFromMilestones.fileName}`);
+            } catch (docErr) {
+              console.warn(`[MasterOrchestrator] Document extraction warning:`, docErr);
+            }
+          }
+
+          // 2. Fetch official BSE financial results (5-year P&L, quarterly results, shareholding pattern)
+          let bseFinancials: any = null;
+          try {
+            trajectoryBus.emitEvent(planId, "planner_thought", {
+              reasoning: `Extracting official BSE India financial results and shareholding disclosures for ${ticker}...`,
+            }, milestone.id);
+            bseFinancials = await fetchBseCompanyFinancials(ticker);
+          } catch (bseErr) {
+            console.warn(`[MasterOrchestrator] BSE financials fetch warning:`, bseErr);
+          }
+
+          // 3. Fetch full fundamentals from Yahoo Finance quoteSummary
+          let yfFinancials: ExtractedFinancials | null = null;
+          try {
+            trajectoryBus.emitEvent(planId, "planner_thought", {
+              reasoning: `Extracting 3-statement fundamentals, cash flow statement, and balance sheet lines from Yahoo Finance for ${ticker}...`,
+            }, milestone.id);
+            yfFinancials = await fetchYahooFinancials(ticker);
+          } catch (yfErr) {
+            console.warn(`[MasterOrchestrator] Yahoo Finance fundamentals fetch warning:`, yfErr);
+          }
+
+          // 4. Cross-verify and synthesize authentic financial record
+          trajectoryBus.emitEvent(planId, "planner_thought", {
+            reasoning: `Cross-verifying historical figures across exchange filings and financial disclosures to eliminate discrepancies...`,
+          }, milestone.id);
+
+          const unifiedFin: any = {
+            ticker,
+            companyName,
+            isLiveData: Boolean(yfFinancials?.isLiveData || bseFinancials?.isLiveData || docExtractedFinancials),
+            dataSource: yfFinancials?.isLiveData
+              ? `yahoo_finance_${yfFinancials.dataSource ?? "quoteSummary"}`
+              : bseFinancials?.isLiveData
+              ? "bse_official_api"
+              : docExtractedFinancials
+              ? "uploaded_filing_ai_extraction"
+              : "disclosures_pending",
+            fetchedAt: new Date().toISOString(),
+            // Core P&L
+            revenueCr: yfFinancials?.revenueCr ?? bseFinancials?.historicalSeries?.[0]?.revenueCr ?? (typeof docExtractedFinancials?.fiveYearSummary?.[0]?.sales === "number" ? docExtractedFinancials.fiveYearSummary[0].sales : null),
+            revenueGrowthYoY: yfFinancials?.revenueGrowthYoY ?? null,
+            ebitdaCr: yfFinancials?.ebitdaCr ?? bseFinancials?.historicalSeries?.[0]?.ebitdaCr ?? (typeof docExtractedFinancials?.fiveYearSummary?.[0]?.ebitda === "number" ? docExtractedFinancials.fiveYearSummary[0].ebitda : null),
+            ebitdaMargin: yfFinancials?.ebitdaMargin ?? null,
+            netIncomeCr: yfFinancials?.netIncomeCr ?? bseFinancials?.historicalSeries?.[0]?.patCr ?? (typeof docExtractedFinancials?.fiveYearSummary?.[0]?.patAdjusted === "number" ? docExtractedFinancials.fiveYearSummary[0].patAdjusted : null),
+            epsCurrent: yfFinancials?.epsCurrent ?? bseFinancials?.historicalSeries?.[0]?.epsCr ?? null,
+            // Core Balance Sheet
+            totalDebtCr: yfFinancials?.totalDebtCr ?? null,
+            cashCr: yfFinancials?.cashCr ?? null,
+            netDebtCr: yfFinancials?.netDebtCr ?? null,
+            bookValuePerShare: yfFinancials?.bookValuePerShare ?? (bseFinancials?.pbRatio && yfFinancials?.currentPrice ? yfFinancials.currentPrice / bseFinancials.pbRatio : null),
+            debtToEquity: yfFinancials?.debtToEquity ?? null,
+            roe: yfFinancials?.roe ?? null,
+            // Cash Flow & Statements
+            operatingCashflowCr: yfFinancials?.operatingCashflowCr ?? null,
+            capexCr: yfFinancials?.capexCr ?? null,
+            freeCashflowCr: yfFinancials?.freeCashflowCr ?? null,
+            balanceSheetLines: yfFinancials?.balanceSheetLines ?? null,
+            // Historical Multi-Year Series
+            historicalSeries: yfFinancials?.historicalSeries ?? bseFinancials?.historicalSeries ?? null,
+            // Market Multiples & Capitalization
+            currentPrice: yfFinancials?.currentPrice ?? bseFinancials?.currentPrice ?? null,
+            marketCapCr: yfFinancials?.marketCapCr ?? bseFinancials?.marketCapCr ?? null,
+            enterpriseValueCr: yfFinancials?.enterpriseValueCr ?? null,
+            sharesOutstandingCr: yfFinancials?.sharesOutstandingCr ?? null,
+            trailingPE: yfFinancials?.trailingPE ?? bseFinancials?.peRatio ?? null,
+            forwardPE: yfFinancials?.forwardPE ?? null,
+            evEbitda: yfFinancials?.evEbitda ?? null,
+            priceToBook: yfFinancials?.priceToBook ?? bseFinancials?.pbRatio ?? null,
+            beta: yfFinancials?.beta ?? null,
+            dividendYield: yfFinancials?.dividendYield ?? (bseFinancials?.dividendYieldPercent ? bseFinancials.dividendYieldPercent / 100 : null),
+            highLow52W: yfFinancials?.highLow52W ?? (bseFinancials?.high52W && bseFinancials?.low52W ? `₹${bseFinancials.low52W} - ₹${bseFinancials.high52W}` : null),
+            // Shareholding disclosures
+            shareholding: bseFinancials?.shareholding ?? null,
+            // Uploaded doc artifacts if available
+            uploadedDocFinancials: docExtractedFinancials ?? null,
+          };
+
+          if (!documentOutput) {
+            documentOutput = {};
+          }
+          (documentOutput as any).extractedFinancials = toModelingInputRecord(unifiedFin);
+          (documentOutput as any).rawExtractedFinancials = unifiedFin;
+          (documentOutput as any).bseFinancials = bseFinancials;
+          effectiveFin = unifiedFin;
+
           completedMilestones.push(milestone.id);
 
         } else if (milestone.type === "build_financial_model") {
@@ -509,7 +637,7 @@ export class MasterOrchestrator {
           ticker,
           companyName,
           financials: effectiveFin,
-          bseData: screenerPrimary,
+          bseData: (documentOutput as any)?.bseFinancials ?? screenerPrimary,
           documentData: documentOutput,
           apiKey,
         });
@@ -606,11 +734,24 @@ export class MasterOrchestrator {
           enterpriseValue:  effectiveFin.enterpriseValueCr ?? null,
         } : null,
         fiveYearSummary: effectiveFin ? [
+          ...(effectiveFin.historicalSeries ?? []).map((h) => ({
+            period: h.period,
+            sales: h.sales ?? h.revenueCr ?? h.revenue ?? null,
+            ebitda: h.ebitda ?? null,
+            patAdjusted: h.pat ?? null,
+            cfo: h.cfo ?? null,
+            pe: effectiveFin?.trailingPE ?? null,
+            evEbitda: effectiveFin?.evEbitda ?? null,
+            roe: effectiveFin?.roe ?? null,
+            deRatio: effectiveFin?.debtToEquity ?? null,
+          })),
           {
             period: "TTM",
             sales: effectiveFin.revenueCr ?? effectiveFin.revenue ?? null,
             ebitda: effectiveFin.ebitdaCr ?? effectiveFin.ebitda ?? null,
             ebitdaMargin: effectiveFin.ebitdaMargin != null ? Math.round(Number(effectiveFin.ebitdaMargin) * 1000) / 10 : null,
+            patAdjusted: effectiveFin.netIncomeCr ?? null,
+            cfo: effectiveFin.operatingCashflowCr ?? null,
             pe: effectiveFin.trailingPE ?? effectiveFin.peRatio ?? null,
             evEbitda: effectiveFin.evEbitda ?? null,
             roe: effectiveFin.roe ?? null,

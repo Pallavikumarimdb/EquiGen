@@ -268,25 +268,35 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           return;
         }
 
-        // If activeReportId was an extraction job and a generated report for it is now present
-        if (activeReportId.startsWith("job_")) {
-          const generatedReport = uniqueItems.find(
-            (i) =>
-              !i.id.startsWith("job_") &&
-              !i.id.startsWith("plan_") &&
-              (i.reportData as unknown as Record<string, unknown> | null)?.jobId === activeReportId
-          );
-          if (generatedReport) {
-            setActiveReportId(generatedReport.id);
-            setActiveReportStatus(generatedReport.status || "draft");
-            if (generatedReport.reportData) setReportData(generatedReport.reportData);
-            if (generatedReport.companyName) setCompanyName(generatedReport.companyName);
-            if (generatedReport.reportPdfBase64) setReportPdfBase64(generatedReport.reportPdfBase64);
-            return;
+        // If active report is currently executing or pending, NEVER fall back to another company
+        if (
+          activeReportStatus === "running" ||
+          activeReportStatus === "pending" ||
+          activeReportId.startsWith("plan_") ||
+          activeReportId.startsWith("job_")
+        ) {
+          // If activeReportId was an extraction job and a generated report for it is now present
+          if (activeReportId.startsWith("job_")) {
+            const generatedReport = uniqueItems.find(
+              (i) =>
+                !i.id.startsWith("job_") &&
+                !i.id.startsWith("plan_") &&
+                (i.reportData as unknown as Record<string, unknown> | null)?.jobId === activeReportId
+            );
+            if (generatedReport) {
+              setActiveReportId(generatedReport.id);
+              setActiveReportStatus(generatedReport.status || "draft");
+              if (generatedReport.reportData) setReportData(generatedReport.reportData);
+              if (generatedReport.companyName) setCompanyName(generatedReport.companyName);
+              if (generatedReport.reportPdfBase64) setReportPdfBase64(generatedReport.reportPdfBase64);
+              return;
+            }
           }
+          // Keep active view on the currently executing swarm run
+          return;
         }
 
-        // Active report was deleted or no longer exists: fallback to first report or reset to empty
+        // Active report was explicitly deleted or no longer exists: fallback to first report or reset to empty
         if (uniqueItems.length > 0) {
           handleSelectReport(uniqueItems[0]);
         } else {

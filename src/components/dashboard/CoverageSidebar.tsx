@@ -136,7 +136,9 @@ export function CoverageSidebar({
           )
         ) : (
           filteredHistory.map((item) => {
-            const isSelected = activeReportId === item.id;
+            const cleanActiveId = activeReportId ? activeReportId.replace(/^rep_/, "") : null;
+            const cleanItemId = item.id.replace(/^rep_/, "");
+            const isSelected = activeReportId === item.id || (cleanActiveId !== null && cleanActiveId === cleanItemId);
             const rating = item.reportData?.recommendation?.rating;
             const targetPrice = item.reportData?.recommendation?.targetPrice;
             const ticker = item.reportData?.company?.ticker;
@@ -248,7 +250,7 @@ export function CoverageSidebar({
                 <div className="flex items-center justify-between text-[10px] text-[#7A7569] font-medium mt-1.5">
                   <div className="flex items-center gap-1.5">
                     {ticker && <span className="font-mono text-[9px] bg-[#ECE8DF] px-1 rounded">{ticker}</span>}
-                    {targetPrice ? <span>TP: ₹{targetPrice}</span> : null}
+                    {targetPrice != null ? <span>TP: ₹{targetPrice}</span> : null}
                   </div>
 
                   <div className="flex items-center gap-2">
