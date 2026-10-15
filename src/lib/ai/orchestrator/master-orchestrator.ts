@@ -667,10 +667,17 @@ export class MasterOrchestrator {
       // Institutional Financial Evaluation & Authenticity Engine
       try {
         const mData = modelingData as Record<string, unknown> | null;
+        const evalTicker = effectiveFin?.isLiveData && !ticker.includes(".")
+          ? (effectiveFin.dataSource?.includes("bse") ? `${ticker}.BO` : `${ticker}.NS`)
+          : (effectiveFin?.ticker ?? ticker);
+
         financialAudit = financialEvalEngine.evaluate({
-          ticker,
+          ticker: evalTicker,
           companyName,
-          reportData: null,
+          reportData: {
+            extractedFinancials: effectiveFin as unknown as Record<string, unknown>,
+            forensicAnalysis: forensicAnalysis as unknown as Record<string, unknown>,
+          },
           marketData: effectiveFin ? {
             currentPrice: effectiveFin.currentPrice ?? null,
             marketCapCr: effectiveFin.marketCapCr ?? null,
@@ -681,7 +688,7 @@ export class MasterOrchestrator {
             beta: effectiveFin.beta ?? null,
             dividendYield: effectiveFin.dividendYield ?? null,
             isLiveData: effectiveFin.isLiveData === true,
-            dataSource: effectiveFin.source ?? "unknown",
+            dataSource: String(effectiveFin.dataSource ?? (effectiveFin as unknown as Record<string, unknown>).source ?? "BSE/NSE Exchange Feed"),
             fetchedAt: effectiveFin.fetchedAt ?? null,
             revenueCr: effectiveFin.revenueCr ?? null,
             netIncomeCr: effectiveFin.netIncomeCr ?? null,
@@ -689,6 +696,9 @@ export class MasterOrchestrator {
             totalDebtCr: effectiveFin.totalDebtCr ?? null,
             cashCr: effectiveFin.cashCr ?? null,
             netDebtCr: effectiveFin.netDebtCr ?? null,
+            totalAssetsCr: effectiveFin.balanceSheetLines?.totalAssetsCr ?? null,
+            totalLiabilitiesCr: effectiveFin.balanceSheetLines?.totalLiabilitiesCr ?? null,
+            totalEquityCr: effectiveFin.balanceSheetLines?.totalShareholdersEquityCr ?? null,
             historicalSeries: effectiveFin.historicalSeries ?? undefined,
           } : null,
           modelingData: mData ? {

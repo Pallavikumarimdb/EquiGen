@@ -544,13 +544,22 @@ export class ModelingAgent {
     );
 
     // 4. Revenue Growth Rate — strictly derived from historical CAGR or fundamental ROE reinvestment
-    let revenueGrowth: number | null = null;
+    let rawGrowth: number | null = null;
     if (typeof financials.revenueGrowth === "number" && !isNaN(financials.revenueGrowth) && financials.revenueGrowth !== 0.12) {
-      revenueGrowth = financials.revenueGrowth;
+      rawGrowth = financials.revenueGrowth;
     } else if (typeof financials.revenueGrowthYoY === "number" && !isNaN(financials.revenueGrowthYoY) && financials.revenueGrowthYoY !== 0.12) {
-      revenueGrowth = financials.revenueGrowthYoY;
+      rawGrowth = financials.revenueGrowthYoY;
     } else if (typeof financials.salesGrowth === "number" && !isNaN(financials.salesGrowth) && financials.salesGrowth !== 0.12) {
-      revenueGrowth = financials.salesGrowth;
+      rawGrowth = financials.salesGrowth;
+    }
+
+    let revenueGrowth: number | null = null;
+    if (rawGrowth !== null) {
+      // Normalize if given as percentage > 1 (e.g. 25 for 25% or 182 for 182%)
+      const normalized = rawGrowth > 2 ? rawGrowth / 100 : rawGrowth;
+      // In multi-year DCF modeling, historical single-year spikes (e.g. 182% after acquisition)
+      // cannot compound into perpetuity; cap multi-year compound growth to realistic corporate bounds (max 35% compound YoY)
+      revenueGrowth = Math.max(-0.15, Math.min(0.35, normalized));
     }
 
     // Derive CAGR from multi-year historical series
@@ -610,12 +619,12 @@ export class ModelingAgent {
     // valuation outright and nothing is published.
     const sharesCr = !isNaN(shares) && shares > 0 ? shares : 0;
 
-    // Real Capex as % of Revenue
-    let capexPct = 0.05;
+    // Real Capex as % of Revenue calibrated to operating margin
+    let capexPct = Math.min(0.035, Math.max(0.012, ebitdaMargin * 0.35));
     if (financials.capex && baseRevenue > 0) {
       const c = Number(financials.capex);
       if (!isNaN(c) && c > 0) {
-        capexPct = Math.max(0.02, Math.min(0.20, c / baseRevenue));
+        capexPct = Math.max(0.01, Math.min(0.15, c / baseRevenue));
       }
     }
 

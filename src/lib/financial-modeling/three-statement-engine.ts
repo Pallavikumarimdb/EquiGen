@@ -397,8 +397,20 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
   // reported as-is rather than floored to a fake ₹1 target.
   const targetPrice = Math.round((equityValue / sharesOutstandingCr) * 10) / 10;
 
-  const bullCasePrice = Math.round(targetPrice * 1.22 * 10) / 10;
-  const bearCasePrice = Math.round(targetPrice * 0.81 * 10) / 10;
+  // Bull case is by definition an optimistic scenario with higher valuation,
+  // and Bear case is a conservative scenario with lower valuation.
+  // Enforce strict monotonicity Bull >= Base >= Bear under all conditions.
+  let bullCasePrice: number;
+  let bearCasePrice: number;
+
+  if (targetPrice >= 0) {
+    bullCasePrice = Math.round(targetPrice * 1.22 * 10) / 10;
+    bearCasePrice = Math.round(targetPrice * 0.81 * 10) / 10;
+  } else {
+    // In distressed negative equity cases, Bull is less negative (closer to zero), Bear is more negative
+    bullCasePrice = Math.round(Math.max(0, targetPrice * 0.5) * 10) / 10;
+    bearCasePrice = Math.round((targetPrice * 1.5) * 10) / 10;
+  }
 
   // 7. Sensitivity Matrix (5x5: WACC vs Terminal Growth)
   const waccSteps = [
