@@ -59,8 +59,16 @@ export interface ForensicInputFinancials {
   currentLiabilitiesCr?: number | null;
   /** Total assets, when the source discloses it. Without it the Z-structure is not computable. */
   totalAssetsCr?: number | null;
-  /** Retained earnings / reserves & surplus, when disclosed. A required Altman factor. */
+  /** Retained earnings, when disclosed. A required Altman factor. */
   retainedEarningsCr?: number | null;
+  /** Reserves & surplus / other equity (Ind AS equivalent to retained earnings). */
+  reservesAndSurplusCr?: number | null;
+  /** Total liabilities, when disclosed. */
+  totalLiabilitiesCr?: number | null;
+  /** Total shareholders' equity / net worth, when disclosed. */
+  totalShareholdersEquityCr?: number | null;
+  /** Working capital (current assets - current liabilities), when disclosed directly. */
+  workingCapitalCr?: number | null;
   tradeReceivablesCr?: number | null;
   promoterPledgePct?: number | null;
   promoterHoldingPct?: number | null;
@@ -211,19 +219,34 @@ export function computeForensicQuality(input: ForensicInputFinancials): Forensic
   let altmanInterpretation: string = NOT_ASSESSED.noBalanceSheet;
 
   const totalAssets = isKnown(input.totalAssetsCr) && input.totalAssetsCr > 0 ? input.totalAssetsCr : null;
-  const retainedEarnings = isKnown(input.retainedEarningsCr) ? input.retainedEarningsCr : null;
+  const retainedEarnings = isKnown(input.retainedEarningsCr)
+    ? input.retainedEarningsCr
+    : isKnown(input.reservesAndSurplusCr)
+    ? input.reservesAndSurplusCr
+    : null;
 
-  // Total liabilities is derived from the accounting identity
-  //   Total Assets = Total Liabilities + Shareholders' Equity
-  // so it is computable whenever both total assets and book equity are disclosed.
-  // It is NOT a substitute for a disclosed figure: if either side is missing the
-  // factor is reported as missing rather than estimated.
-  const derivedLiabilities =
-    totalAssets !== null && isKnown(input.bookValueCr)
-      ? totalAssets - input.bookValueCr
-      : null;
+  const bookEquity = isKnown(input.bookValueCr)
+    ? input.bookValueCr
+    : isKnown(input.totalShareholdersEquityCr)
+    ? input.totalShareholdersEquityCr
+    : null;
 
-  const hasWorkingCapital = isKnown(input.currentAssetsCr) && isKnown(input.currentLiabilitiesCr);
+  const explicitLiabilities = isKnown(input.totalLiabilitiesCr) && input.totalLiabilitiesCr > 0
+    ? input.totalLiabilitiesCr
+    : null;
+
+  const derivedLiabilities = explicitLiabilities ?? (
+    totalAssets !== null && bookEquity !== null && totalAssets > bookEquity
+      ? totalAssets - bookEquity
+      : null
+  );
+
+  const workingCapital = isKnown(input.workingCapitalCr)
+    ? input.workingCapitalCr
+    : (isKnown(input.currentAssetsCr) && isKnown(input.currentLiabilitiesCr))
+    ? input.currentAssetsCr - input.currentLiabilitiesCr
+    : null;
+  const hasWorkingCapital = workingCapital !== null;
   const ebit = isKnown(input.ebitdaCr) ? input.ebitdaCr * 0.8 : null;
 
   const missingAltmanFactors: string[] = [];
@@ -245,7 +268,6 @@ export function computeForensicQuality(input: ForensicInputFinancials): Forensic
   ) {
     assessed.push("Solvency structure (Altman Z factor form)");
 
-    const workingCapital = input.currentAssetsCr! - input.currentLiabilitiesCr!;
     const x1 = workingCapital / totalAssets;
     const x2 = retainedEarnings / totalAssets;
     const x3 = ebit / totalAssets;
@@ -357,6 +379,28 @@ export function computeForensicQuality(input: ForensicInputFinancials): Forensic
         }
       }
     }
+  } else if (years.length === 0 && isKnown(input.tradeReceivablesCr) && isKnown(input.revenueCr) && input.revenueCr > 0) {
+    // Single-period DSO audit when two-year receivables series is not broken out
+    assessed.push("Trade receivables & DSO audit");
+    const dsoDays = Math.round((input.tradeReceivablesCr / input.revenueCr) * 365);
+    wcStatus = "safe";
+    receivablesVsSalesText = `Receivables: ₹${input.tradeReceivablesCr.toLocaleString()} Cr | DSO: ${dsoDays} days`;
+    if (dsoDays > 90) {
+      wcStatus = "alert";
+      wcInterpretation = `Elevated Days Sales Outstanding (${dsoDays} days). Significant working capital tied up in unpaid invoices.`;
+      scoreDeductions += 15;
+      flags.push({
+        title: "High Days Sales Outstanding",
+        severity: "warning",
+        detail: `DSO stands at ${dsoDays} days (₹${input.tradeReceivablesCr.toLocaleString()} Cr receivables vs ₹${input.revenueCr.toLocaleString()} Cr revenue).`,
+      });
+    } else if (dsoDays > 60) {
+      wcStatus = "caution";
+      wcInterpretation = `Moderate Days Sales Outstanding (${dsoDays} days). Working capital collection requires monitoring.`;
+      scoreDeductions += 5;
+    } else {
+      wcInterpretation = `Healthy collection cycle with Days Sales Outstanding of ${dsoDays} days. Negligible cash collection drag.`;
+    }
   } else {
     notAssessed.push({
       metric: "Receivables vs sales divergence",
@@ -365,8 +409,11 @@ export function computeForensicQuality(input: ForensicInputFinancials): Forensic
   }
 
   // ── 5. Governance ──────────────────────────────────────────────────────────
-  const pledgePct = isKnown(input.promoterPledgePct) ? input.promoterPledgePct : null;
   const promoterHolding = isKnown(input.promoterHoldingPct) ? input.promoterHoldingPct : null;
+  const rawPledge = isKnown(input.promoterPledgePct) ? input.promoterPledgePct : null;
+  // If company has 0% promoter holding (e.g. professionally-managed, institutionally-held like Zomato/Eternal, L&T, ICICI),
+  // then promoter shares are unencumbered (0% pledged) by regulatory definition.
+  const pledgePct = rawPledge !== null ? rawPledge : (promoterHolding === 0 ? 0 : null);
   const instHolding = isKnown(input.institutionalHoldingPct) ? input.institutionalHoldingPct : null;
 
   if (pledgePct !== null) {
@@ -408,7 +455,7 @@ export function computeForensicQuality(input: ForensicInputFinancials): Forensic
         severity: "danger",
         detail: opinionText,
       });
-    } else if (/\bunqualified\b|true and fair|clean opinion/.test(lowered)) {
+    } else if (/\bunqualified\b|true and fair|clean opinion|unmodified/.test(lowered)) {
       auditorQuality = "Clean";
     } else if (/qualified|emphasis of matter|except for|unable to obtain/.test(lowered)) {
       auditorQuality = "Qualified";

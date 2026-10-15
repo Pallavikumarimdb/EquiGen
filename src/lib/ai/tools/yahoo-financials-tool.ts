@@ -108,6 +108,18 @@ export interface ExtractedFinancials {
   // Risk
   beta: number | null;
 
+  // Shareholding and governance
+  shareholding?: {
+    promoters?: number | null;
+    fii?: number | null;
+    dii?: number | null;
+    public?: number | null;
+    institutional?: number | null;
+    promoterPledge?: number | null;
+    reportDate?: string | null;
+  } | null;
+  promoterPledge?: number | string | null;
+
   // Metadata
   ticker: string;
   currency: string;
@@ -171,22 +183,32 @@ function safe(val: unknown): number | null {
  * reintroduce exactly the problem it reports on.
  */
 export function parseBalanceSheetLines(statement: Record<string, unknown>): BalanceSheetLines {
-  const cr = (field: string): number | null => {
-    const entry = statement?.[field];
-    const raw = entry && typeof entry === "object" ? (entry as { raw?: unknown }).raw : entry;
-    return toCrores(safe(raw), "INR");
+  const cr = (...fields: string[]): number | null => {
+    for (const field of fields) {
+      const entry = statement?.[field];
+      if (entry == null) continue;
+      const raw = entry && typeof entry === "object" ? (entry as { raw?: unknown }).raw : entry;
+      const parsed = toCrores(safe(raw), "INR");
+      if (parsed != null) return parsed;
+      // If already in Crores (e.g. from BSE or extracted statements)
+      const numVal = safe(raw);
+      if (numVal != null && Math.abs(numVal) < 1e7) {
+        return Math.round(numVal);
+      }
+    }
+    return null;
   };
 
   const endDate = statement?.endDate;
   return {
-    totalAssetsCr: cr("totalAssets"),
-    totalCurrentAssetsCr: cr("totalCurrentAssets"),
-    totalCurrentLiabilitiesCr: cr("totalCurrentLiabilities"),
-    tradeReceivablesCr: cr("accountsReceivable") ?? cr("receivables"),
-    totalLiabilitiesCr: cr("totalLiab") ?? cr("totalLiabilitiesNetMinorityInterest"),
-    totalShareholdersEquityCr: cr("totalStockholderEquity") ?? cr("totalEquityGrossMinorityInterest"),
-    retainedEarningsCr: cr("retainedEarnings"),
-    reservesAndSurplusCr: cr("reserves"),
+    totalAssetsCr: cr("totalAssets", "totalAssetsOrLiabilities"),
+    totalCurrentAssetsCr: cr("totalCurrentAssets", "currentAssets"),
+    totalCurrentLiabilitiesCr: cr("totalCurrentLiabilities", "currentLiabilities"),
+    tradeReceivablesCr: cr("accountsReceivable", "netReceivables", "receivables", "otherReceivables"),
+    totalLiabilitiesCr: cr("totalLiab", "totalLiabilities", "totalLiabilitiesNetMinorityInterest"),
+    totalShareholdersEquityCr: cr("totalStockholderEquity", "commonStockEquity", "stockholdersEquity", "totalEquityGrossMinorityInterest"),
+    retainedEarningsCr: cr("retainedEarnings", "retainedEarningsAccumulatedDeficit", "retainedEarningsOrAccumulatedDeficit"),
+    reservesAndSurplusCr: cr("reserves", "otherStockholderEquity", "reservesAndSurplus"),
     asOfPeriod: typeof endDate === "object" && endDate !== null
       ? String((endDate as { fmt?: string }).fmt ?? "")
       : null,
@@ -357,7 +379,7 @@ const BSE_SCRIP_CODES: Record<string, string> = {
   APOLLOHOSP: "508869", TATACONSUM: "500800", BRITANNIA: "500825", DABUR: "500096",
   INDUSINDBK: "532187", BAJAJ_AUTO: "532977", COALINDIA: "533278", ONGC: "500312",
   JSWSTEEL: "500228", HINDALCO: "500440", VEDL: "500295", GRASIM: "500300",
-  ETERNAL: "543258", ZOMATO: "543320", NYKAA: "543384", PAYTM: "543396",
+  ETERNAL: "543320", ZOMATO: "543320", NYKAA: "543384", PAYTM: "543396",
   MM: "500520", ADANIPORTS: "532921", BPCL: "500547", IOC: "530965",
 };
 
@@ -466,6 +488,8 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
       "incomeStatementHistory",
       "balanceSheetHistory",
       "cashflowStatementHistory",
+      "cashflowStatementHistoryQuarterly",
+      "majorHoldersBreakdown",
     ].join(",");
     const crumbParam = crumbData ? `&crumb=${encodeURIComponent(crumbData.crumb)}` : "";
     const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=${encodeURIComponent(modules)}${crumbParam}`;
@@ -501,6 +525,24 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const balanceSheetLines = parseBalanceSheetLines(bs);
         const cfHist  = result.cashflowStatementHistory?.cashflowStatements ?? [];
         const cf      = cfHist[0] ?? {};
+        const cfQHist = result.cashflowStatementHistoryQuarterly?.cashflowStatements ?? [];
+        const cfQ     = cfQHist[0] ?? {};
+
+        // Parse majorHoldersBreakdown if available
+        const majorHolders = result.majorHoldersBreakdown ?? {};
+        const insidersPct = safe(majorHolders.insidersPercentHeld?.raw);
+        const instPct = safe(majorHolders.institutionsPercentHeld?.raw);
+        const yfShareholding = (insidersPct != null || instPct != null)
+          ? {
+              promoters: insidersPct != null ? Math.round(Number(insidersPct) * 1000) / 10 : null,
+              fii: null,
+              dii: null,
+              public: null,
+              institutional: instPct != null ? Math.round(Number(instPct) * 1000) / 10 : null,
+              promoterPledge: insidersPct === 0 ? 0 : null,
+              reportDate: null,
+            }
+          : null;
 
         const currency = (fin.financialCurrency ?? summary.currency ?? "INR") as string;
 
@@ -542,8 +584,8 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
         const highLow52W = high52 != null && low52 != null ? `₹${Math.round(low52)} - ₹${Math.round(high52)}` : null;
 
         // Cash flow lines (operating cash flow, capex, free cash flow)
-        const cfoRaw   = safe(fin.operatingCashflow?.raw) ?? safe(cf.totalCashFromOperatingActivities?.raw);
-        const capexRaw = safe(cf.capitalExpenditures?.raw);
+        const cfoRaw   = safe(fin.operatingCashflow?.raw) ?? safe(cf.totalCashFromOperatingActivities?.raw) ?? safe(cfQ.totalCashFromOperatingActivities?.raw);
+        const capexRaw = safe(cf.capitalExpenditures?.raw) ?? safe(cfQ.capitalExpenditures?.raw);
         const fcfRaw   = safe(fin.freeCashflow?.raw) ?? (cfoRaw !== null && capexRaw !== null ? cfoRaw - Math.abs(capexRaw) : null);
 
         // Multi-year historical progression
@@ -613,6 +655,8 @@ export async function fetchYahooFinancials(nseTicker: string): Promise<Extracted
           priceToBook:         safe(stats.priceToBook?.raw),
           dividendYield:       safe(summary.dividendYield?.raw),
           beta:                safe(summary.beta?.raw),
+          shareholding:        yfShareholding,
+          promoterPledge:      yfShareholding?.promoterPledge ?? null,
           ticker:   upper,
           currency,
           fetchedAt,
@@ -856,7 +900,17 @@ export function toModelingInputRecord(fin: ExtractedFinancials): Record<string, 
     freeCashflowCr:    fin.freeCashflowCr,
     currentRatio:      fin.currentRatio,
     quickRatio:        fin.quickRatio,
+    shareholding:      fin.shareholding,
+    promoterPledge:    fin.promoterPledge,
     balanceSheetLines: fin.balanceSheetLines,
+    totalAssetsCr:     fin.balanceSheetLines?.totalAssetsCr ?? null,
+    totalCurrentAssetsCr: fin.balanceSheetLines?.totalCurrentAssetsCr ?? null,
+    totalCurrentLiabilitiesCr: fin.balanceSheetLines?.totalCurrentLiabilitiesCr ?? null,
+    tradeReceivablesCr: fin.balanceSheetLines?.tradeReceivablesCr ?? null,
+    totalLiabilitiesCr: fin.balanceSheetLines?.totalLiabilitiesCr ?? null,
+    totalShareholdersEquityCr: fin.balanceSheetLines?.totalShareholdersEquityCr ?? null,
+    retainedEarningsCr: fin.balanceSheetLines?.retainedEarningsCr ?? null,
+    reservesAndSurplusCr: fin.balanceSheetLines?.reservesAndSurplusCr ?? null,
     historicalSeries:  fin.historicalSeries,
     // Provenance flags (non-numeric — ModelingAgent ignores unknown keys)
     _source:           `yahoo_finance_${fin.dataSource ?? "unknown"}`,

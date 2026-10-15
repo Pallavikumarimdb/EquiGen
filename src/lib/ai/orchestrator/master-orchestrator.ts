@@ -368,7 +368,8 @@ export class MasterOrchestrator {
             dividendYield: yfFinancials?.dividendYield ?? (bseFinancials?.dividendYieldPercent ? bseFinancials.dividendYieldPercent / 100 : null),
             highLow52W: yfFinancials?.highLow52W ?? (bseFinancials?.high52W && bseFinancials?.low52W ? `₹${bseFinancials.low52W} - ₹${bseFinancials.high52W}` : null),
             // Shareholding disclosures
-            shareholding: bseFinancials?.shareholding ?? null,
+            shareholding: bseFinancials?.shareholding ?? yfFinancials?.shareholding ?? (docExtractedFinancials as unknown as Record<string, unknown>)?.shareholding ?? null,
+            promoterPledge: (bseFinancials?.shareholding as unknown as Record<string, unknown>)?.promoterPledge ?? yfFinancials?.promoterPledge ?? (docExtractedFinancials as unknown as Record<string, unknown>)?.promoterPledge ?? null,
             // Uploaded doc artifacts if available
             uploadedDocFinancials: docExtractedFinancials ?? null,
           };
@@ -379,7 +380,12 @@ export class MasterOrchestrator {
           const docOutRec = documentOutput as Record<string, unknown>;
           docOutRec.extractedFinancials = toModelingInputRecord(unifiedFin as unknown as ExtractedFinancials);
           docOutRec.rawExtractedFinancials = unifiedFin;
+          docOutRec.unifiedFinancials = unifiedFin;
           docOutRec.bseFinancials = bseFinancials;
+          docOutRec.uploadedDocFinancials = docExtractedFinancials;
+          if (uploadedDocFromMilestones) {
+            docOutRec.uploadedDocument = uploadedDocFromMilestones;
+          }
           effectiveFin = unifiedFin as unknown as ExtractedFinancials & Record<string, unknown>;
 
           completedMilestones.push(milestone.id);
@@ -627,7 +633,17 @@ export class MasterOrchestrator {
       // Previously these values were only inside assumptions.* (DCF model output),
       // but normalizer looks for companyData.pe, companyData.beta, etc.
       const yahooFin = (mktOut as { yahooFinancials?: ExtractedFinancials } | null)?.yahooFinancials ?? null;
-      effectiveFin = (yahooFin ?? ((documentOutput as { extractedFinancials?: ExtractedFinancials }).extractedFinancials ?? null)) as (ExtractedFinancials & Record<string, unknown>) | null;
+      const docOutRec = (documentOutput as Record<string, unknown>) ?? {};
+      const baseFin = (docOutRec.rawExtractedFinancials ?? docOutRec.unifiedFinancials ?? docOutRec.extractedFinancials ?? {}) as Record<string, unknown>;
+
+      effectiveFin = {
+        ...baseFin,
+        ...(yahooFin ?? {}),
+        balanceSheetLines: (yahooFin as unknown as Record<string, unknown>)?.balanceSheetLines ?? (baseFin as unknown as Record<string, unknown>)?.balanceSheetLines ?? null,
+        shareholding: (baseFin as unknown as Record<string, unknown>)?.shareholding ?? (yahooFin as unknown as Record<string, unknown>)?.shareholding ?? null,
+        promoterPledge: (baseFin as unknown as Record<string, unknown>)?.promoterPledge ?? (yahooFin as unknown as Record<string, unknown>)?.promoterPledge ?? null,
+        operatingCashflowCr: (yahooFin as unknown as Record<string, unknown>)?.operatingCashflowCr ?? (baseFin as unknown as Record<string, unknown>)?.operatingCashflowCr ?? null,
+      } as unknown as (ExtractedFinancials & Record<string, unknown>);
 
       // Forensic & Governance Quality Audit
       let forensicAnalysis = null;
@@ -639,7 +655,7 @@ export class MasterOrchestrator {
           ticker,
           companyName,
           financials: effectiveFin,
-          bseData: ((documentOutput as Record<string, unknown>)?.bseFinancials as Record<string, unknown>) ?? screenerPrimary,
+          bseData: (docOutRec.bseFinancials as Record<string, unknown>) ?? screenerPrimary,
           documentData: documentOutput,
           apiKey,
         });
@@ -731,6 +747,8 @@ export class MasterOrchestrator {
         completedAt: new Date().toISOString(),
         dataFetchedAt: reportedFetchedAt,
         dataAsOf,
+        shareholding: (effectiveFin as unknown as Record<string, unknown>)?.shareholding ?? (documentOutput as unknown as Record<string, unknown>)?.shareholding ?? (documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials && ((documentOutput as unknown as Record<string, unknown>).uploadedDocFinancials as Record<string, unknown>).shareholding ?? null,
+        promoterPledge: (effectiveFin as unknown as Record<string, unknown>)?.promoterPledge ?? (documentOutput as unknown as Record<string, unknown>)?.promoterPledge ?? (documentOutput as unknown as Record<string, unknown>)?.uploadedDocFinancials && ((documentOutput as unknown as Record<string, unknown>).uploadedDocFinancials as Record<string, unknown>).promoterPledge ?? null,
         // RC-6: Explicit companyData block from Yahoo Finance — normalizer reads these paths directly
         companyData: effectiveFin ? {
           marketCap:        effectiveFin.marketCapCr    ?? effectiveFin.marketCap ?? null,

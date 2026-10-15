@@ -399,10 +399,21 @@ export function AgentEvalScorecard({
               const isFail = check.status === "FAIL";
               const isWarn = check.status === "WARN";
 
+              // Parse parenthesized checkpoint sub-items (e.g. in REG_01) into visual badges
+              let displayActual = check.actual != null ? String(check.actual) : "";
+              let checkpointChips: string[] = [];
+              if (displayActual && (check.id === "REG_01" || check.category === "REGULATORY_COMPLIANCE")) {
+                const parenMatch = displayActual.match(/^([^()]+)\(([^()]+)\)$/);
+                if (parenMatch) {
+                  displayActual = parenMatch[1].trim();
+                  checkpointChips = parenMatch[2].split(",").map((s: string) => s.trim()).filter(Boolean);
+                }
+              }
+
               return (
                 <div
                   key={check.id}
-                  className={`p-3.5 rounded-xl border transition-all text-xs flex flex-col sm:flex-row sm:items-start justify-between gap-3 ${
+                  className={`p-4 rounded-xl border transition-all text-xs flex flex-col md:flex-row md:items-start justify-between gap-4 ${
                     isFail
                       ? "bg-rose-50/50 border-rose-200 text-rose-950"
                       : isWarn
@@ -410,14 +421,14 @@ export function AgentEvalScorecard({
                       : "bg-[#FAF9F5] border-[#EFECE6] text-[#1A1917]"
                   }`}
                 >
-                  <div className="space-y-1 sm:max-w-[70%]">
+                  <div className="flex-1 min-w-0 space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-[#D5D0C3] text-[#59554A]">
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-[#D5D0C3] text-[#59554A] shrink-0">
                         {check.id}
                       </span>
-                      <strong className="text-xs text-[#1A1917]">{check.name}</strong>
+                      <strong className="text-xs text-[#1A1917] leading-snug">{check.name}</strong>
                       <span
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                           isPass
                             ? "bg-emerald-100 text-emerald-800"
                             : isWarn
@@ -429,20 +440,34 @@ export function AgentEvalScorecard({
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-[#59554A] leading-relaxed">
+                    <p className="text-[11px] text-[#59554A] leading-relaxed break-words">
                       {check.message}
                     </p>
-                  </div>
 
-                  <div className="shrink-0 space-y-1 sm:text-right font-mono text-[11px]">
-                    {check.expected && (
-                      <div className="text-[#7A7569]">
-                        Expected: <span className="text-[#1A1917]">{check.expected}</span>
+                    {checkpointChips.length > 0 && (
+                      <div className="pt-1 flex flex-wrap gap-1.5">
+                        {checkpointChips.map((chip, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/90 shadow-2xs"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                            <span>{chip}</span>
+                          </span>
+                        ))}
                       </div>
                     )}
-                    {check.actual && (
-                      <div className="text-[#7A7569]">
-                        Actual: <span className="font-bold text-[#1A1917]">{check.actual}</span>
+                  </div>
+
+                  <div className="w-full md:w-64 lg:w-72 shrink-0 space-y-1.5 md:text-right font-mono text-[11px] border-t md:border-t-0 pt-2.5 md:pt-0 border-[#EFECE6]">
+                    {check.expected && (
+                      <div className="text-[#7A7569] leading-snug break-words">
+                        Expected: <span className="text-[#1A1917] font-semibold">{check.expected}</span>
+                      </div>
+                    )}
+                    {displayActual && (
+                      <div className="text-[#7A7569] leading-snug break-words">
+                        Actual: <span className="font-bold text-[#1A1917]">{displayActual}</span>
                       </div>
                     )}
                   </div>
