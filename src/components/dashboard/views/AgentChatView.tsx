@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Bot,
@@ -26,12 +26,14 @@ import {
   Edit2,
   RotateCw,
   ArrowDown,
+  BarChart2,
 } from "lucide-react";
 import { PersonaType } from "../types";
 import { EquityResearchData } from "@/types";
 import { FormattedChatMessage } from "../shared/FormattedChatMessage";
 import { TrajectoryFeed } from "@/components/TrajectoryFeed";
 import { useConversationManager, ChatNode } from "@/hooks/useConversationManager";
+import { StockScreener } from "../StockScreener";
 
 export type ChatMessage = ChatNode;
 
@@ -86,7 +88,7 @@ export function AgentChatView({
   const [editingContent, setEditingContent] = useState("");
   const [userScrolledUp, setUserScrolledUp] = useState(false);
 
-  const [activeStudioTab, setActiveStudioTab] = useState<"split" | "chat" | "pipeline">("split");
+  const [activeStudioTab, setActiveStudioTab] = useState<"split" | "chat" | "pipeline" | "screener">("split");
   const [previousReportSnapshot, setPreviousReportSnapshot] = useState<EquityResearchData | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -642,6 +644,19 @@ export function AgentChatView({
               <Activity className="w-3.5 h-3.5 text-amber-600" />
               <span>Research Stream</span>
             </button>
+
+            <button
+              onClick={() => setActiveStudioTab("screener")}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                activeStudioTab === "screener"
+                  ? "bg-[#1A1917] text-white font-bold shadow-xs"
+                  : "text-[#59554A] hover:text-[#1A1917]"
+              }`}
+              title="BSE/NSE Stock Screener — browse and launch research on any listed company"
+            >
+              <BarChart2 className="w-3.5 h-3.5" />
+              <span>Screener</span>
+            </button>
           </div>
 
           {/* Jump to Full Report */}
@@ -672,6 +687,24 @@ export function AgentChatView({
 
       {/* ── Studio Stage ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden min-h-0 relative">
+        {/* ── Screener Tab ─────────────────────────────────────────────────── */}
+        {activeStudioTab === "screener" && (
+          <div className="flex-1 h-full overflow-hidden">
+            <StockScreener
+              onLaunchResearch={({ name, ticker }) => {
+                // Switch back to split view and pre-populate company context
+                setActiveStudioTab("split");
+                // Fire a starter prompt into the chat so the agent knows the company
+                setTimeout(() => {
+                  void sendPrompt(
+                    `Launch deep research on ${name} (${ticker}). Fetch BSE/NSE filings, build the 3-statement financial model and DCF valuation, and prepare an institutional research note.`
+                  );
+                }, 80);
+              }}
+            />
+          </div>
+        )}
+
         {/* ── Chat View Column (Visible in 'chat' and 'split' modes) ────────── */}
         {(activeStudioTab === "chat" || activeStudioTab === "split") && (
           <div
