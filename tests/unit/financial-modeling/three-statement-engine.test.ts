@@ -225,4 +225,62 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
     expect(pliTailwindModel.targetPrice).toBeGreaterThan(baseModel.targetPrice);
     expect(baseModel.targetPrice).toBeGreaterThan(complianceHeadwindModel.targetPrice);
   });
+
+  it("7. Links top-down Macro GDP to company forecast via Multiple and Spread modes", () => {
+    // Mode A: GDP Multiple (e.g. 1.3x Nominal GDP of 11.0% = 14.3%)
+    const multipleModel = runThreeStatementModel({
+      ...baseDrivers,
+      macroDriver: {
+        nominalGdpGrowth: 0.110,
+        linkageMode: "multiple",
+        gdpMultiple: 1.3,
+        sectorBenchmark: "Auto & Mobility (1.3x GDP elasticity)",
+      },
+    });
+
+    expect(multipleModel.effectiveRevenueGrowth).toBeCloseTo(0.143, 3);
+    expect(multipleModel.macroLinkage?.derivedGrowth).toBeCloseTo(0.143, 3);
+    expect(multipleModel.macroLinkage?.nominalGdpGrowth).toBe(0.110);
+    expect(multipleModel.projections[0].revenue).toBe(11430);
+
+    // Mode B: GDP Spread (e.g. 11.0% Nominal GDP + 250 bps = 13.5%)
+    const spreadModel = runThreeStatementModel({
+      ...baseDrivers,
+      macroDriver: {
+        nominalGdpGrowth: 0.110,
+        linkageMode: "spread",
+        gdpSpreadBps: 250,
+        sectorBenchmark: "Capital Goods & Infra (GDP + 250 bps)",
+      },
+    });
+
+    expect(spreadModel.effectiveRevenueGrowth).toBeCloseTo(0.135, 3);
+    expect(spreadModel.macroLinkage?.derivedGrowth).toBeCloseTo(0.135, 3);
+    expect(spreadModel.projections[0].revenue).toBe(11350);
+
+    // Dynamic Macro Sensitivity: If Real GDP drops from 6.5% to 5.0% (at 4.5% inflation),
+    // company growth and target price must automatically adjust down
+    const highGdpModel = runThreeStatementModel({
+      ...baseDrivers,
+      macroDriver: {
+        realGdpGrowth: 0.065,
+        inflationRate: 0.045,
+        linkageMode: "multiple",
+        gdpMultiple: 1.4,
+      },
+    });
+
+    const stressedGdpModel = runThreeStatementModel({
+      ...baseDrivers,
+      macroDriver: {
+        realGdpGrowth: 0.050,
+        inflationRate: 0.045,
+        linkageMode: "multiple",
+        gdpMultiple: 1.4,
+      },
+    });
+
+    expect(highGdpModel.effectiveRevenueGrowth).toBeGreaterThan(stressedGdpModel.effectiveRevenueGrowth);
+    expect(highGdpModel.targetPrice).toBeGreaterThan(stressedGdpModel.targetPrice);
+  });
 });

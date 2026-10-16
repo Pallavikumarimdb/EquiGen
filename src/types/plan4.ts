@@ -317,6 +317,16 @@ export interface DriverRationale {
   sourceAnchor?: string;
 }
 
+export interface MacroDriverConfig {
+  realGdpGrowth?: number;      // e.g. 0.065 (6.5% Real GDP)
+  inflationRate?: number;      // e.g. 0.045 (4.5% CPI Inflation)
+  nominalGdpGrowth?: number;   // e.g. 0.110 (11.0% Nominal GDP)
+  linkageMode?: "multiple" | "spread" | "independent"; // Top-down anchor mode
+  gdpMultiple?: number;        // e.g. 1.3 (1.3x Nominal GDP)
+  gdpSpreadBps?: number;       // e.g. 250 (+250 bps over Nominal GDP)
+  sectorBenchmark?: string;    // e.g. "Auto & Mobility (1.3x GDP elasticity)"
+}
+
 export interface ModelingOutput {
   modelType: "dcf" | "three_statement" | "sotp" | "ev_ebitda";
   baseTargetPrice: number;
@@ -324,6 +334,17 @@ export interface ModelingOutput {
   bearCasePrice: number;
   assumptions: Record<string, number | string>;
   driverRationales?: DriverRationale[];
+  macroDriver?: MacroDriverConfig;
+  macroLinkage?: {
+    linkageMode: "multiple" | "spread" | "independent";
+    nominalGdpGrowth: number;
+    realGdpGrowth?: number;
+    inflationRate?: number;
+    gdpMultiple?: number;
+    gdpSpreadBps?: number;
+    sectorBenchmark?: string;
+    derivedGrowth: number;
+  };
   effectiveRevenueGrowth?: number;
   effectiveEbitdaMargin?: number;
   volumeGrowthRate?: number;
@@ -334,4 +355,5 @@ export interface ModelingOutput {
   monteCarlo?: MonteCarloResult;
   chartUrls: string[];
 }
+
 

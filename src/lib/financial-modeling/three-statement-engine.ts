@@ -11,6 +11,16 @@
  * 7. Driver-Based DCF: FCFF = EBIT*(1-t) + D&A - Capex - Delta NWC -> PV -> Terminal Value -> Target Price
  */
 
+export interface MacroDriverConfig {
+  realGdpGrowth?: number;      // e.g. 0.065 (6.5% Real GDP)
+  inflationRate?: number;      // e.g. 0.045 (4.5% CPI Inflation)
+  nominalGdpGrowth?: number;   // e.g. 0.110 (11.0% Nominal GDP)
+  linkageMode?: "multiple" | "spread" | "independent"; // Top-down anchor mode
+  gdpMultiple?: number;        // e.g. 1.3 (1.3x Nominal GDP)
+  gdpSpreadBps?: number;       // e.g. 250 (+250 bps over Nominal GDP)
+  sectorBenchmark?: string;    // e.g. "Auto & Mobility (1.3x GDP elasticity)"
+}
+
 export interface ThreeStatementDrivers {
   baseRevenue: number;              // Base year Revenue in ₹ Cr
   baseCash?: number;                 // Base year Cash in ₹ Cr (default: 5% of rev)
@@ -18,6 +28,9 @@ export interface ThreeStatementDrivers {
   baseDebt?: number;                 // Base year Total Debt (default: 15% of rev)
   baseEquity?: number;               // Base year Share Capital + Reserves
   sharesOutstandingCr: number;       // Diluted shares in Cr
+
+  // Top-Down Macro Anchor Layer
+  macroDriver?: MacroDriverConfig;
 
   // Operational Drivers
   revenueGrowthRate: number;         // e.g. 0.12 (12%)
@@ -139,6 +152,16 @@ export interface ThreeStatementModelResult {
   pricingGrowthRate?: number;
   regulatoryImpactBps?: number;
   regulatoryDetails?: string;
+  macroLinkage?: {
+    linkageMode: "multiple" | "spread" | "independent";
+    nominalGdpGrowth: number;
+    realGdpGrowth?: number;
+    inflationRate?: number;
+    gdpMultiple?: number;
+    gdpSpreadBps?: number;
+    sectorBenchmark?: string;
+    derivedGrowth: number;
+  };
 
   // Sensitivity Matrix: WACC vs Terminal Growth
   waccSteps: number[];
@@ -239,6 +262,7 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
   const {
     baseRevenue,
     sharesOutstandingCr,
+    macroDriver,
     revenueGrowthRate,
     volumeGrowthRate,
     pricingGrowthRate,
@@ -259,9 +283,51 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     projectionYears = 5,
   } = drivers;
 
-  // Operational revenue growth: decompose into Volume x Pricing when available
+  // 0. Macro Economic Top-Down Anchor Resolution
+  let macroDerivedGrowth: number | null = null;
+  let resolvedNominalGdp: number | null = null;
+  let macroLinkageResult: ThreeStatementModelResult["macroLinkage"] | undefined = undefined;
+
+  if (macroDriver && macroDriver.linkageMode && macroDriver.linkageMode !== "independent") {
+    // Derive nominal GDP: (1 + Real GDP) * (1 + Inflation) - 1 or explicit nominalGdpGrowth
+    if (typeof macroDriver.nominalGdpGrowth === "number") {
+      resolvedNominalGdp = macroDriver.nominalGdpGrowth;
+    } else if (typeof macroDriver.realGdpGrowth === "number" && typeof macroDriver.inflationRate === "number") {
+      resolvedNominalGdp = (1 + macroDriver.realGdpGrowth) * (1 + macroDriver.inflationRate) - 1;
+    } else if (typeof macroDriver.realGdpGrowth === "number") {
+      resolvedNominalGdp = macroDriver.realGdpGrowth + 0.045; // Default 4.5% CPI baseline
+    }
+
+    if (resolvedNominalGdp !== null) {
+      if (macroDriver.linkageMode === "multiple" && typeof macroDriver.gdpMultiple === "number") {
+        macroDerivedGrowth = resolvedNominalGdp * macroDriver.gdpMultiple;
+      } else if (macroDriver.linkageMode === "spread" && typeof macroDriver.gdpSpreadBps === "number") {
+        macroDerivedGrowth = resolvedNominalGdp + (macroDriver.gdpSpreadBps / 10000);
+      }
+
+      if (macroDerivedGrowth !== null) {
+        macroLinkageResult = {
+          linkageMode: macroDriver.linkageMode,
+          nominalGdpGrowth: parseFloat(resolvedNominalGdp.toFixed(4)),
+          realGdpGrowth: macroDriver.realGdpGrowth,
+          inflationRate: macroDriver.inflationRate,
+          gdpMultiple: macroDriver.gdpMultiple,
+          gdpSpreadBps: macroDriver.gdpSpreadBps,
+          sectorBenchmark: macroDriver.sectorBenchmark,
+          derivedGrowth: parseFloat(macroDerivedGrowth.toFixed(4)),
+        };
+      }
+    }
+  }
+
+  // Operational revenue growth:
+  // Priority: 1. Macro Top-Down Linked Growth (if active)
+  //           2. Volume x Pricing Decomposition (if provided)
+  //           3. Baseline revenueGrowthRate
   const effectiveRevenueGrowth =
-    typeof volumeGrowthRate === "number" && typeof pricingGrowthRate === "number"
+    macroDerivedGrowth !== null
+      ? macroDerivedGrowth
+      : typeof volumeGrowthRate === "number" && typeof pricingGrowthRate === "number"
       ? (1 + volumeGrowthRate) * (1 + pricingGrowthRate) - 1
       : revenueGrowthRate;
 
@@ -503,6 +569,7 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     pricingGrowthRate,
     regulatoryImpactBps,
     regulatoryDetails,
+    macroLinkage: macroLinkageResult,
     baseYear: {
       year: `FY${baseFY % 100}`,
       revenue: baseRevenue,

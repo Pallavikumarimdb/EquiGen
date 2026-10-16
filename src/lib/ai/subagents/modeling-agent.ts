@@ -24,7 +24,7 @@ import { prisma } from "@/lib/db";
 import { pythonExecutor, computeDCFValuation } from "@/lib/sandbox/python-executor";
 import { fetchYahooFinancials, toModelingInputRecord } from "@/lib/ai/tools/yahoo-financials-tool";
 import { fetchBseCompanyFinancials } from "@/lib/ai/tools/bse-financial-data-tool";
-import { BuildFinancialModelMilestone, ModelingOutput, DriverRationale } from "@/types/plan4";
+import { BuildFinancialModelMilestone, ModelingOutput, DriverRationale, MacroDriverConfig } from "@/types/plan4";
 
 /**
  * India 10Y government security yield assumption.
@@ -109,6 +109,7 @@ export interface ModelingDataQuality {
 
 export interface DerivedModelParams {
   baseRevenue: number;
+  macroDriver?: MacroDriverConfig;
   revenueGrowth: number;
   volumeGrowthRate?: number;
   pricingGrowthRate?: number;
@@ -179,6 +180,7 @@ export class ModelingAgent {
     try {
       dcfRes = computeDCFValuation({
         baseRevenue:           params.baseRevenue,
+        macroDriver:           params.macroDriver,
         revenueGrowthRate:     params.revenueGrowth,
         volumeGrowthRate:      params.volumeGrowthRate,
         pricingGrowthRate:     params.pricingGrowthRate,
@@ -643,12 +645,34 @@ export class ModelingAgent {
     const volumeGrowthRate = Math.round(revenueGrowth * 0.65 * 1000) / 1000;
     const pricingGrowthRate = Math.round(((1 + revenueGrowth) / (1 + volumeGrowthRate) - 1) * 1000) / 1000;
 
+    // Top-Down Macro GDP Anchor Layer: Nominal GDP 11.0% (Real 6.5% + Inflation 4.5%)
+    const nominalGdp = 0.110;
+    const impliedMultiple = Math.round((revenueGrowth / nominalGdp) * 10) / 10;
+    const gdpMultiple = Math.max(0.6, Math.min(2.2, impliedMultiple > 0 ? impliedMultiple : 1.2));
+    const gdpSpreadBps = Math.round((revenueGrowth - nominalGdp) * 10000);
+
+    const macroDriver: MacroDriverConfig = {
+      realGdpGrowth: 0.065,
+      inflationRate: 0.045,
+      nominalGdpGrowth: nominalGdp,
+      linkageMode: "multiple",
+      gdpMultiple,
+      gdpSpreadBps,
+      sectorBenchmark: `Sector Elasticity (${gdpMultiple}x Nominal GDP)`,
+    };
+
     // Regulatory & Policy Impact Factor (bps)
     const regulatoryImpactBps = 0; // Neutral baseline unless company disclosures specify PLI/tariffs
     const regulatoryDetails = "Neutral baseline: no material statutory duty shock or PLI subsidy adjustment applied.";
 
     // Explicit, white-box driver rationales with filing anchors
     const driverRationales: DriverRationale[] = [
+      {
+        driver: "Macro Economic Anchor (GDP Link)",
+        suggestedValue: `${gdpMultiple}x Nominal GDP (${(nominalGdp * 100).toFixed(1)}% GDP → ${(revenueGrowth * 100).toFixed(1)}% Rev)`,
+        rationale: `Company revenue forecast anchored top-down to 6.5% Real GDP + 4.5% CPI Inflation via ${gdpMultiple}x sector elasticity multiple (${gdpSpreadBps >= 0 ? `+${gdpSpreadBps}` : gdpSpreadBps} bps spread).`,
+        sourceAnchor: "Macro Benchmark Layer & Ministry of Statistics (MoSPI) Nominal GDP Path",
+      },
       {
         driver: "Volume Growth (% p.a.)",
         suggestedValue: `${(volumeGrowthRate * 100).toFixed(1)}%`,
@@ -689,6 +713,7 @@ export class ModelingAgent {
 
     return {
       baseRevenue,
+      macroDriver,
       revenueGrowth,
       volumeGrowthRate,
       pricingGrowthRate,

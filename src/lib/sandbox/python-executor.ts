@@ -227,10 +227,11 @@ export class PythonExecutor {
 
 // ─── Pure TS DCF & Sensitivity Math Functions ───────────────────────────────
 
-import { runThreeStatementModel, ThreeStatementDrivers } from "../financial-modeling/three-statement-engine";
+import { runThreeStatementModel, ThreeStatementDrivers, MacroDriverConfig } from "../financial-modeling/three-statement-engine";
 
 export interface DCFCalculationParams {
   baseRevenue: number;         // in Cr
+  macroDriver?: MacroDriverConfig; // Top-down GDP linkage
   volumeGrowthRate?: number;   // e.g. 0.08 for 8%
   pricingGrowthRate?: number;  // e.g. 0.04 for 4%
   regulatoryImpactBps?: number;// e.g. +75 bps or -100 bps
@@ -279,6 +280,7 @@ function createSeededRandom(seed: number): () => number {
 export function computeDCFValuation(params: DCFCalculationParams) {
   const {
     baseRevenue,
+    macroDriver,
     revenueGrowthRate = 0.12,
     volumeGrowthRate,
     pricingGrowthRate,
@@ -305,6 +307,7 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   const drivers: ThreeStatementDrivers = {
     baseRevenue,
     sharesOutstandingCr,
+    macroDriver,
     revenueGrowthRate,
     volumeGrowthRate,
     pricingGrowthRate,
@@ -445,6 +448,7 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     pricingGrowthRate,
     regulatoryImpactBps,
     regulatoryDetails,
+    macroLinkage: modelResult.macroLinkage,
     enterpriseValueCr: Math.round(enterpriseValue),
     equityValueCr: Math.round(equityValue),
     pvExplicitPeriodCr: modelResult.sumPvFcff,

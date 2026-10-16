@@ -16,11 +16,13 @@ import {
   ShieldCheck,
   Building2,
   FileText,
+  Globe,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import {
   runThreeStatementModel,
   ThreeStatementDrivers,
+  MacroDriverConfig,
 } from "@/lib/financial-modeling/three-statement-engine";
 import { DriverRationale } from "@/types/plan4";
 
@@ -102,7 +104,25 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       ? assumptions.terminalGrowth <= 1 ? assumptions.terminalGrowth * 100 : assumptions.terminalGrowth
       : 4.0;
 
-  // Interactive Analyst State Controls
+  // Macro Default Parameters (Top-Down Anchor)
+  const defaultRealGdp = typeof assumptions.realGdpGrowth === "number" ? assumptions.realGdpGrowth * 100 : 6.5;
+  const defaultInflation = typeof assumptions.inflationRate === "number" ? assumptions.inflationRate * 100 : 4.5;
+  const defaultLinkageMode = (rawAny?.modelingData?.macroDriver?.linkageMode || "multiple") as "multiple" | "spread" | "independent";
+  const defaultMultiple = typeof rawAny?.modelingData?.macroDriver?.gdpMultiple === "number"
+    ? rawAny.modelingData.macroDriver.gdpMultiple
+    : Math.max(0.6, Math.min(2.2, Math.round((defaultGrowth / (defaultRealGdp + defaultInflation)) * 10) / 10));
+  const defaultSpreadBps = typeof rawAny?.modelingData?.macroDriver?.gdpSpreadBps === "number"
+    ? rawAny.modelingData.macroDriver.gdpSpreadBps
+    : Math.round((defaultGrowth - (defaultRealGdp + defaultInflation)) * 100);
+
+  // Interactive Top-Down Macro States
+  const [realGdp, setRealGdp] = useState<number>(defaultRealGdp);
+  const [inflationRate, setInflationRate] = useState<number>(defaultInflation);
+  const [macroLinkageMode, setMacroLinkageMode] = useState<"multiple" | "spread" | "independent">(defaultLinkageMode);
+  const [gdpMultiple, setGdpMultiple] = useState<number>(defaultMultiple);
+  const [gdpSpreadBps, setGdpSpreadBps] = useState<number>(defaultSpreadBps);
+
+  // Interactive Bottom-Up Micro States
   const [useDecomposition, setUseDecomposition] = useState<boolean>(true);
   const [volumeGrowth, setVolumeGrowth] = useState<number>(defaultVolume);
   const [pricingGrowth, setPricingGrowth] = useState<number>(defaultPricing);
@@ -125,22 +145,59 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
   // UI state for AI transparent reasoning section
   const [showAiRationales, setShowAiRationales] = useState<boolean>(false);
 
-  // Derived effective revenue growth and effective EBITDA margin
-  const effectiveGrowthRate = useDecomposition
-    ? ((1 + volumeGrowth / 100) * (1 + pricingGrowth / 100) - 1) * 100
-    : directGrowthRate;
+  // Derived Nominal GDP: (1 + Real GDP) * (1 + Inflation) - 1
+  const nominalGdp = ((1 + realGdp / 100) * (1 + inflationRate / 100) - 1) * 100;
+
+  // Macro-Derived Revenue Growth
+  const macroDerivedGrowthRate = useMemo(() => {
+    if (macroLinkageMode === "multiple") {
+      return nominalGdp * gdpMultiple;
+    } else if (macroLinkageMode === "spread") {
+      return nominalGdp + (gdpSpreadBps / 100);
+    }
+    return null;
+  }, [macroLinkageMode, nominalGdp, gdpMultiple, gdpSpreadBps]);
+
+  // Derived Effective Revenue Growth
+  // Priority: Macro Linkage (Multiple/Spread) -> Micro Volume x Pricing -> Direct Flat Growth
+  const effectiveGrowthRate = useMemo(() => {
+    if (macroLinkageMode !== "independent" && macroDerivedGrowthRate !== null) {
+      return macroDerivedGrowthRate;
+    }
+    if (useDecomposition) {
+      return ((1 + volumeGrowth / 100) * (1 + pricingGrowth / 100) - 1) * 100;
+    }
+    return directGrowthRate;
+  }, [macroLinkageMode, macroDerivedGrowthRate, useDecomposition, volumeGrowth, pricingGrowth, directGrowthRate]);
 
   const effectiveEbitdaMarginPct = Math.max(1.0, Math.min(80.0, ebitdaMargin + (regulatoryImpactBps / 100)));
 
   // Execute Linked 3-Statement Model Dynamically
   const modelResult = useMemo(() => {
     if (isDataInsufficient) return null;
+    const macroConfig: MacroDriverConfig | undefined = macroLinkageMode !== "independent"
+      ? {
+          realGdpGrowth: realGdp / 100,
+          inflationRate: inflationRate / 100,
+          nominalGdpGrowth: nominalGdp / 100,
+          linkageMode: macroLinkageMode,
+          gdpMultiple: macroLinkageMode === "multiple" ? gdpMultiple : undefined,
+          gdpSpreadBps: macroLinkageMode === "spread" ? gdpSpreadBps : undefined,
+          sectorBenchmark: macroLinkageMode === "multiple"
+            ? `${gdpMultiple}x Elasticity to Nominal GDP`
+            : macroLinkageMode === "spread"
+            ? `Nominal GDP + ${gdpSpreadBps} bps spread`
+            : "Independent bottom-up forecast",
+        }
+      : undefined;
+
     const drivers: ThreeStatementDrivers = {
       baseRevenue: baseRevenue!,
       sharesOutstandingCr: sharesOutstandingCr!,
+      macroDriver: macroConfig,
       revenueGrowthRate: effectiveGrowthRate / 100,
-      volumeGrowthRate: useDecomposition ? volumeGrowth / 100 : undefined,
-      pricingGrowthRate: useDecomposition ? pricingGrowth / 100 : undefined,
+      volumeGrowthRate: macroLinkageMode === "independent" && useDecomposition ? volumeGrowth / 100 : undefined,
+      pricingGrowthRate: macroLinkageMode === "independent" && useDecomposition ? pricingGrowth / 100 : undefined,
       ebitdaMargin: ebitdaMargin / 100,
       regulatoryImpactBps,
       regulatoryDetails,
@@ -162,6 +219,12 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
     isDataInsufficient,
     baseRevenue,
     sharesOutstandingCr,
+    macroLinkageMode,
+    realGdp,
+    inflationRate,
+    nominalGdp,
+    gdpMultiple,
+    gdpSpreadBps,
     effectiveGrowthRate,
     useDecomposition,
     volumeGrowth,
@@ -229,9 +292,10 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
   const handleApplyPreset = (type: "base" | "bull" | "bear" | "wc_stress" | "pli_tailwind" | "carbon_shock") => {
     setActiveScenario(type);
     if (type === "bull") {
-      setUseDecomposition(true);
-      setVolumeGrowth(11.0);
-      setPricingGrowth(4.5);
+      setRealGdp(7.5);
+      setInflationRate(5.0);
+      setGdpMultiple(1.35);
+      setMacroLinkageMode("multiple");
       setEbitdaMargin(20.5);
       setRegulatoryImpactBps(50);
       setRegulatoryDetails("Favorable policy tailwinds & PLI subsidy qualification");
@@ -242,7 +306,11 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       setWacc(10.5);
       setTerminalGrowth(4.5);
     } else if (type === "base") {
-      setUseDecomposition(true);
+      setRealGdp(defaultRealGdp);
+      setInflationRate(defaultInflation);
+      setGdpMultiple(defaultMultiple);
+      setGdpSpreadBps(defaultSpreadBps);
+      setMacroLinkageMode(defaultLinkageMode);
       setVolumeGrowth(defaultVolume);
       setPricingGrowth(defaultPricing);
       setDirectGrowthRate(defaultGrowth);
@@ -256,9 +324,10 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       setWacc(defaultWacc);
       setTerminalGrowth(defaultTg);
     } else if (type === "bear") {
-      setUseDecomposition(true);
-      setVolumeGrowth(3.5);
-      setPricingGrowth(1.5);
+      setRealGdp(4.75);
+      setInflationRate(4.0);
+      setGdpMultiple(0.9);
+      setMacroLinkageMode("multiple");
       setEbitdaMargin(14.0);
       setRegulatoryImpactBps(-100);
       setRegulatoryDetails("Cost escalation & regulatory compliance shock");
@@ -269,10 +338,6 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       setWacc(12.5);
       setTerminalGrowth(3.5);
     } else if (type === "wc_stress") {
-      setVolumeGrowth(defaultVolume);
-      setPricingGrowth(defaultPricing);
-      setEbitdaMargin(defaultMargin);
-      setRegulatoryImpactBps(0);
       setDso(85); // +30 days delay
       setDio(65);
       setDpo(30);
@@ -288,8 +353,13 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
     }
   };
 
-  // Reset a specific driver to AI baseline
+  // Reset to AI baseline
   const handleResetToAi = () => {
+    setRealGdp(defaultRealGdp);
+    setInflationRate(defaultInflation);
+    setGdpMultiple(defaultMultiple);
+    setGdpSpreadBps(defaultSpreadBps);
+    setMacroLinkageMode(defaultLinkageMode);
     setVolumeGrowth(defaultVolume);
     setPricingGrowth(defaultPricing);
     setDirectGrowthRate(defaultGrowth);
@@ -301,8 +371,14 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
     setActiveScenario("base");
   };
 
-  // Standard white-box driver rationales (if not provided by subagent)
+  // Active white-box driver rationales
   const activeRationales: DriverRationale[] = reportDriverRationales.length > 0 ? reportDriverRationales : [
+    {
+      driver: "Macro Economic Anchor (GDP Link)",
+      suggestedValue: `${defaultMultiple.toFixed(2)}x Nominal GDP (${(defaultRealGdp + defaultInflation).toFixed(1)}% GDP → ${defaultGrowth.toFixed(1)}% Rev)`,
+      rationale: `Company revenue forecast anchored top-down to ${defaultRealGdp.toFixed(1)}% Real GDP + ${defaultInflation.toFixed(1)}% CPI Inflation via ${defaultMultiple.toFixed(2)}x sector elasticity.`,
+      sourceAnchor: "Macro Benchmark Layer & Ministry of Statistics (MoSPI) Nominal GDP Path",
+    },
     {
       driver: "Volume Growth (% p.a.)",
       suggestedValue: `${defaultVolume.toFixed(1)}%`,
@@ -370,12 +446,12 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
               3-Statement Linked
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 uppercase tracking-wider">
-              Volume × Pricing
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 uppercase tracking-wider">
+              Top-Down GDP Linked
             </span>
           </div>
           <p className="text-[11px] text-[#7A7569] mt-1">
-            White-box forecasting: Analyst-controlled drivers with AI suggestions grounded in primary exchange filings.
+            White-box forecasting: Analyst-controlled drivers with top-down Macro GDP link and filing-grounded AI assumptions.
           </p>
         </div>
 
@@ -521,7 +597,7 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
           >
-            Bull (+11% Vol)
+            Bull (7.5% GDP)
           </button>
           <button
             onClick={() => handleApplyPreset("bear")}
@@ -531,7 +607,7 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
           >
-            Bear (+3.5% Vol)
+            Bear (4.75% GDP)
           </button>
           <button
             onClick={() => handleApplyPreset("wc_stress")}
@@ -591,27 +667,221 @@ export function ScenarioModeler({ initialTargetPrice: _initialTargetPrice, initi
       {/* VIEW A: Drivers & Sliders */}
       {activeView === "drivers" && (
         <div className="pt-4 space-y-4 animate-fadeIn">
+          {/* ── A1. TOP-DOWN MACRO ECONOMIC ANCHOR LAYER ────────────────────── */}
+          <div className="p-4 bg-gradient-to-r from-[#FAF8F5] via-[#F6F3EC] to-[#F1ECE2] border border-[#DDD8CC] rounded-xl space-y-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#E3DFD5]">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-indigo-700" />
+                <span className="text-xs font-black uppercase tracking-wider text-[#1A1917]">
+                  Top-Down Macro Economic Anchor (GDP & Inflation)
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-900 border border-indigo-200">
+                  Nominal GDP: {nominalGdp.toFixed(1)}%
+                </span>
+              </div>
+
+              {/* Mode Selector */}
+              <div className="flex items-center bg-white p-0.5 rounded-lg border border-[#D5D0C3] text-[11px] font-bold">
+                <button
+                  onClick={() => setMacroLinkageMode("multiple")}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    macroLinkageMode === "multiple" ? "bg-indigo-700 text-white shadow-2xs" : "text-[#5A554A] hover:text-[#1A1917]"
+                  }`}
+                >
+                  GDP Multiple (Elasticity)
+                </button>
+                <button
+                  onClick={() => setMacroLinkageMode("spread")}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    macroLinkageMode === "spread" ? "bg-indigo-700 text-white shadow-2xs" : "text-[#5A554A] hover:text-[#1A1917]"
+                  }`}
+                >
+                  GDP Spread (bps)
+                </button>
+                <button
+                  onClick={() => setMacroLinkageMode("independent")}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    macroLinkageMode === "independent" ? "bg-[#1A1917] text-white shadow-2xs" : "text-[#5A554A] hover:text-[#1A1917]"
+                  }`}
+                >
+                  Bottom-Up (Manual)
+                </button>
+              </div>
+            </div>
+
+            {/* Sliders Grid: Real GDP, CPI Inflation, and Sector Multiplier/Spread */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Real GDP Slider */}
+              <div>
+                <div className="flex justify-between text-xs font-semibold mb-1">
+                  <span className="text-[#5A554A]">1. Real GDP Growth (% p.a.)</span>
+                  <span className="font-mono font-bold text-indigo-950">{realGdp.toFixed(2)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={4.0}
+                  max={9.0}
+                  step={0.25}
+                  value={realGdp}
+                  onChange={(e) => {
+                    setRealGdp(parseFloat(e.target.value));
+                    setActiveScenario("base");
+                  }}
+                  className="w-full accent-indigo-700 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-[#7A7569] mt-0.5">
+                  <span>4.0% (Sluggish)</span>
+                  <span>Baseline: 6.50%</span>
+                  <span>9.0% (Expansion)</span>
+                </div>
+              </div>
+
+              {/* CPI Inflation Slider */}
+              <div>
+                <div className="flex justify-between text-xs font-semibold mb-1">
+                  <span className="text-[#5A554A]">2. CPI Inflation Rate (% p.a.)</span>
+                  <span className="font-mono font-bold text-indigo-950">{inflationRate.toFixed(2)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={2.0}
+                  max={8.0}
+                  step={0.25}
+                  value={inflationRate}
+                  onChange={(e) => {
+                    setInflationRate(parseFloat(e.target.value));
+                    setActiveScenario("base");
+                  }}
+                  className="w-full accent-indigo-700 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-[#7A7569] mt-0.5">
+                  <span>2.0% (Soft)</span>
+                  <span>Baseline: 4.50%</span>
+                  <span>8.0% (Heated)</span>
+                </div>
+              </div>
+
+              {/* Sector Linkage Parameter (Multiple vs Spread) */}
+              {macroLinkageMode === "multiple" ? (
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-[#5A554A]">3. Sector Elasticity (Multiple)</span>
+                    <span className="font-mono font-bold text-indigo-950">{gdpMultiple.toFixed(2)}x GDP</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2.5}
+                    step={0.05}
+                    value={gdpMultiple}
+                    onChange={(e) => {
+                      setGdpMultiple(parseFloat(e.target.value));
+                      setActiveScenario("base");
+                    }}
+                    className="w-full accent-indigo-700 cursor-pointer"
+                  />
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    <button onClick={() => setGdpMultiple(1.0)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">FMCG 1.0x</button>
+                    <button onClick={() => setGdpMultiple(1.3)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Auto 1.3x</button>
+                    <button onClick={() => setGdpMultiple(1.5)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Fin 1.5x</button>
+                    <button onClick={() => setGdpMultiple(1.8)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Cap Goods 1.8x</button>
+                  </div>
+                </div>
+              ) : macroLinkageMode === "spread" ? (
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-[#5A554A]">3. GDP Alpha Spread (bps)</span>
+                    <span className="font-mono font-bold text-indigo-950">{gdpSpreadBps >= 0 ? `+${gdpSpreadBps}` : gdpSpreadBps} bps</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-400}
+                    max={600}
+                    step={25}
+                    value={gdpSpreadBps}
+                    onChange={(e) => {
+                      setGdpSpreadBps(parseInt(e.target.value, 10));
+                      setActiveScenario("base");
+                    }}
+                    className="w-full accent-indigo-700 cursor-pointer"
+                  />
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    <button onClick={() => setGdpSpreadBps(-150)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Utilities -150bps</button>
+                    <button onClick={() => setGdpSpreadBps(150)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Industrials +150bps</button>
+                    <button onClick={() => setGdpSpreadBps(300)} className="px-1.5 py-0.5 text-[9px] font-semibold bg-white border border-[#D5D0C3] rounded hover:bg-indigo-50">Infra +300bps</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col justify-center text-xs text-[#7A7569] p-2 bg-white rounded-lg border border-[#E3DFD5]">
+                  <span className="font-bold text-[#1A1917]">Bottom-Up Mode Active</span>
+                  <span className="text-[11px] mt-0.5">Forecast is unlinked from macro GDP and driven entirely by micro operational sliders below.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Formula linkage banner */}
+            {macroLinkageMode !== "independent" && (
+              <div className="p-2.5 rounded-lg bg-indigo-50/90 border border-indigo-200 text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>
+                    <strong>Top-Down Formula:</strong> Nominal GDP ({nominalGdp.toFixed(1)}%) {macroLinkageMode === "multiple" ? `× ${gdpMultiple.toFixed(2)}x Elasticity` : `+ ${gdpSpreadBps >= 0 ? `+${gdpSpreadBps}` : gdpSpreadBps} bps`} = <span className="font-mono font-black text-indigo-900">{effectiveGrowthRate.toFixed(2)}% p.a. Company Growth</span>
+                  </span>
+                </div>
+                <span className="text-[10px] text-indigo-800 italic shrink-0">
+                  Changing Real GDP immediately updates revenue, cash flow, and fair value.
+                </span>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Card 1: Revenue Drivers (Volume x Pricing Decomposition) */}
             <div className="p-4 bg-[#FAF8F5] border border-[#E3DFD5] rounded-xl space-y-3.5 shadow-2xs">
               <div className="flex items-center justify-between pb-1.5 border-b border-[#E5E1D7]">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-black uppercase tracking-wider text-[#1A1917]">
-                    Revenue Decomposition
+                    Micro Operational Growth
                   </span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-900">
-                    Vol × Price
-                  </span>
+                  {macroLinkageMode !== "independent" ? (
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-900">
+                      Macro Linked
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-900">
+                      Vol × Price
+                    </span>
+                  )}
                 </div>
-                <button
-                  onClick={() => setUseDecomposition(!useDecomposition)}
-                  className="text-[10px] font-bold text-blue-700 hover:text-blue-900 cursor-pointer underline"
-                >
-                  {useDecomposition ? "Switch to Flat %" : "Decompose Vol/Px"}
-                </button>
+                {macroLinkageMode === "independent" && (
+                  <button
+                    onClick={() => setUseDecomposition(!useDecomposition)}
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 cursor-pointer underline"
+                  >
+                    {useDecomposition ? "Flat %" : "Decompose Vol/Px"}
+                  </button>
+                )}
               </div>
 
-              {useDecomposition ? (
+              {macroLinkageMode !== "independent" ? (
+                <div className="space-y-2.5">
+                  <div className="p-2.5 rounded-lg bg-white border border-[#E3DFD5] text-xs">
+                    <div className="text-[10px] uppercase font-bold text-[#7A7569]">Company Revenue Growth (Locked to Macro)</div>
+                    <div className="text-lg font-black text-indigo-950 font-mono mt-0.5">
+                      {effectiveGrowthRate.toFixed(2)}% p.a.
+                    </div>
+                    <p className="text-[11px] text-[#5A554A] mt-1 leading-relaxed">
+                      Revenue is actively anchored to nominal GDP ({nominalGdp.toFixed(1)}%). Adjust the Real GDP or Inflation sliders above to stress test corporate expansion.
+                    </p>
+                  </div>
+                  <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-indigo-50/50 border border-indigo-100">
+                    <span className="text-indigo-950 font-medium">Implied Real Expansion:</span>
+                    <span className="font-mono font-bold text-indigo-900">
+                      {(realGdp * (macroLinkageMode === "multiple" ? gdpMultiple : 1)).toFixed(1)}% p.a.
+                    </span>
+                  </div>
+                </div>
+              ) : useDecomposition ? (
                 <>
                   {/* Volume Growth Slider */}
                   <div>
