@@ -7,21 +7,22 @@
 [![Puppeteer](https://img.shields.io/badge/PDF-Puppeteer%20(Headless)-green?style=flat-square)](https://pptr.dev/)
 [![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2016%20Prisma-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
 
-**EquiGen** is an enterprise-grade AI Equity Research platform designed for institutional brokerages, research desks, and SEBI-registered analysts. It autonomously plans, executes, and synthesizes institutional-quality equity research reports by scraping live exchange filings (BSE/NSE), running quantitative 3-tier DCF valuation models, monitoring live sector news feeds, and performing statutory SEBI RA (2014) compliance audits.
+**EquiGen** is an enterprise-grade AI Equity Research platform designed for institutional brokerages, research desks, and SEBI-registered analysts. It unites autonomous multi-agent research and deterministic 3-statement financial modeling into a **single workflow run** — scraping live exchange filings (BSE/NSE), ingesting user-attached filings (Annual Reports / DRHPs), running quantitative circular 3-statement models with 160+ live Excel formulas, monitoring real-time sector news feeds, and performing statutory SEBI RA (2014) compliance audits.
 
 ---
 
 ## 🚀 Key Capabilities
 
-### 1. 🤖 Autonomous Multi-Agent Swarm
-* **Natural-Language Research Intent**: Enter intents such as *"Initiation of coverage on Eternal Limited — 5-year DCF, compare margins vs M&M, fetch Q3 concall guidance on margin recovery."*
-* **Master Planner Decomposition**: Breaks intents into 6 ordered execution milestones:
-  1. `Fetch Documents`: Scrapes audited annual reports, investor presentations, and concalls from BSE/NSE.
-  2. `Extract Financials`: Parses revenue, EBITDA, PAT, debt, and cash flow historicals.
-  3. `Build Financial Model`: 5-year DCF projection, WACC computation, and Bull/Base/Bear scenarios.
+### 1. 🤖 Unified Multi-Agent Swarm (Single Workflow Run)
+* **Single Workflow Run Merger**: Unifies what were previously separate operational modes — the Autonomous Multi-Agent Research Swarm (formerly Mode 1) and Integrated 3-Statement Financial Modeling & Document Processing (formerly Mode 2) — into a single cohesive research execution DAG.
+* **Natural-Language Research Intent & Optional Filing Attachment**: Launch coverage by entering investment goals (e.g., *"Initiation of coverage on Eternal Limited — 5-year DCF, compare margins vs M&M, fetch Q3 concall guidance."*) and optionally attaching an Annual Report or DRHP PDF directly.
+* **Master Planner 6-Milestone DAG**: Breaks research and valuation into 6 ordered execution milestones:
+  1. `Fetch Documents & Ingest Filings`: Scrapes audited annual reports, investor presentations, and concalls from BSE/NSE archives, while simultaneously ingesting any user-attached Annual Report or DRHP PDF.
+  2. `Extract Financials & Forensics`: Parses revenue, EBITDA, PAT, debt, balance sheets, and cash flow historicals, calculating forensic accounting risk indicators.
+  3. `Build Financial Model`: Executes the deterministic 3-statement circular engine ($\Delta = \text{₹0.00}$ balance sheet tie), 5-year forward projections, WACC computation, Bull/Base/Bear scenarios, and compiles 160+ active Excel formulas.
   4. `Peer Benchmark`: Aggregates live Google News RSS, ET Markets feeds, and sector valuation multiples.
-  5. `Synthesise`: Assembles the living draft note across 7 institutional sections.
-  6. `Compliance Audit`: Enforces SEBI (Research Analysts) Regulations 2014 disclaimers and checks.
+  5. `Synthesise`: Assembles the living draft note across 7 institutional sections, uniting qualitative narrative with quantitative financial models.
+  6. `Compliance Audit`: Enforces SEBI (Research Analysts) Regulations 2014 disclaimers, checks, and analyst attestation blocks.
 * **Human-in-the-Loop Analyst Steering**: Pause, redirect, adjust valuation assumptions (e.g. WACC, growth rates), or skip milestones mid-flight via the **Steering Panel**.
 * **Real-Time Telemetry Stream**: Server-Sent Events (SSE) stream tool calls, execution progress, and draft updates live to the UI without page refreshes. Streams are refused unless the run is owned by the requesting tenant.
 
@@ -33,6 +34,7 @@
 * **Non-LLM Valuation Guarantee**: Financial modeling (DCF, 3-Statement circularity, WACC, sensitivity grids) uses deterministic mathematical engines—never hallucinated LLM arithmetic.
 
 ### 3. 📊 Dynamic 3-Statement Engine & Live-Formula Excel Export
+* **Intrinsic Milestone 3 Execution**: Directly embedded into the single autonomous research run, bridging qualitative filing intelligence with mathematically deterministic valuation models.
 * **Circular Financial Mechanics**: P&L directly drives Balance Sheet and Cash Flow with zero balance sheet discrepancy ($\Delta = \text{₹0.00}$). Asserted across every projection year in `tests/unit/financial-modeling/three-statement-engine.test.ts`.
 * **Working Capital Cycle Schedule**: Receivables (DSO), Inventory (DIO), and Payables (DPO) schedules dynamically feed Operating Cash Flow and track Cash Conversion Cycle (CCC).
 * **Single Valuation Engine**: DCF, the sensitivity grid, and the Monte Carlo simulation all call the *same* 3-statement engine, so the displayed matrix cannot disagree with the headline target price.
@@ -63,8 +65,8 @@
 * **Puppeteer Headless Compilation**: Server-side rendering using Puppeteer with exact print CSS and inline SVG charts.
 * **SEBI RA Sign-Off**: Reviewers can review, digitally certify, and stamp reports with their official SEBI registration credentials before publishing.
 
-### 8. 📑 Assisted Document Ingestion (Mode 2)
-* **Drag-and-Drop Prospectus Processing**: Ingest raw `.pdf` or `.txt` financial reports.
+### 8. 📑 Integrated Document Ingestion & Vision OCR
+* **Seamless Pipeline Enrichment**: Analysts can attach raw Annual Report or DRHP `.pdf` filings when launching new research. The document is ingested directly into the `Fetch Documents` milestone as primary context alongside automated BSE/NSE scrapers.
 * **Vision & OCR Fallback**: Automatically invokes Groq Vision (`llama-3.2-11b-vision-preview`) for charts/graphics or Tesseract OCR for scanned pages when raw text yields fewer than 100 characters.
 * **Math Auditor**: Validates extracted financials for arithmetic impossibilities — negative revenue, EBITDA exceeding revenue, PAT exceeding revenue — and flags a likely **lakhs-vs-crores unit mismatch** when the PAT margin is implausibly high.
 * **Self-Correction Retry Loop**: On an audit failure the LangGraph pipeline re-routes back to the extraction node and re-extracts, up to 2 retries.

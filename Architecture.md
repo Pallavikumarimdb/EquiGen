@@ -1,14 +1,15 @@
 # 🏗️ EquiGen System Architecture & Technical Specifications
 
-This document details the architectural layout, dual-mode pipeline, multi-agent autonomous swarm, data integrity safeguards, real-time SSE telemetry, and publication engine inside EquiGen.
+This document details the architectural layout, unified multi-agent research workflow, integrated 3-statement financial modeling engine, data integrity safeguards, real-time SSE telemetry, and publication engine inside EquiGen.
 
 ---
 
 ## 🏛️ High-Level System Architecture
 
-EquiGen operates as a modern hybrid AI equity research platform with two complementary execution engines:
-1. **Autonomous AI Research Analyst** (`/api/agent/*`): An end-to-end multi-agent swarm that decomposes high-level investment intents into ordered research milestones, fetches live exchange disclosures, builds DCF valuation models, conducts regulatory compliance checks, and synthesizes publication-grade research notes.
-2. **Assisted Document Processing Pipeline** (`/api/extract/*`): A sequential document-ingestion pipeline designed to extract, audit, and structure uploaded annual reports, DRHPs, and financial statements.
+EquiGen operates as an enterprise-grade AI equity research platform featuring a **Unified Workflow Engine** that merges autonomous multi-agent research with deterministic 3-statement financial modeling into a **single workflow run**:
+
+1. **Unified Autonomous Research & Valuation Run** (`/api/agent/*`): An end-to-end multi-agent execution pipeline governed by the `MasterOrchestrator`. It merges what were previously two separate workflows — the **Autonomous Multi-Agent Research Swarm (Mode 1)** and the **Integrated 3-Statement Engine & Live-Formula Excel Modeler (Mode 2)** — into a single unified execution DAG. The pipeline decomposes research intents, ingests corporate filings (BSE/NSE scrapers + optional user-uploaded Annual Report/DRHP PDFs), extracts audited financial statements, deterministically computes circular 3-statement models, conducts peer benchmarking and statutory SEBI compliance checks, compiles 160+ live Excel formulas, and synthesizes publication-grade research notes.
+2. **Interactive Analyst Workspace & Copilot** (`/api/agent/chat`, `/api/valuation-bands`, `/api/excel`, `/api/download`): A unified presentation layer pairing an interactive 3-statement DCF scenario modeler, historical valuation multiples bands (±1σ, ±2σ), forensic accounting scorecards, and a real-time conversational AI copilot grounded in the authoritative report data.
 
 ```mermaid
 graph TB
@@ -22,29 +23,30 @@ graph TB
     end
 
     subgraph APILayer ["API Routing & Orchestration Boundary"]
-        PlanAPI["POST /api/agent/plan"]
+        PlanAPI["POST /api/agent/plan (Goal + Uploaded PDF)"]
         ExecAPI["POST /api/agent/execute"]
         StreamAPI["GET /api/agent/stream (SSE)"]
         ValuationBandsAPI["GET /api/valuation-bands"]
-        ExtractAPI["POST /api/extract"]
         DownloadAPI["GET /api/download"]
         ExcelAPI["GET /api/excel"]
     end
 
-    subgraph ModelingLayer ["Financial Modeling & Valuation Core"]
-        TSE[ThreeStatementEngine - Dynamic P&L / BS / CFS Circularity]
-        WCS[Working Capital Engine - DSO, DIO, DPO & CCC]
-        VBE[ValuationBandsEngine - 3Y/5Y Corridors & Z-Scores]
-        DSE[DCF Sensitivity Engine - WACC x Terminal Growth Grid]
-    end
+    subgraph UnifiedRun ["Unified Workflow Pipeline (Single Execution Run)"]
+        subgraph SwarmLayer ["Autonomous Agent Swarm (MasterOrchestrator)"]
+            MPA[MasterPlannerAgent - Milestone DAG]
+            DA[DocumentAgent - BSE/NSE Scraping + Attached Filing Ingestion]
+            MA[ModelingAgent - 3-Tier Financial Extraction]
+            MIA[MarketIntelAgent - RSS & Peer Comps]
+            SA[SynthesisAgent - Draft Note Composer]
+            CA[ComplianceAgent - SEBI RA 2014 Audit]
+        end
 
-    subgraph SwarmLayer ["Autonomous Agent Swarm (MasterOrchestrator)"]
-        MPA[MasterPlannerAgent]
-        DA[DocumentAgent - BSE/NSE Scraping]
-        MA[ModelingAgent - 3-Tier DCF Engine]
-        MIA[MarketIntelAgent - RSS & Peer Comps]
-        SA[SynthesisAgent - Draft Note Composer]
-        CA[ComplianceAgent - SEBI RA 2014 Audit]
+        subgraph ModelingLayer ["Financial Modeling & Valuation Core (Milestone 3)"]
+            TSE[ThreeStatementEngine - Dynamic P&L / BS / CFS Circularity]
+            WCS[Working Capital Engine - DSO, DIO, DPO & CCC]
+            VBE[ValuationBandsEngine - 3Y/5Y Corridors & Z-Scores]
+            DSE[DCF Sensitivity Engine - WACC x Terminal Growth Grid]
+        end
     end
 
     subgraph DataLayer ["Persistence & Telemetry (PostgreSQL & Prisma)"]
@@ -62,10 +64,11 @@ graph TB
     end
 
     UI --> PlanAPI & ExecAPI & StreamAPI & ValuationBandsAPI & DownloadAPI & ExcelAPI
-    ValuationBandsAPI --> VBE
+    PlanAPI --> MPA
     ExecAPI --> SwarmLayer
     SwarmLayer --> ModelingLayer
     ModelingLayer --> DB & TB
+    ValuationBandsAPI --> VBE
     DownloadAPI --> HRG --> PUP --> PDF
     ExcelAPI --> XLS
     RH --> DownloadAPI & ExcelAPI
@@ -73,45 +76,56 @@ graph TB
 
 ---
 
-## 🤖 Mode 1: Autonomous Multi-Agent Research Swarm
+## 🔄 Unified Workflow Architecture (Merged Multi-Agent Swarm & 3-Statement Engine)
 
-The Autonomous Research mode is governed by the `MasterOrchestrator` and a directed acyclic execution graph (DAG) consisting of 6 specialized milestones:
+> [!NOTE]
+> **Mode Merger Architecture Update (#24)**
+> Previously, the system separated Autonomous Swarm Research and 3-Statement Financial Modeling / Document Upload into separate operational modes.
+> Under the **Mode Merger**, **Mode 1 (Autonomous Multi-Agent Research Swarm)** and **Mode 2 (Integrated 3-Statement Engine & Live-Formula Excel Modeling)** are unified into a **single workflow run**.
+> Initiating coverage via the New Research Wizard launches one coordinated DAG execution that scrapes filings, ingests user attachments, builds circular 3-statement models, prepares live Excel formulas, gathers market intelligence, synthesizes the note, and conducts SEBI compliance checks in a continuous, deterministic pipeline.
+
+The unified workflow run is governed by the `MasterOrchestrator` across a directed acyclic execution graph (DAG) consisting of 6 specialized milestones:
 
 ```mermaid
 flowchart LR
-    Goal([Natural Language Intent]) --> M1[1. Fetch Documents]
-    M1 --> M2[2. Extract Financials]
-    M2 --> M3[3. Build Financial Model]
-    M2 --> M4[4. Peer Benchmark]
-    M3 --> M5[5. Synthesise Draft Note]
+    Goal([Natural Language Intent + Optional Attached PDF]) --> M1[1. Fetch Filings & Ingest PDF]
+    M1 --> M2[2. Extract Financials & Forensics]
+    M2 --> M3[3. Build 3-Statement DCF Model & Excel]
+    M2 --> M4[4. Peer Benchmark & Market Intel]
+    M3 --> M5[5. Synthesise Institutional Note]
     M4 --> M5
     M5 --> M6[6. SEBI Compliance Audit]
-    M6 --> Done([Completed Research Note & PDF])
+    M6 --> Done([Unified Report, Live Excel & Publication PDF])
 ```
 
 ### 1. MasterPlannerAgent (`src/lib/ai/planner/master-planner.ts`)
-* **Role**: Translates natural-language investment intents (e.g. *"Initiation of coverage on Eternal Limited — 5-year DCF, compare margins vs M&M"*) into a structured execution plan (`ResearchPlanRecord`).
+* **Role**: Translates natural-language investment intents (e.g. *"Initiation of coverage on Eternal Limited — 5-year DCF, compare margins vs M&M"*) along with optional user-attached filings (`uploadedDocument`) into a structured execution plan (`ResearchPlanRecord`).
 * **Milestone Decomposition**: Dynamically provisions 6 typed execution milestones (`FetchDocumentsMilestone`, `ExtractFinancialsMilestone`, `BuildFinancialModelMilestone`, `PeerBenchmarkMilestone`, `SynthesiseMilestone`, `ComplianceAuditMilestone`).
+* **Filing Enrichment Configuration**: Configures `FetchDocumentsMilestone` with `uploadedDocument` metadata (fileName, documentId, summary) so user-provided Annual Report/DRHP filings seamlessly inject into the downstream research pipeline.
 * **Peer Extraction**: Performs LLM-assisted entity and peer extraction to identify benchmark candidates from the prompt.
 * **Latency & Cost Estimation**: Computes aggregate estimates based on the configured research depth (`quick`, `standard`, `deep`).
 * **Persistence**: Inserts the pending plan into the `ResearchPlan` database table linked to the active `ResearchSession`.
 
 ### 2. DocumentAgent (`src/lib/ai/subagents/document-agent.ts`)
-* **Live Exchange Scraping**: Scrapes official corporate disclosure archives from **BSE India** and **NSE India**.
+* **Unified Document Ingestion**: Ingests user-provided Annual Report / DRHP PDFs directly into the research context while concurrently scraping official corporate disclosure archives from **BSE India** and **NSE India**.
 * **Filing Classification**: Categorizes filings into annual reports, quarterly results, investor presentations, concall transcripts, and DRHP filings.
 * **Credit Rating Intelligence**: Uses `credit-rating-tool.ts` to inspect exchange filings for credit rating agency actions (CRISIL, ICRA, CARE). Never fabricates ratings; if no filings are found, returns an empty rating profile.
 * **Earnings Concall Transcripts**: Parses management commentary, capacity guidance, and margin outlook.
 
 ### 3. ModelingAgent (`src/lib/ai/subagents/modeling-agent.ts`)
+* **Core Role in Milestone 3**: Directly drives the **Integrated 3-Statement Circular Engine** (`ThreeStatementEngine`) and Excel compiler (`ExcelGenerator`) to produce mathematically guaranteed valuations and 160+ active spreadsheet formulas.
 * **3-Tier Data Architecture**:
-  1. **Tier 1 (Audited Filings)**: Uses parsed financial statements from `DocumentAgent`.
+  1. **Tier 1 (Audited Filings & Attached PDFs)**: Uses parsed financial statements from `DocumentAgent`.
   2. **Tier 2 (Live Screener Scraper)**: Scrapes public Screener.in corporate metrics (Sales, Operating Profit, OPM %, Net Profit, EPS) if filing extraction lacks depth.
   3. **Tier 3 (Explicit Fallback Baseline)**: If real filings and scrapers fail due to network restrictions or new listings, uses conservative baseline financial constants and sets `isDerivedFromRealData: false`.
 * **Quantitative Valuation Engine**:
+  - Deterministic 3-statement circularity with zero balance sheet discrepancy ($\Delta = \text{₹0.00}$).
   - 5-year forward projections (Revenue, EBITDA, Operating Margin, PAT, Adjusted EPS).
-  - WACC calculation based on capital structure, cost of debt, and equity beta.
+  - Working capital schedule: DSO, DIO, DPO and Cash Conversion Cycle (CCC).
+  - WACC calculation based on capital structure, rating-graded cost of debt, and equity beta.
   - Multi-scenario DCF valuation: **Base Case**, **Bull Case** (+15% revenue CAGR, +100bps margin expansion), and **Bear Case** (-10% volume compression).
   - Terminal value sensitivity grid across terminal growth rates (4.0% – 6.0%) and WACC (11.0% – 14.0%).
+  - 160+ live Excel formula compilation persisted on the report record.
 
 ### 4. MarketIntelAgent (`src/lib/ai/subagents/market-intel-agent.ts`)
 * **Real News & Industry Feeds**: Uses `sector-news-deep-tool.ts` to scrape live **Google News RSS** and **The Economic Times RSS** targeted specifically to the company and its sector.
@@ -223,9 +237,10 @@ To eliminate HTTP 413 (Payload Too Large) and HTTP 429 (Rate Limit Exceeded) err
 
 ---
 
-## 📊 Mode 2: Integrated 3-Statement Engine & Live-Formula Excel Modeling
+## 📊 Integrated 3-Statement Financial Engine & Live-Formula Excel Modeling
 
-EquiGen incorporates a professional-grade circular 3-statement financial engine ([three-statement-engine.ts]) that bridges qualitative research and rigorous quantitative valuation.
+> **Milestone 3 Execution Core**
+> During Milestone 3 (`BuildFinancialModelMilestone`) of the unified research run, EquiGen invokes a professional-grade circular 3-statement financial engine (`src/lib/financial-modeling/three-statement-engine.ts`) and live-formula Excel generator (`src/lib/excel/excel-generator.ts`). This bridges qualitative filing intelligence with mathematically deterministic valuation.
 
 ```mermaid
 flowchart TD
@@ -280,7 +295,7 @@ flowchart TD
 
 ---
 
-## 📈 Mode 3: Historical Valuation Multiples Bands Engine (P/E & EV/EBITDA)
+## 📈 Historical Valuation Multiples Bands Engine (P/E & EV/EBITDA)
 
 EquiGen provides cyclical valuation context by charting current multiples against 3-year and 5-year statistical corridors ([valuation-bands-engine.ts]).
 
@@ -306,7 +321,7 @@ The engine analyzes historical touchpoints where the stock reached extreme bands
 
 ---
 
-## 🏢 Mode 4: Unified Institutional Workspace & Presentation Layer
+## 🏢 Unified Institutional Workspace & Presentation Layer
 
 Rather than splitting research across fragmented, persona-gated screens, EquiGen adopts a **Unified Institutional Workspace** ([UnifiedReportView.tsx]):
 

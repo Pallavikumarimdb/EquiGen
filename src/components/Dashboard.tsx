@@ -912,7 +912,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             </div>
           </main>
         ) : activeViewMode === "report" || (!activeReportId && !reportData && history.length === 0) ? (
-          /* Mode 1 & Universe Empty State: Complete Equity Research Report Page */
+          /* Unified Report View & Universe Empty State: Complete Equity Research Report Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto p-4 sm:p-6 transition-all duration-300">
             {reportData ? (
               <UnifiedReportView
@@ -955,7 +955,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
             )}
           </main>
         ) : (
-          /* Mode 2: Complete ChatGPT-Style AI Agent & Chat Page */
+          /* Copilot Agent View: Interactive Research Chat Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-white animate-fadeIn">
             <AgentChatView
               key={activeSessionId || activeReportId?.replace(/^rep_/, "") || "agent_view_empty"}
