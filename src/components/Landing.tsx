@@ -179,11 +179,11 @@ export default function Landing() {
                 Pricing
               </span>
               <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-[#1A1917]">
-                Pay per desk, <span className="text-amber-600">not per seat sprawl</span>
+                Institutional Equity Research, <span className="text-amber-600">Priced for Every Desk</span>
               </h2>
               <p className="text-xs text-[#7A7569] mt-2 font-medium max-w-lg mx-auto leading-relaxed">
-                Start free, upgrade when a covering desk needs autonomous runs and SEBI sign-off.
-                Cancel at the end of any billing period.
+                From solo research analysts to boutique desks and institutional asset managers.
+                All plans include linked 3-statement DCF models, live-formula Excel workbooks, and interactive in-report Copilot chat.
               </p>
             </div>
 

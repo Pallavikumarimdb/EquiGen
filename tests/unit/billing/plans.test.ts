@@ -25,7 +25,9 @@ describe("plan catalog", () => {
   it("prices the free plan at zero and marks it as not paid", () => {
     expect(PLANS.free.pricePaiseMonthly).toBe(0);
     expect(isPaidPlan("free")).toBe(false);
+    expect(isPaidPlan("starter")).toBe(true);
     expect(isPaidPlan("pro")).toBe(true);
+    expect(isPaidPlan("desk")).toBe(true);
   });
 
   it("charges ten months for a yearly cycle (two months free)", () => {
@@ -47,17 +49,21 @@ describe("plan catalog", () => {
   });
 
   it("only escalates quota and seats across tiers", () => {
-    const [free, pro, desk] = PLAN_ORDER.map((id) => PLANS[id]);
-    expect(pro.reportsPerMonth!).toBeGreaterThan(free.reportsPerMonth!);
+    const [starter, pro, desk] = PLAN_ORDER.map((id) => PLANS[id]);
+    expect(pro.reportsPerMonth!).toBeGreaterThan(starter.reportsPerMonth!);
     expect(desk.reportsPerMonth).toBeNull();
-    expect(pro.seats).toBeGreaterThan(free.seats);
+    expect(pro.seats).toBeGreaterThan(starter.seats);
     expect(desk.seats).toBeGreaterThan(pro.seats);
   });
 
   it("formats rupee amounts and limits for display", () => {
     expect(formatInr(2499000)).toContain("24,990");
+    expect(formatInr(149900)).toContain("1,499");
+    expect(formatInr(599900)).toContain("5,999");
     expect(formatInr(0)).toContain("0");
+    expect(formatLimit(10)).toBe("10");
     expect(formatLimit(40)).toBe("40");
+    expect(formatLimit(150)).toBe("150+");
     expect(formatLimit(null)).toBe("Unlimited");
   });
 

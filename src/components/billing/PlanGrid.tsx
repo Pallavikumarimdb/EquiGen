@@ -156,6 +156,18 @@ export default function PlanGrid({ mode, currentPlanId }: PlanGridProps) {
           );
         })}
       </div>
+
+      {/* Free trial evaluation note */}
+      <div className="mt-8 text-center text-xs text-[#7A7569] animate-fadeIn">
+        <span>Evaluating EquiGen for your research desk? </span>
+        <Link
+          href={mode === "manage" ? "/" : "/signup"}
+          className="font-bold text-[#1A1917] hover:text-amber-600 underline underline-offset-2 transition-colors"
+        >
+          Start with 3 free trial reports
+        </Link>
+        <span> — zero credit card required.</span>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@
  * display only and must be kept in sync with those products.
  */
 
-export type PlanId = "free" | "pro" | "desk";
+export type PlanId = "free" | "starter" | "pro" | "desk";
 export type BillingCycle = "monthly" | "yearly";
 
 export interface Plan {
@@ -33,7 +33,7 @@ export interface Plan {
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: "free",
-    name: "Free",
+    name: "Free Trial",
     tagline: "For individual analysts validating the workflow.",
     pricePaiseMonthly: 0,
     reportsPerMonth: 3,
@@ -41,6 +41,7 @@ export const PLANS: Record<PlanId, Plan> = {
     features: [
       "3 research notes per month",
       "Branded PDF & Excel export",
+      "In-report Copilot chat assistance",
       "Financial extraction & math audit",
       "Single analyst seat",
     ],
@@ -48,19 +49,39 @@ export const PLANS: Record<PlanId, Plan> = {
     dodoProductEnvMonthly: null,
     dodoProductEnvYearly: null,
   },
+  starter: {
+    id: "starter",
+    name: "Starter / Solo",
+    tagline: "For individual analysts & advisors publishing coverage.",
+    pricePaiseMonthly: 149900,
+    reportsPerMonth: 10,
+    seats: 1,
+    features: [
+      "10 research reports per month",
+      "1 analyst seat",
+      "Autonomous multi-agent research runs",
+      "Interactive in-report Copilot chat",
+      "Linked 3-statement DCF & live Excel export",
+      "Publication-ready A4 PDF notes",
+    ],
+    highlighted: false,
+    dodoProductEnvMonthly: "DODO_PRODUCT_STARTER_MONTHLY",
+    dodoProductEnvYearly: "DODO_PRODUCT_STARTER_YEARLY",
+  },
   pro: {
     id: "pro",
-    name: "Pro",
-    tagline: "For a covering desk publishing every week.",
-    pricePaiseMonthly: 2499000,
+    name: "Pro / Boutique Desk",
+    tagline: "For boutique research desks & covering teams.",
+    pricePaiseMonthly: 599900,
     reportsPerMonth: 40,
-    seats: 5,
+    seats: 3,
     features: [
-      "40 research notes per month",
-      "Autonomous multi-agent research runs",
+      "40 research reports per month",
+      "3 analyst seats",
+      "Autonomous research + Annual Report/DRHP upload",
+      "Unlimited in-report Copilot chat",
       "SEBI (RA) sign-off & audit trail",
-      "Linked 3-statement DCF modelling",
-      "5 analyst seats",
+      "Historical valuation multiples bands (±1σ, ±2σ)",
     ],
     highlighted: true,
     dodoProductEnvMonthly: "DODO_PRODUCT_PRO_MONTHLY",
@@ -68,17 +89,18 @@ export const PLANS: Record<PlanId, Plan> = {
   },
   desk: {
     id: "desk",
-    name: "Desk",
-    tagline: "For asset managers running multiple funds.",
-    pricePaiseMonthly: 7499000,
+    name: "Institutional Desk",
+    tagline: "For asset managers, PMS desks, and multi-analyst firms.",
+    pricePaiseMonthly: 2499000,
     reportsPerMonth: null,
-    seats: 25,
+    seats: 10,
     features: [
-      "Unlimited research notes",
-      "Everything in Pro",
-      "25 analyst seats",
-      "Priority agent capacity & support",
-      "Custom branding on exports",
+      "150+ research reports per month",
+      "10 analyst seats",
+      "Everything in Pro / Boutique Desk",
+      "Priority agent capacity & dedicated GPU routing",
+      "Custom institutional branding on exports",
+      "Dedicated compliance & audit support",
     ],
     highlighted: false,
     dodoProductEnvMonthly: "DODO_PRODUCT_DESK_MONTHLY",
@@ -86,7 +108,7 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
-export const PLAN_ORDER: PlanId[] = ["free", "pro", "desk"];
+export const PLAN_ORDER: PlanId[] = ["starter", "pro", "desk"];
 
 /** Yearly billing is charged at 10x the monthly price (two months free). */
 const YEARLY_MONTHS_FREE = 2;
@@ -118,9 +140,11 @@ export function formatInr(paise: number): string {
   }).format(paise / 100);
 }
 
-/** Human label for a usage counter, e.g. 40 -> "40", null -> "Unlimited". */
+/** Human label for a usage counter, e.g. 40 -> "40", 150 -> "150+", null -> "Unlimited". */
 export function formatLimit(limit: number | null): string {
-  return limit === null ? "Unlimited" : new Intl.NumberFormat("en-IN").format(limit);
+  if (limit === null) return "Unlimited";
+  if (limit >= 150) return "150+";
+  return new Intl.NumberFormat("en-IN").format(limit);
 }
 
 /**
