@@ -310,13 +310,28 @@ export interface MonteCarloResult {
   chartUrl?: string;
 }
 
+export interface DriverRationale {
+  driver: string;
+  suggestedValue: number | string;
+  rationale: string;
+  sourceAnchor?: string;
+}
+
 export interface ModelingOutput {
   modelType: "dcf" | "three_statement" | "sotp" | "ev_ebitda";
   baseTargetPrice: number;
   bullCasePrice: number;
   bearCasePrice: number;
   assumptions: Record<string, number | string>;
+  driverRationales?: DriverRationale[];
+  effectiveRevenueGrowth?: number;
+  effectiveEbitdaMargin?: number;
+  volumeGrowthRate?: number;
+  pricingGrowthRate?: number;
+  regulatoryImpactBps?: number;
+  regulatoryDetails?: string;
   sensitivityMatrix?: SensitivityMatrix;
   monteCarlo?: MonteCarloResult;
   chartUrls: string[];
 }
+

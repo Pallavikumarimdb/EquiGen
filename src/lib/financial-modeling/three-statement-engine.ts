@@ -21,7 +21,11 @@ export interface ThreeStatementDrivers {
 
   // Operational Drivers
   revenueGrowthRate: number;         // e.g. 0.12 (12%)
-  ebitdaMargin: number;              // e.g. 0.18 (18%)
+  volumeGrowthRate?: number;         // e.g. 0.08 (8% volume growth)
+  pricingGrowthRate?: number;        // e.g. 0.04 (4% price/realization hike)
+  ebitdaMargin: number;              // e.g. 0.18 (18% baseline margin)
+  regulatoryImpactBps?: number;      // e.g. +75 bps (PLI incentive) or -100 bps (emission compliance)
+  regulatoryDetails?: string;        // Disclosed policy/regulatory factor description
   taxRate?: number;                  // e.g. 0.25 (25%)
   
   // Working Capital Drivers (Days)
@@ -53,6 +57,8 @@ export interface YearProjection {
   cogs: number;
   grossProfit: number;
   ebitda: number;
+  effectiveRevenueGrowth: number;
+  effectiveEbitdaMargin: number;
   depreciation: number;
   ebit: number;
   interestExpense: number;
@@ -126,6 +132,14 @@ export interface ThreeStatementModelResult {
   bullCasePrice: number;
   bearCasePrice: number;
 
+  // Effective Driver Outputs
+  effectiveRevenueGrowth: number;
+  effectiveEbitdaMargin: number;
+  volumeGrowthRate?: number;
+  pricingGrowthRate?: number;
+  regulatoryImpactBps?: number;
+  regulatoryDetails?: string;
+
   // Sensitivity Matrix: WACC vs Terminal Growth
   waccSteps: number[];
   tgSteps: number[];
@@ -190,8 +204,17 @@ export function validateDcfDrivers(drivers: ThreeStatementDrivers): string[] {
       `revenueGrowthRate must be a finite number (got ${JSON.stringify(drivers.revenueGrowthRate)})`,
     );
   }
+  if (drivers.volumeGrowthRate !== undefined && !num(drivers.volumeGrowthRate)) {
+    issues.push(`volumeGrowthRate must be a finite number if specified`);
+  }
+  if (drivers.pricingGrowthRate !== undefined && !num(drivers.pricingGrowthRate)) {
+    issues.push(`pricingGrowthRate must be a finite number if specified`);
+  }
   if (!num(drivers.ebitdaMargin)) {
     issues.push(`ebitdaMargin must be a finite number (got ${JSON.stringify(drivers.ebitdaMargin)})`);
+  }
+  if (drivers.regulatoryImpactBps !== undefined && !num(drivers.regulatoryImpactBps)) {
+    issues.push(`regulatoryImpactBps must be a finite number if specified`);
   }
 
   const years = drivers.projectionYears ?? 5;
@@ -217,7 +240,11 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     baseRevenue,
     sharesOutstandingCr,
     revenueGrowthRate,
+    volumeGrowthRate,
+    pricingGrowthRate,
     ebitdaMargin,
+    regulatoryImpactBps = 0,
+    regulatoryDetails,
     taxRate = 0.25,
     dso,
     dio,
@@ -232,13 +259,26 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     projectionYears = 5,
   } = drivers;
 
+  // Operational revenue growth: decompose into Volume x Pricing when available
+  const effectiveRevenueGrowth =
+    typeof volumeGrowthRate === "number" && typeof pricingGrowthRate === "number"
+      ? (1 + volumeGrowthRate) * (1 + pricingGrowthRate) - 1
+      : revenueGrowthRate;
+
+  // Regulatory shock factor modifies baseline EBITDA margin
+  // e.g. +75 bps = +0.75% margin, -100 bps = -1.0% margin
+  const effectiveEbitdaMargin = Math.max(
+    0.01,
+    Math.min(0.85, ebitdaMargin + (regulatoryImpactBps / 10000))
+  );
+
   // Initial balance sheet assumptions calibrated to base revenue
   const baseCash = drivers.baseCash ?? Math.round(baseRevenue * 0.06);
   const baseGrossBlock = drivers.baseGrossBlock ?? Math.round(baseRevenue * 0.45);
   const baseDebt = drivers.baseDebt ?? Math.round(baseRevenue * 0.15);
 
   // Baseline working capital items
-  const baseCogs = Math.round(baseRevenue * (1 - ebitdaMargin * 0.65));
+  const baseCogs = Math.round(baseRevenue * (1 - effectiveEbitdaMargin * 0.65));
   const baseReceivables = Math.round((baseRevenue * dso) / 365);
   const baseInventory = Math.round((baseCogs * dio) / 365);
   const basePayables = Math.round((baseCogs * dpo) / 365);
@@ -270,9 +310,9 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
     const yearLabel = `FY${(baseFY + yr) % 100}`;
 
     // 1. Income Statement
-    const revenue = Math.round(prevRevenue * (1 + revenueGrowthRate));
-    const ebitda = Math.round(revenue * ebitdaMargin);
-    const cogs = Math.round(revenue * (1 - ebitdaMargin * 0.65));
+    const revenue = Math.round(prevRevenue * (1 + effectiveRevenueGrowth));
+    const ebitda = Math.round(revenue * effectiveEbitdaMargin);
+    const cogs = Math.round(revenue * (1 - effectiveEbitdaMargin * 0.65));
     const grossProfit = revenue - cogs;
 
     // Capex & Gross Block
@@ -340,6 +380,8 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
       cogs,
       grossProfit,
       ebitda,
+      effectiveRevenueGrowth: parseFloat(effectiveRevenueGrowth.toFixed(4)),
+      effectiveEbitdaMargin: parseFloat(effectiveEbitdaMargin.toFixed(4)),
       depreciation,
       ebit,
       interestExpense,
@@ -455,6 +497,12 @@ export function runThreeStatementModel(drivers: ThreeStatementDrivers): ThreeSta
 
   return {
     drivers,
+    effectiveRevenueGrowth: parseFloat(effectiveRevenueGrowth.toFixed(4)),
+    effectiveEbitdaMargin: parseFloat(effectiveEbitdaMargin.toFixed(4)),
+    volumeGrowthRate,
+    pricingGrowthRate,
+    regulatoryImpactBps,
+    regulatoryDetails,
     baseYear: {
       year: `FY${baseFY % 100}`,
       revenue: baseRevenue,

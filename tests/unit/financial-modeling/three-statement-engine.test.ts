@@ -171,4 +171,58 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
     });
     expect(dcfFormulaCount).toBeGreaterThan(15);
   });
+
+  it("5. Decomposes revenue growth into Volume × Pricing drivers dynamically", () => {
+    // 8% volume growth and 4% pricing growth -> (1 + 0.08) * (1 + 0.04) - 1 = 12.32%
+    const decomposedModel = runThreeStatementModel({
+      ...baseDrivers,
+      revenueGrowthRate: 0.10, // Should be overridden by volume + pricing
+      volumeGrowthRate: 0.08,
+      pricingGrowthRate: 0.04,
+    });
+
+    expect(decomposedModel.effectiveRevenueGrowth).toBeCloseTo(0.1232, 4);
+    // Year 1 revenue should be 10,000 * 1.1232 = 11,232
+    expect(decomposedModel.projections[0].revenue).toBe(11232);
+    expect(decomposedModel.projections[0].effectiveRevenueGrowth).toBeCloseTo(0.1232, 4);
+
+    // Compared to a pure 8% volume model with 0% pricing hike
+    const flatPricingModel = runThreeStatementModel({
+      ...baseDrivers,
+      volumeGrowthRate: 0.08,
+      pricingGrowthRate: 0.00,
+    });
+    expect(flatPricingModel.effectiveRevenueGrowth).toBeCloseTo(0.08, 4);
+    expect(decomposedModel.targetPrice).toBeGreaterThan(flatPricingModel.targetPrice);
+  });
+
+  it("6. Factoring in regulation: policy shock (bps) modifies effective EBITDA margin and valuation", () => {
+    const baseModel = runThreeStatementModel(baseDrivers);
+
+    // Positive regulatory policy tailwind: +75 bps PLI incentive
+    const pliTailwindModel = runThreeStatementModel({
+      ...baseDrivers,
+      regulatoryImpactBps: 75,
+      regulatoryDetails: "Production Linked Incentive (PLI) scheme margin enhancement",
+    });
+
+    expect(pliTailwindModel.effectiveEbitdaMargin).toBeCloseTo(0.1875, 4);
+    expect(pliTailwindModel.projections[0].ebitda).toBeGreaterThan(baseModel.projections[0].ebitda);
+    expect(pliTailwindModel.targetPrice).toBeGreaterThan(baseModel.targetPrice);
+
+    // Negative regulatory policy headwind: -100 bps emission/environmental compliance
+    const complianceHeadwindModel = runThreeStatementModel({
+      ...baseDrivers,
+      regulatoryImpactBps: -100,
+      regulatoryDetails: "Stricter carbon emission compliance & statutory abatement costs",
+    });
+
+    expect(complianceHeadwindModel.effectiveEbitdaMargin).toBeCloseTo(0.1700, 4);
+    expect(complianceHeadwindModel.projections[0].ebitda).toBeLessThan(baseModel.projections[0].ebitda);
+    expect(complianceHeadwindModel.targetPrice).toBeLessThan(baseModel.targetPrice);
+
+    // Validate monotonicity: PLI Tailwinds (+75 bps) > Base (0 bps) > Carbon Compliance (-100 bps)
+    expect(pliTailwindModel.targetPrice).toBeGreaterThan(baseModel.targetPrice);
+    expect(baseModel.targetPrice).toBeGreaterThan(complianceHeadwindModel.targetPrice);
+  });
 });

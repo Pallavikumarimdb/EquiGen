@@ -231,6 +231,10 @@ import { runThreeStatementModel, ThreeStatementDrivers } from "../financial-mode
 
 export interface DCFCalculationParams {
   baseRevenue: number;         // in Cr
+  volumeGrowthRate?: number;   // e.g. 0.08 for 8%
+  pricingGrowthRate?: number;  // e.g. 0.04 for 4%
+  regulatoryImpactBps?: number;// e.g. +75 bps or -100 bps
+  regulatoryDetails?: string;  // description of regulatory driver
   revenueGrowthRate?: number; // e.g. 0.15 for 15%
   ebitdaMargin?: number;      // e.g. 0.20 for 20%
   taxRate?: number;           // e.g. 0.25 for 25%
@@ -276,7 +280,11 @@ export function computeDCFValuation(params: DCFCalculationParams) {
   const {
     baseRevenue,
     revenueGrowthRate = 0.12,
+    volumeGrowthRate,
+    pricingGrowthRate,
     ebitdaMargin = 0.18,
+    regulatoryImpactBps = 0,
+    regulatoryDetails,
     taxRate = 0.25,
     dso = 55,
     dio = 45,
@@ -298,7 +306,11 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     baseRevenue,
     sharesOutstandingCr,
     revenueGrowthRate,
+    volumeGrowthRate,
+    pricingGrowthRate,
     ebitdaMargin,
+    regulatoryImpactBps,
+    regulatoryDetails,
     taxRate,
     dso,
     dio,
@@ -427,6 +439,12 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     baseTargetPrice: targetPrice,
     bullCasePrice,
     bearCasePrice,
+    effectiveRevenueGrowth: modelResult.effectiveRevenueGrowth,
+    effectiveEbitdaMargin: modelResult.effectiveEbitdaMargin,
+    volumeGrowthRate,
+    pricingGrowthRate,
+    regulatoryImpactBps,
+    regulatoryDetails,
     enterpriseValueCr: Math.round(enterpriseValue),
     equityValueCr: Math.round(equityValue),
     pvExplicitPeriodCr: modelResult.sumPvFcff,
@@ -434,7 +452,13 @@ export function computeDCFValuation(params: DCFCalculationParams) {
     assumptions: {
       baseRevenue,
       revenueGrowthRate: `${(revenueGrowthRate * 100).toFixed(1)}%`,
+      effectiveRevenueGrowth: `${(modelResult.effectiveRevenueGrowth * 100).toFixed(1)}%`,
+      ...(typeof volumeGrowthRate === "number" ? { volumeGrowthRate: `${(volumeGrowthRate * 100).toFixed(1)}%` } : {}),
+      ...(typeof pricingGrowthRate === "number" ? { pricingGrowthRate: `${(pricingGrowthRate * 100).toFixed(1)}%` } : {}),
       ebitdaMargin: `${(ebitdaMargin * 100).toFixed(1)}%`,
+      effectiveEbitdaMargin: `${(modelResult.effectiveEbitdaMargin * 100).toFixed(1)}%`,
+      regulatoryImpactBps: `${regulatoryImpactBps >= 0 ? `+${regulatoryImpactBps}` : regulatoryImpactBps} bps`,
+      ...(regulatoryDetails ? { regulatoryDetails } : {}),
       wacc: `${(wacc * 100).toFixed(1)}%`,
       terminalGrowth: `${(terminalGrowth * 100).toFixed(1)}%`,
       projectionYears,
