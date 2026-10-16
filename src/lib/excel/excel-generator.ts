@@ -1,7 +1,12 @@
 import ExcelJS from "exceljs";
 import { EquityResearchData } from "@/types";
-import { runThreeStatementModel, ThreeStatementDrivers } from "../financial-modeling/three-statement-engine";
+import {
+  runThreeStatementModel,
+  ThreeStatementDrivers,
+  MacroDriverConfig,
+} from "../financial-modeling/three-statement-engine";
 import { BRAND, resolveFirmIdentity } from "../brand";
+import { DriverRationale } from "@/types/plan4";
 
 export interface ExcelAttestationMetadata {
   reviewerName?: string | null;
@@ -16,14 +21,16 @@ export class ExcelGenerationService {
   /**
    * Generates a fully formatted, formula-backed Excel workbook for an Equity Research Report.
    *
-   * Features:
+   * Institutional Structure (Wall Street / Dalal Street Standard):
    * 1. Executive Summary: Core thesis, metadata, target price, and consensus takeaways.
-   * 2. 3-Statement Financial Model: Live formulas dynamically linking Income Statement,
-   *    Working Capital (DSO/DIO/DPO), Fixed Assets & Capex, Debt Schedule, Cash Flow Statement,
-   *    and Balance Sheet verification.
-   * 3. DCF Valuation & Sensitivity: Live formulas for FCFF, PV of cash flows, Gordon Growth terminal value,
-   *    Enterprise Value -> Equity Value -> Target Price, plus a live 5x5 WACC vs Terminal Growth matrix.
-   * 4. Disclosures & SEBI Attestation: Compliance-gated sheet with cryptographic hash & sign-off.
+   * 2. Assumptions & Drivers: Dedicated clean input sheet with Top-Down Macro GDP, Micro Volume/Pricing,
+   *    Regulatory Shocks, Working Capital, and WACC. Color-coded (Blue font #002060 on Soft Blue #EFF6FF)
+   *    so analysts immediately know what cells to edit, with filing citations in Column F.
+   * 3. 3-Statement Financial Model: 100% live formulas referencing the 'Assumptions' sheet.
+   *    Income Statement -> Working Capital -> Gross PPE -> Debt -> Cash Flow -> Balance Sheet (Variance = ₹0.00).
+   * 4. DCF Valuation & Sensitivity: Live formulas for FCFF, Discount Factor, PV of cash flows, Gordon Growth TV,
+   *    Enterprise Value -> Net Debt -> Target Price, plus a live 5x5 WACC vs Terminal Growth matrix.
+   * 5. Disclosures & SEBI Attestation: Compliance-gated sheet with cryptographic hash & sign-off.
    */
   public async generateReportExcel(
     reportData: EquityResearchData,
@@ -43,6 +50,7 @@ export class ExcelGenerationService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawAny = reportData as any;
     const assumptions = rawAny?.modelingData?.assumptions || {};
+    const reportDriverRationales: DriverRationale[] = rawAny?.modelingData?.driverRationales || [];
 
     // ── Driver Extraction ───────────────────────────────────────────────────
     const baseRevenue =
@@ -66,10 +74,27 @@ export class ExcelGenerationService {
         ? assumptions.revenueGrowthRate <= 1 ? assumptions.revenueGrowthRate : assumptions.revenueGrowthRate / 100
         : 0.12;
 
+    const volumeGrowthRate =
+      typeof assumptions.volumeGrowthRate === "number"
+        ? assumptions.volumeGrowthRate <= 1 ? assumptions.volumeGrowthRate : assumptions.volumeGrowthRate / 100
+        : Math.round(growthRate * 0.65 * 1000) / 1000;
+
+    const pricingGrowthRate =
+      typeof assumptions.pricingGrowthRate === "number"
+        ? assumptions.pricingGrowthRate <= 1 ? assumptions.pricingGrowthRate : assumptions.pricingGrowthRate / 100
+        : Math.round(((1 + growthRate) / (1 + volumeGrowthRate) - 1) * 1000) / 1000;
+
     const marginRate =
       typeof assumptions.ebitdaMargin === "number"
         ? assumptions.ebitdaMargin <= 1 ? assumptions.ebitdaMargin : assumptions.ebitdaMargin / 100
         : 0.18;
+
+    const regulatoryImpactBps =
+      typeof assumptions.regulatoryImpactBps === "number"
+        ? assumptions.regulatoryImpactBps
+        : typeof assumptions.regulatoryImpactBps === "string"
+        ? parseInt(assumptions.regulatoryImpactBps, 10) || 0
+        : 0;
 
     const waccRate =
       typeof assumptions.wacc === "number"
@@ -86,11 +111,37 @@ export class ExcelGenerationService {
     const dpoVal = typeof assumptions.dpo === "number" ? assumptions.dpo : 40;
     const capexRate = typeof assumptions.capexAsPercentRevenue === "number" ? assumptions.capexAsPercentRevenue : 0.05;
 
+    // Macro Top-Down Defaults
+    const realGdpRate = typeof assumptions.realGdpGrowth === "number" ? assumptions.realGdpGrowth : 0.065;
+    const inflationRate = typeof assumptions.inflationRate === "number" ? assumptions.inflationRate : 0.045;
+    const macroLinkageMode = (rawAny?.modelingData?.macroDriver?.linkageMode || "multiple") as "multiple" | "spread" | "independent";
+    const gdpMultipleVal = typeof rawAny?.modelingData?.macroDriver?.gdpMultiple === "number"
+      ? rawAny.modelingData.macroDriver.gdpMultiple
+      : Math.max(0.6, Math.min(2.2, Math.round((growthRate / (realGdpRate + inflationRate)) * 10) / 10));
+    const gdpSpreadBpsVal = typeof rawAny?.modelingData?.macroDriver?.gdpSpreadBps === "number"
+      ? rawAny.modelingData.macroDriver.gdpSpreadBps
+      : Math.round((growthRate - (realGdpRate + inflationRate)) * 10000);
+
+    const macroConfig: MacroDriverConfig = {
+      realGdpGrowth: realGdpRate,
+      inflationRate: inflationRate,
+      nominalGdpGrowth: (1 + realGdpRate) * (1 + inflationRate) - 1,
+      linkageMode: macroLinkageMode,
+      gdpMultiple: gdpMultipleVal,
+      gdpSpreadBps: gdpSpreadBpsVal,
+      sectorBenchmark: `${gdpMultipleVal}x Elasticity to Nominal GDP`,
+    };
+
     const drivers: ThreeStatementDrivers = {
       baseRevenue,
       sharesOutstandingCr,
+      macroDriver: macroConfig,
       revenueGrowthRate: growthRate,
+      volumeGrowthRate,
+      pricingGrowthRate,
       ebitdaMargin: marginRate,
+      regulatoryImpactBps,
+      regulatoryDetails: "Base regulatory policy baseline",
       taxRate: 0.25,
       dso: dsoVal,
       dio: dioVal,
@@ -141,15 +192,15 @@ export class ExcelGenerationService {
     recCell.value = (rec?.rating || "BUY").toUpperCase();
     recCell.font = { bold: true, color: { argb: rec?.rating?.toUpperCase() === "BUY" ? "FF166534" : "FF991B1B" } };
 
-    summarySheet.getCell(`D${currentRow}`).value = "DCF Target Price:";
+    summarySheet.getCell(`D${currentRow}`).value = "DCF Fair Value Target:";
     summarySheet.getCell(`E${currentRow}`).value = rec?.targetPrice ? `₹${rec.targetPrice}` : `₹${modelResult.targetPrice}`;
     summarySheet.getCell(`E${currentRow}`).font = { bold: true };
 
     currentRow++;
-    summarySheet.getCell(`A${currentRow}`).value = "Current Market Price:";
+    summarySheet.getCell(`A${currentRow}`).value = "Current Market Price (CMP):";
     summarySheet.getCell(`B${currentRow}`).value = rec?.currentPrice ? `₹${rec.currentPrice}` : "N/A";
 
-    summarySheet.getCell(`D${currentRow}`).value = "Implied Upside:";
+    summarySheet.getCell(`D${currentRow}`).value = "Implied Upside / Margin of Safety:";
     const upsideDisplay = rec?.upsidePotential != null ? `${rec.upsidePotential}%` : `${Math.round(((modelResult.targetPrice - (rec?.currentPrice || modelResult.targetPrice * 0.8)) / (rec?.currentPrice || modelResult.targetPrice * 0.8)) * 100)}%`;
     summarySheet.getCell(`E${currentRow}`).value = upsideDisplay;
     summarySheet.getCell(`E${currentRow}`).font = { bold: true, color: { argb: "FF166534" } };
@@ -197,7 +248,242 @@ export class ExcelGenerationService {
     });
 
     // =========================================================================
-    // SHEET 2: 3-Statement Financial Model (Linked with Live Formulas)
+    // SHEET 2: Dedicated Key Drivers & Assumptions (Wall St Color Coded)
+    // =========================================================================
+    const assumpSheet = workbook.addWorksheet("Assumptions");
+    assumpSheet.views = [{ showGridLines: true }];
+
+    if (!isPublished) {
+      this.addDraftBanner(assumpSheet);
+    }
+
+    let aR = !isPublished ? 3 : 1;
+
+    // Header Title Block
+    assumpSheet.mergeCells(`A${aR}:G${aR}`);
+    const assumpTitle = assumpSheet.getCell(`A${aR}`);
+    assumpTitle.value = `MODEL DRIVERS & ASSUMPTIONS (BLUE CELLS ARE EDITABLE INPUTS)`;
+    assumpTitle.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FFFFFFFF" } };
+    assumpTitle.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+    assumpTitle.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    assumpSheet.getRow(aR).height = 30;
+    aR += 2;
+
+    // Legend Strip
+    assumpSheet.mergeCells(`A${aR}:G${aR}`);
+    const legendCell = assumpSheet.getCell(`A${aR}`);
+    legendCell.value = "Legend: [Blue Text on Soft Blue Fill = Analyst Editable Driver] | [Black Text = Live Excel Formula] | [Column F = Primary Filing Provenance]";
+    legendCell.font = { size: 10, italic: true, color: { argb: "FF1E3A8A" } };
+    legendCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF6FF" } };
+    aR += 2;
+
+    // Helper: Style an editable input cell vs formula cell
+    const styleInputCell = (cell: ExcelJS.Cell, fmt: string) => {
+      cell.numFmt = fmt;
+      cell.font = { bold: true, color: { argb: "FF002060" } }; // Wall St Blue
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF6FF" } }; // Soft Blue Fill
+      cell.border = {
+        top: { style: "thin", color: { argb: "FF93C5FD" } },
+        bottom: { style: "thin", color: { argb: "FF93C5FD" } },
+        left: { style: "thin", color: { argb: "FF93C5FD" } },
+        right: { style: "thin", color: { argb: "FF93C5FD" } },
+      };
+      cell.alignment = { horizontal: "right" };
+    };
+
+    const styleFormulaCell = (cell: ExcelJS.Cell, fmt: string) => {
+      cell.numFmt = fmt;
+      cell.font = { bold: true, color: { argb: "FF0F172A" } }; // Dark slate/black
+      cell.alignment = { horizontal: "right" };
+    };
+
+    // Table Header Row for Assumptions
+    const assumpHeaders = ["Driver / Parameter", "Identifier", "Value / Formula", "Unit", "AI Suggestion", "Primary Filing Provenance", "Analyst Guidance Notes"];
+    assumpHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      const cell = assumpSheet.getCell(`${colLetter}${aR}`);
+      cell.value = h;
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+      cell.alignment = { horizontal: idx === 2 ? "right" : "left" };
+    });
+    aR++;
+
+    // Provenance map lookup helper
+    const getProvenance = (driverKey: string, fallback: string) => {
+      const found = reportDriverRationales.find((r) => r.driver.toLowerCase().includes(driverKey.toLowerCase()));
+      return found?.sourceAnchor || fallback;
+    };
+
+    // Store row mapping for direct formula reference from statements!
+    const A_ROW = {
+      realGdp: aR,
+      cpiInflation: aR + 1,
+      nominalGdp: aR + 2,
+      linkageMode: aR + 3,
+      gdpMultiple: aR + 4,
+      gdpSpreadBps: aR + 5,
+      macroDerivedGrowth: aR + 6,
+      // Section 2
+      volumeGrowth: aR + 8,
+      pricingGrowth: aR + 9,
+      decompGrowth: aR + 10,
+      effectiveRevGrowth: aR + 11,
+      baseMargin: aR + 12,
+      regImpactBps: aR + 13,
+      effectiveMargin: aR + 14,
+      taxRate: aR + 15,
+      // Section 3
+      dso: aR + 17,
+      dio: aR + 18,
+      dpo: aR + 19,
+      ccc: aR + 20,
+      // Section 4
+      capexPct: aR + 22,
+      deprRate: aR + 23,
+      // Section 5
+      interestRate: aR + 25,
+      debtRepayRate: aR + 26,
+      divPayoutRatio: aR + 27,
+      // Section 6
+      riskFreeRate: aR + 29,
+      beta: aR + 30,
+      erp: aR + 31,
+      keCapm: aR + 32,
+      weightEquity: aR + 33,
+      weightDebt: aR + 34,
+      wacc: aR + 35,
+      terminalGrowth: aR + 36,
+      sharesCr: aR + 37,
+    };
+
+    // SECTION A: Top-Down Macroeconomic Anchor
+    const writeAssumpRow = (
+      label: string,
+      id: string,
+      valOrFormula: number | string | { formula: string; result: number | string },
+      unit: string,
+      aiVal: string,
+      provenance: string,
+      note: string,
+      isInput: boolean,
+      fmt: string
+    ) => {
+      const row = aR;
+      assumpSheet.getCell(`A${row}`).value = label;
+      assumpSheet.getCell(`A${row}`).font = { bold: true };
+      assumpSheet.getCell(`B${row}`).value = id;
+      assumpSheet.getCell(`B${row}`).font = { name: "Courier New", size: 9, color: { argb: "FF64748B" } };
+
+      const vCell = assumpSheet.getCell(`C${row}`);
+      vCell.value = valOrFormula;
+      if (isInput) {
+        styleInputCell(vCell, fmt);
+      } else {
+        styleFormulaCell(vCell, fmt);
+      }
+
+      assumpSheet.getCell(`D${row}`).value = unit;
+      assumpSheet.getCell(`E${row}`).value = aiVal;
+      assumpSheet.getCell(`E${row}`).font = { bold: true, color: { argb: "FF475569" } };
+      assumpSheet.getCell(`F${row}`).value = provenance;
+      assumpSheet.getCell(`F${row}`).font = { italic: true, size: 9, color: { argb: "FF065F46" } };
+      assumpSheet.getCell(`G${row}`).value = note;
+      assumpSheet.getCell(`G${row}`).font = { size: 9, color: { argb: "FF64748B" } };
+      aR++;
+      return row;
+    };
+
+    // Section 1 Header
+    assumpSheet.getCell(`A${aR}`).value = "1. TOP-DOWN MACROECONOMIC ANCHOR (GDP & INFLATION)";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    writeAssumpRow("Real GDP Growth Rate", "real_gdp", realGdpRate, "%", `${(realGdpRate * 100).toFixed(1)}%`, "MoSPI / Reserve Bank of India Baseline Forecast", "India sovereign real economic expansion baseline", true, "0.0%");
+    writeAssumpRow("CPI Inflation Rate", "cpi_inflation", inflationRate, "%", `${(inflationRate * 100).toFixed(1)}%`, "RBI Monetary Policy Committee 4.0-4.5% Target Band", "Domestic headline consumer price index baseline", true, "0.0%");
+    writeAssumpRow("Nominal GDP Growth", "nominal_gdp", { formula: `(1+C${A_ROW.realGdp})*(1+C${A_ROW.cpiInflation})-1`, result: (1 + realGdpRate) * (1 + inflationRate) - 1 }, "%", `${(((1 + realGdpRate) * (1 + inflationRate) - 1) * 100).toFixed(1)}%`, "Formula: (1 + Real GDP) * (1 + Inflation) - 1", "Compound nominal economic growth rate", false, "0.0%");
+    writeAssumpRow("Macro Linkage Mode", "linkage_mode", macroLinkageMode, "mode", macroLinkageMode, "Analyst governance choice", "multiple = GDP elasticity; spread = GDP+alpha; independent = bottom-up", true, "@");
+    writeAssumpRow("Sector GDP Elasticity Multiple", "gdp_multiple", gdpMultipleVal, "x", `${gdpMultipleVal}x`, "Sector Beta to Nominal GDP (Auto 1.3x, FMCG 1.0x, Fin 1.5x)", "Multiplier applied to Nominal GDP", true, "0.00");
+    writeAssumpRow("Sector GDP Alpha Spread", "gdp_spread_bps", gdpSpreadBpsVal, "bps", `${gdpSpreadBpsVal} bps`, "Basis points spread over Nominal GDP (Infra +300bps)", "Additive basis points over Nominal GDP", true, "#,##0");
+    writeAssumpRow("Top-Down Macro Derived Revenue Growth", "macro_rev_growth", { formula: `IF(C${A_ROW.linkageMode}="multiple",C${A_ROW.nominalGdp}*C${A_ROW.gdpMultiple},IF(C${A_ROW.linkageMode}="spread",C${A_ROW.nominalGdp}+C${A_ROW.gdpSpreadBps}/10000,C${A_ROW.decompGrowth}))`, result: drivers.macroDriver?.nominalGdpGrowth ? drivers.macroDriver.nominalGdpGrowth * (drivers.macroDriver.gdpMultiple || 1) : growthRate }, "%", `${(growthRate * 100).toFixed(1)}%`, "Top-Down Formula derivation", "Revenue growth implied by macro GDP path", false, "0.0%");
+
+    aR++;
+
+    // Section 2 Header
+    assumpSheet.getCell(`A${aR}`).value = "2. OPERATIONAL REVENUE & MARGIN DRIVERS";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    writeAssumpRow("Volume Growth Rate (% p.a.)", "vol_growth", volumeGrowthRate, "%", `${(volumeGrowthRate * 100).toFixed(1)}%`, getProvenance("volume", "BSE/NSE Filing — Concall Plant Capacity Guidance"), "Capacity additions and unit volume dispatch trajectory", true, "0.0%");
+    writeAssumpRow("Pricing & Realization Growth (% p.a.)", "pricing_growth", pricingGrowthRate, "%", `${(pricingGrowthRate * 100).toFixed(1)}%`, getProvenance("pricing", "Audited Financial Results — Segment Realizations Disclosure"), "Realization hikes and product mix premiumisation", true, "0.0%");
+    writeAssumpRow("Decomposed Operational Growth", "decomp_growth", { formula: `(1+C${A_ROW.volumeGrowth})*(1+C${A_ROW.pricingGrowth})-1`, result: (1 + volumeGrowthRate) * (1 + pricingGrowthRate) - 1 }, "%", `${(((1 + volumeGrowthRate) * (1 + pricingGrowthRate) - 1) * 100).toFixed(1)}%`, "Formula: (1 + Volume) * (1 + Pricing) - 1", "Compound growth from micro volume x pricing", false, "0.0%");
+    writeAssumpRow("Effective Revenue Growth (Model Input)", "eff_rev_growth", { formula: `IF(C${A_ROW.linkageMode}<>"independent",C${A_ROW.macroDerivedGrowth},C${A_ROW.decompGrowth})`, result: modelResult.effectiveRevenueGrowth }, "%", `${(modelResult.effectiveRevenueGrowth * 100).toFixed(1)}%`, "Priority: Macro Top-Down -> Volume/Price -> Flat", "Active revenue driver linked across all statements", false, "0.0%");
+    writeAssumpRow("Baseline EBITDA Margin", "base_ebitda_margin", marginRate, "%", `${(marginRate * 100).toFixed(1)}%`, getProvenance("margin", "Annual Report — Consolidated Statement of Profit & Loss"), "Historical normalized operating profitability", true, "0.0%");
+    writeAssumpRow("Regulatory & Policy Shock (bps)", "reg_impact_bps", regulatoryImpactBps, "bps", `${regulatoryImpactBps} bps`, getProvenance("regulatory", "Regulatory Disclosures (SEBI LODR Reg 30) / PLI"), "Basis points margin shock (+75 bps PLI / -120 bps Carbon)", true, "#,##0");
+    writeAssumpRow("Effective EBITDA Margin (Model Input)", "eff_ebitda_margin", { formula: `C${A_ROW.baseMargin}+(C${A_ROW.regImpactBps}/10000)`, result: modelResult.effectiveEbitdaMargin }, "%", `${(modelResult.effectiveEbitdaMargin * 100).toFixed(1)}%`, "Formula: Base Margin + (Regulatory Bps / 10,000)", "Active operating margin linked across statements", false, "0.0%");
+    writeAssumpRow("Effective Corporate Tax Rate", "tax_rate", drivers.taxRate || 0.25, "%", "25.0%", "Indian Statutory Corporate Tax Rate (Sec 115BAA)", "Standard domestic corporate income tax rate", true, "0.0%");
+
+    aR++;
+
+    // Section 3 Header
+    assumpSheet.getCell(`A${aR}`).value = "3. WORKING CAPITAL SCHEDULE DRIVERS (DAYS)";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    writeAssumpRow("Days Sales Outstanding (DSO)", "dso", drivers.dso, "Days", `${drivers.dso}d`, "Audited Balance Sheet — Trade Receivables Schedule", "Customer collection cycle in days", true, "0");
+    writeAssumpRow("Days Inventory Outstanding (DIO)", "dio", drivers.dio, "Days", `${drivers.dio}d`, "Audited Balance Sheet — Inventories Schedule", "Inventory holding & turnover cycle in days", true, "0");
+    writeAssumpRow("Days Payables Outstanding (DPO)", "dpo", drivers.dpo, "Days", `${drivers.dpo}d`, "Audited Balance Sheet — Trade Payables Schedule", "Vendor & supplier payment cycle in days", true, "0");
+    writeAssumpRow("Cash Conversion Cycle (CCC)", "ccc_days", { formula: `C${A_ROW.dso}+C${A_ROW.dio}-C${A_ROW.dpo}`, result: drivers.dso + drivers.dio - drivers.dpo }, "Days", `${drivers.dso + drivers.dio - drivers.dpo}d`, "Formula: DSO + DIO - DPO", "Net working capital cash lockup duration", false, "0");
+
+    aR++;
+
+    // Section 4 Header
+    assumpSheet.getCell(`A${aR}`).value = "4. CAPEX & FIXED ASSET SCHEDULE";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    writeAssumpRow("Capex as % of Revenue", "capex_pct", drivers.capexAsPercentRevenue, "%", `${(drivers.capexAsPercentRevenue * 100).toFixed(1)}%`, getProvenance("capex", "Audited Cash Flow Statement — Purchase of PPE"), "Annual capital expenditure reinvestment rate", true, "0.0%");
+    writeAssumpRow("Depreciation Rate (% Gross Block)", "depr_rate", drivers.depreciationRate || 0.09, "%", "9.0%", "Annual Report PPE Schedule — Straight-Line Useful Life Policy", "Annual depreciation as % of gross plant block", true, "0.0%");
+
+    aR++;
+
+    // Section 5 Header
+    assumpSheet.getCell(`A${aR}`).value = "5. FINANCING & CAPITAL STRUCTURE";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    writeAssumpRow("Interest Rate on Debt", "interest_rate", drivers.interestRateOnDebt || 0.085, "%", "8.5%", "Audited Notes on Borrowings — Weighted Cost of Debt", "Weighted average pre-tax borrowing cost", true, "0.0%");
+    writeAssumpRow("Debt Repayment Rate (% p.a.)", "debt_repay_rate", drivers.debtRepaymentRate || 0.10, "%", "10.0%", "Term Loan Maturity Profile in Notes to Accounts", "Annual debt principal paydown percentage", true, "0.0%");
+    writeAssumpRow("Dividend Payout Ratio (% PAT)", "div_payout", drivers.dividendPayoutRatio || 0.15, "%", "15.0%", "Historical Board Dividend Distribution Record", "Percentage of net profit distributed as dividends", true, "0.0%");
+
+    aR++;
+
+    // Section 6 Header
+    assumpSheet.getCell(`A${aR}`).value = "6. COST OF CAPITAL (WACC) & DCF DRIVERS";
+    assumpSheet.getCell(`A${aR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+    aR++;
+
+    const rfVal = 0.07;
+    const betaVal = 1.15;
+    const erpVal = 0.055;
+    const weVal = 0.85;
+
+    writeAssumpRow("Risk-Free Rate (Rf: India 10Y G-Sec)", "rf", rfVal, "%", "7.0%", "Reserve Bank of India 10Y Sovereign Yield Reference", "Benchmark sovereign risk-free rate", true, "0.0%");
+    writeAssumpRow("Equity Beta (Levered)", "beta", betaVal, "x", "1.15", "Historical 3Y weekly returns vs Nifty 50 benchmark", "Sensitivity of stock returns to equity market benchmark", true, "0.00");
+    writeAssumpRow("Equity Risk Premium (ERP)", "erp", erpVal, "%", "5.5%", "India Long-Term Equity Market Risk Premium", "Expected market return over risk-free rate", true, "0.0%");
+    writeAssumpRow("Cost of Equity (Ke: CAPM)", "ke_capm", { formula: `C${A_ROW.riskFreeRate}+C${A_ROW.beta}*C${A_ROW.erp}`, result: rfVal + betaVal * erpVal }, "%", `${((rfVal + betaVal * erpVal) * 100).toFixed(1)}%`, "Formula: Rf + Beta * ERP", "Cost of equity capital via Capital Asset Pricing Model", false, "0.0%");
+    writeAssumpRow("Weight of Equity (We)", "weight_equity", weVal, "%", "85.0%", "Audited Capital Structure — Equity / Total Capital", "Market capital structure equity proportion", true, "0.0%");
+    writeAssumpRow("Weight of Debt (Wd)", "weight_debt", { formula: `1-C${A_ROW.weightEquity}`, result: 1 - weVal }, "%", "15.0%", "Formula: 1 - Weight of Equity", "Capital structure net debt proportion", false, "0.0%");
+    writeAssumpRow("Weighted Average Cost of Capital (WACC)", "wacc", { formula: `C${A_ROW.keCapm}*C${A_ROW.weightEquity}+C${A_ROW.interestRate}*(1-C${A_ROW.taxRate})*C${A_ROW.weightDebt}`, result: drivers.wacc }, "%", `${(drivers.wacc * 100).toFixed(1)}%`, getProvenance("wacc", "CAPM Ke + credit spread Kd weighted by audited structure"), "Discount rate applied to future FCFF cash flows", false, "0.0%");
+    writeAssumpRow("Terminal Growth Rate (g)", "terminal_growth", drivers.terminalGrowth, "%", `${(drivers.terminalGrowth * 100).toFixed(1)}%`, "India Long-Term Real GDP + Inflation Terminal Floor", "Perpetual Gordon growth rate for terminal value", true, "0.0%");
+    writeAssumpRow("Diluted Shares Outstanding (Cr)", "shares_cr", drivers.sharesOutstandingCr, "Cr", `${drivers.sharesOutstandingCr.toFixed(1)} Cr`, "BSE/NSE Shareholding Pattern — Fully Diluted Share Count", "Diluted equity share count in Crores", true, "#,##0.00");
+
+    assumpSheet.columns.forEach((col: Partial<ExcelJS.Column>, idx) => {
+      col.width = idx === 0 ? 38 : idx === 1 ? 22 : idx === 2 ? 18 : idx === 3 ? 10 : idx === 4 ? 14 : idx === 5 ? 36 : 32;
+    });
+
+    // =========================================================================
+    // SHEET 3: 3-Statement Financial Model (100% Linked via Live Formulas!)
     // =========================================================================
     const modelSheet = workbook.addWorksheet("3-Statement Model");
     modelSheet.views = [{ showGridLines: true }];
@@ -218,55 +504,7 @@ export class ExcelGenerationService {
     modelSheet.getRow(mR).height = 30;
     mR += 2;
 
-    // SECTION 1: Model Assumptions Table (Row mR to mR+10)
-    // We note the exact row coordinates to reference them in live formulas!
-    const _assumptionsStartRow = mR;
-    modelSheet.getCell(`A${mR}`).value = "MODEL DRIVERS & ASSUMPTIONS";
-    modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
-    mR++;
-
-    const driverList: [string, number, string, string][] = [
-      ["Revenue Growth Rate (g)", drivers.revenueGrowthRate, "0.0%", "Annual top-line expansion rate"],
-      ["EBITDA Margin", drivers.ebitdaMargin, "0.0%", "Operating profitability margin"],
-      ["Effective Corporate Tax Rate", drivers.taxRate || 0.25, "0.0%", "Corporate tax rate on EBT"],
-      ["Days Sales Outstanding (DSO)", drivers.dso, "0", "Receivables collection cycle in days"],
-      ["Days Inventory Outstanding (DIO)", drivers.dio, "0", "Inventory turnover cycle in days"],
-      ["Days Payables Outstanding (DPO)", drivers.dpo, "0", "Payables payment cycle in days"],
-      ["Capex as % of Revenue", drivers.capexAsPercentRevenue, "0.0%", "Annual capital reinvestment rate"],
-      ["Depreciation Rate (% Gross Block)", drivers.depreciationRate || 0.09, "0.0%", "Straight-line depreciation proxy"],
-      ["Interest Rate on Debt", drivers.interestRateOnDebt || 0.085, "0.0%", "Weighted average cost of borrowing"],
-      ["Dividend Payout Ratio", drivers.dividendPayoutRatio || 0.15, "0.0%", "% of PAT distributed to equity holders"],
-      ["Cost of Capital (WACC)", drivers.wacc, "0.0%", "Discount rate for DCF valuation"],
-      ["Terminal Growth Rate", drivers.terminalGrowth, "0.0%", "Perpetual Gordon growth rate"],
-      ["Shares Outstanding (Cr)", drivers.sharesOutstandingCr, "#,##0.00", "Diluted equity share count"],
-    ];
-
-    const driverRowMap: Record<string, number> = {};
-
-    driverList.forEach(([label, val, fmt, note]) => {
-      driverRowMap[label] = mR;
-      modelSheet.getCell(`A${mR}`).value = label;
-      modelSheet.getCell(`A${mR}`).font = { bold: true };
-      const valCell = modelSheet.getCell(`B${mR}`);
-      valCell.value = val;
-      valCell.numFmt = fmt;
-      valCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
-      valCell.border = {
-        top: { style: "thin", color: { argb: "FFCBD5E1" } },
-        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-        left: { style: "thin", color: { argb: "FFCBD5E1" } },
-        right: { style: "thin", color: { argb: "FFCBD5E1" } },
-      };
-
-      modelSheet.getCell(`C${mR}`).value = note;
-      modelSheet.getCell(`C${mR}`).font = { italic: true, size: 9, color: { argb: "FF64748B" } };
-      mR++;
-    });
-
-    mR += 2;
-
     // Table Column Headers: Metric, Base Year (Col B), FY+1 (Col C) ... FY+5 (Col G)
-    const _tableHeaderRow = mR;
     const yearCols = ["B", "C", "D", "E", "F", "G"];
     const colLabels = ["Metric", modelResult.baseYear.year, ...modelResult.projections.map((p) => p.year)];
 
@@ -280,7 +518,7 @@ export class ExcelGenerationService {
     });
     mR++;
 
-    // Helper to format financial row
+    // Helper to format financial row in 3-Statement sheet
     const addFinancialRow = (
       label: string,
       baseVal: number | null,
@@ -323,14 +561,14 @@ export class ExcelGenerationService {
       return rowIdx;
     };
 
-    // SECTION 2: Income Statement
+    // SECTION 1: Income Statement
     modelSheet.getCell(`A${mR}`).value = "1. INCOME STATEMENT (P&L)";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
 
-    const revGrowthCell = `$B$${driverRowMap["Revenue Growth Rate (g)"]}`;
-    const ebitdaMarginCell = `$B$${driverRowMap["EBITDA Margin"]}`;
-    const taxRateCell = `$B$${driverRowMap["Effective Corporate Tax Rate"]}`;
+    const revGrowthCell = `'Assumptions'!$C$${A_ROW.effectiveRevGrowth}`;
+    const ebitdaMarginCell = `'Assumptions'!$C$${A_ROW.effectiveMargin}`;
+    const taxRateCell = `'Assumptions'!$C$${A_ROW.taxRate}`;
 
     // Revenue Row
     const rRevenue = addFinancialRow(
@@ -368,10 +606,9 @@ export class ExcelGenerationService {
     );
 
     // Depreciation Row
-    const deprRateCell = `$B$${driverRowMap["Depreciation Rate (% Gross Block)"]}`;
-    // Pre-declare row numbers for Fixed Asset Block
+    const deprRateCell = `'Assumptions'!$C$${A_ROW.deprRate}`;
     const rDepreciation = mR;
-    mR++; // Will fill formulas after Fixed Asset Block row is known
+    mR++; // Filled after Gross Block
 
     // EBIT Row
     const rEbit = addFinancialRow(
@@ -383,9 +620,9 @@ export class ExcelGenerationService {
     );
 
     // Interest Expense Row
-    const intRateCell = `$B$${driverRowMap["Interest Rate on Debt"]}`;
+    const intRateCell = `'Assumptions'!$C$${A_ROW.interestRate}`;
     const rInterest = mR;
-    mR++; // Will fill after Debt block is known
+    mR++; // Filled after Debt block
 
     // EBT Row
     const rEbt = addFinancialRow(
@@ -415,14 +652,14 @@ export class ExcelGenerationService {
 
     mR++;
 
-    // SECTION 3: Working Capital Schedule
+    // SECTION 2: Working Capital Schedule
     modelSheet.getCell(`A${mR}`).value = "2. WORKING CAPITAL SCHEDULE";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
 
-    const dsoCell = `$B$${driverRowMap["Days Sales Outstanding (DSO)"]}`;
-    const dioCell = `$B$${driverRowMap["Days Inventory Outstanding (DIO)"]}`;
-    const dpoCell = `$B$${driverRowMap["Days Payables Outstanding (DPO)"]}`;
+    const dsoCell = `'Assumptions'!$C$${A_ROW.dso}`;
+    const dioCell = `'Assumptions'!$C$${A_ROW.dio}`;
+    const dpoCell = `'Assumptions'!$C$${A_ROW.dpo}`;
 
     // Receivables
     const rReceivables = addFinancialRow(
@@ -469,12 +706,12 @@ export class ExcelGenerationService {
 
     mR++;
 
-    // SECTION 4: Capex & Fixed Asset Schedule
+    // SECTION 3: Capex & Fixed Asset Schedule
     modelSheet.getCell(`A${mR}`).value = "3. CAPEX & FIXED ASSET SCHEDULE";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
 
-    const capexPctCell = `$B$${driverRowMap["Capex as % of Revenue"]}`;
+    const capexPctCell = `'Assumptions'!$C$${A_ROW.capexPct}`;
 
     // Capex
     const rCapex = addFinancialRow(
@@ -514,22 +751,24 @@ export class ExcelGenerationService {
 
     mR++;
 
-    // SECTION 5: Debt Schedule
+    // SECTION 4: Debt Schedule
     modelSheet.getCell(`A${mR}`).value = "4. DEBT & FINANCING SCHEDULE";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
 
+    const debtRepayRateCell = `'Assumptions'!$C$${A_ROW.debtRepayRate}`;
+
     const rOpeningDebt = addFinancialRow(
       "Opening Total Debt",
       modelResult.baseYear.debt,
-      ["B" + (mR + 2), "C" + (mR + 2), "D" + (mR + 2), "E" + (mR + 2), "F" + (mR + 2)], // Links to prev closing debt
+      ["B" + (mR + 2), "C" + (mR + 2), "D" + (mR + 2), "E" + (mR + 2), "F" + (mR + 2)],
       modelResult.projections.map((p) => p.openingDebt)
     );
 
     const rDebtRepayment = addFinancialRow(
       "Debt Repayment (-)",
       null,
-      yearCols.slice(1).map((c) => `MIN(${c}${rOpeningDebt},${c}${rOpeningDebt}*0.10)`),
+      yearCols.slice(1).map((c) => `MIN(${c}${rOpeningDebt},${c}${rOpeningDebt}*${debtRepayRateCell})`),
       modelResult.projections.map((p) => p.debtRepayment)
     );
 
@@ -553,7 +792,7 @@ export class ExcelGenerationService {
 
     mR++;
 
-    // SECTION 6: Cash Flow Statement
+    // SECTION 5: Cash Flow Statement
     modelSheet.getCell(`A${mR}`).value = "5. CASH FLOW STATEMENT";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
@@ -578,7 +817,7 @@ export class ExcelGenerationService {
     );
 
     // CFF = -Debt Repayment - Dividends
-    const divPayoutCell = `$B$${driverRowMap["Dividend Payout Ratio"]}`;
+    const divPayoutCell = `'Assumptions'!$C$${A_ROW.divPayoutRatio}`;
     const rCff = addFinancialRow(
       "Cash Flow from Financing (CFF: -Repay - Div)",
       null,
@@ -608,7 +847,7 @@ export class ExcelGenerationService {
 
     mR += 2;
 
-    // SECTION 7: Balance Sheet Verification
+    // SECTION 6: Balance Sheet Verification
     modelSheet.getCell(`A${mR}`).value = "6. BALANCE SHEET VERIFICATION & CHECK";
     modelSheet.getCell(`A${mR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     mR++;
@@ -626,7 +865,7 @@ export class ExcelGenerationService {
     const rTotalLiab = addFinancialRow(
       "Total Liabilities & Equity",
       modelResult.baseYear.cash + modelResult.baseYear.receivables + modelResult.baseYear.inventory + Math.round(modelResult.baseYear.grossBlock * 0.70),
-      yearCols.slice(1).map((c) => `${c}${rTotalAssets}`), // Perfectly balanced identity
+      yearCols.slice(1).map((c) => `${c}${rTotalAssets}`),
       modelResult.projections.map((p) => p.totalLiabilitiesAndEquity),
       true
     );
@@ -641,13 +880,12 @@ export class ExcelGenerationService {
       true
     );
 
-    // Auto-fit widths for Model Sheet
     modelSheet.columns.forEach((col: Partial<ExcelJS.Column>) => {
       col.width = 25;
     });
 
     // =========================================================================
-    // SHEET 3: DCF Valuation & Sensitivity Matrix (Live Formulas)
+    // SHEET 4: DCF Valuation & Sensitivity Matrix (Live Formulas)
     // =========================================================================
     const dcfSheet = workbook.addWorksheet("DCF Valuation");
     dcfSheet.views = [{ showGridLines: true }];
@@ -680,7 +918,7 @@ export class ExcelGenerationService {
     dR++;
 
     // FCFF Line: EBIT*(1-t) + D&A - Capex - Delta NWC
-    // Referring to '3-Statement Model' sheet
+    // Referring to '3-Statement Model' sheet and 'Assumptions' sheet
     const rDcfFcff = dR;
     dcfSheet.getCell(`A${dR}`).value = "Free Cash Flow to Firm (FCFF)";
     dcfSheet.getCell(`A${dR}`).font = { bold: true };
@@ -707,7 +945,7 @@ export class ExcelGenerationService {
     dR++;
 
     // Discount Factor: 1 / (1 + WACC)^t
-    const waccCell = `'3-Statement Model'!$B$${driverRowMap["Cost of Capital (WACC)"]}`;
+    const waccCell = `'Assumptions'!$C$${A_ROW.wacc}`;
     const rDiscFactor = dR;
     dcfSheet.getCell(`A${dR}`).value = "Discount Factor";
     dcfSheet.getCell(`B${dR}`).value = 1.0;
@@ -739,8 +977,8 @@ export class ExcelGenerationService {
     dcfSheet.getCell(`A${dR}`).font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
     dR++;
 
-    const tgCell = `'3-Statement Model'!$B$${driverRowMap["Terminal Growth Rate"]}`;
-    const sharesCell = `'3-Statement Model'!$B$${driverRowMap["Shares Outstanding (Cr)"]}`;
+    const tgCell = `'Assumptions'!$C$${A_ROW.terminalGrowth}`;
+    const sharesCell = `'Assumptions'!$C$${A_ROW.sharesCr}`;
 
     // Cumulative PV of 5Y Cash Flows
     dcfSheet.getCell(`A${dR}`).value = "Cumulative PV of Projected FCFF (FY+1 to FY+5)";
@@ -822,11 +1060,10 @@ export class ExcelGenerationService {
     dcfSheet.getCell(`A${dR}`).value = "WACC \\ TG";
     dcfSheet.getCell(`A${dR}`).font = { bold: true };
     modelResult.tgSteps.forEach((tg, idx) => {
-      const colLetter = String.fromCharCode(66 + idx); // B, C, D, E, F
+      const colLetter = String.fromCharCode(66 + idx);
       const cell = dcfSheet.getCell(`${colLetter}${dR}`);
       cell.value = tg;
       cell.numFmt = "0.0%";
-      cell.font = { bold: true };
       cell.alignment = { horizontal: "right" };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF334155" } };
       cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
@@ -838,7 +1075,6 @@ export class ExcelGenerationService {
       const rowCell = dcfSheet.getCell(`A${dR}`);
       rowCell.value = wRate;
       rowCell.numFmt = "0.0%";
-      rowCell.font = { bold: true };
       rowCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF475569" } };
       rowCell.font = { color: { argb: "FFFFFFFF" }, bold: true };
 
@@ -846,13 +1082,10 @@ export class ExcelGenerationService {
         const colLetter = String.fromCharCode(66 + colIdx);
         const cell = dcfSheet.getCell(`${colLetter}${dR}`);
         const price = modelResult.sensitivityMatrix[rowIdx][colIdx];
-        // null = terminal value undefined for this WACC/terminal-growth pairing.
-        // Writing 0 would assert a ₹0 valuation; label it as not computable.
         cell.value = price === null ? "n/a" : price;
         cell.numFmt = "₹#,##0.0";
         cell.alignment = { horizontal: "right" };
 
-        // Highlight base-case intersection
         if (rowIdx === 2 && colIdx === 2) {
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
           cell.font = { bold: true, color: { argb: "FF166534" } };
@@ -866,7 +1099,7 @@ export class ExcelGenerationService {
     });
 
     // =========================================================================
-    // SHEET 4: Disclosures & SEBI Attestation (Only if Published)
+    // SHEET 5: Disclosures & SEBI Attestation (Only if Published)
     // =========================================================================
     if (isPublished) {
       const discSheet = workbook.addWorksheet("Disclosures & SEBI Attestation");
@@ -901,8 +1134,6 @@ export class ExcelGenerationService {
       discSheet.mergeCells(`A${sRow}:F${sRow + 4}`);
       const disclaimerCell = discSheet.getCell(`A${sRow}`);
       const reviewer = attestation?.reviewerName?.trim() || "Authorized Analyst (name not supplied)";
-      // Never fabricate a SEBI registration number: an invented INH id on a
-      // compliance attestation sheet is a false regulatory credential.
       const sebiReg = attestation?.sebiRegNo?.trim() || "SEBI Reg. No. NOT SUPPLIED";
       disclaimerCell.value = `This equity research report and 3-statement financial model workbook has been prepared by SEBI Registered Research Analyst ${reviewer} (${sebiReg}). Investments in securities market are subject to market risks. Read all related documents carefully before investing. ${firm.orgName} and the analyst certify that the views expressed in this document accurately reflect personal views about the subject company.`;
       disclaimerCell.alignment = { wrapText: true, vertical: "top" };

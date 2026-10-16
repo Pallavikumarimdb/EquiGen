@@ -12,7 +12,6 @@ import {
   Lightbulb,
   MessageSquareQuote,
   CheckCircle2,
-  MessageSquare,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 import { FinancialHero } from "../shared/FinancialHero";
@@ -21,7 +20,7 @@ import { ScenarioModeler } from "../shared/ScenarioModeler";
 import { SwotMatrix } from "../shared/SwotMatrix";
 import { ForensicAuditCard } from "../shared/ForensicAuditCard";
 import { ValuationBandsChart } from "../shared/ValuationBandsChart";
-import { AgentEvalScorecard } from "../shared/AgentEvalScorecard";
+import { FileText } from "lucide-react";
 import type { FinancialEvaluationReport } from "@/lib/eval/financial-eval-engine";
 
 export interface UnifiedReportViewProps {
@@ -31,16 +30,19 @@ export interface UnifiedReportViewProps {
   onOpenSignoff?: () => void;
   onDownloadPdf?: () => void;
   onDownloadExcel?: () => void;
+  onDownloadDocx?: () => void;
   isDownloadingPdf?: boolean;
   isDownloadingExcel?: boolean;
+  isDownloadingDocx?: boolean;
   onAskCopilotPrompt?: (prompt: string) => void;
+  onOpenAgentStudio?: (tab?: "excel" | "word") => void;
   reviewerName?: string | null;
   sebiRegNo?: string | null;
   approvedAt?: string | null;
   status?: string;
 }
 
-export type ReportTab = "thesis" | "valuation" | "statements" | "forensic" | "compliance" | "eval";
+export type ReportTab = "thesis" | "statements" | "valuation" | "forensic" | "compliance";
 
 export function UnifiedReportView({
   reportData,
@@ -49,9 +51,12 @@ export function UnifiedReportView({
   onOpenSignoff,
   onDownloadPdf,
   onDownloadExcel,
+  onDownloadDocx,
   isDownloadingPdf,
   isDownloadingExcel,
-  onAskCopilotPrompt,
+  isDownloadingDocx,
+  onAskCopilotPrompt: _onAskCopilotPrompt,
+  onOpenAgentStudio,
   reviewerName,
   sebiRegNo,
   approvedAt,
@@ -99,15 +104,6 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
 
   const competitors = Array.isArray(reportData?.competitors) && reportData.competitors.length > 0 ? reportData.competitors : [];
 
-  // Quick questions for AI Copilot
-  const quickQuestions = [
-    `How does ${companyName} make most of its operating profit?`,
-    `What are the 3 biggest downside risks that could compress valuation?`,
-    `Is the current dividend payout backed by real operating cash flow?`,
-    `How do operating margins compare against direct sector peers?`,
-    `Did management make any major guidance updates in the latest earnings call?`,
-  ];
-
   return (
     <div className="space-y-5 animate-fadeIn">
       {/* ── 1. Universal Financial Hero ───────────────────────────────────── */}
@@ -117,9 +113,11 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
         ticker={ticker}
         onDownloadPdf={onDownloadPdf}
         onDownloadExcel={onDownloadExcel}
+        onDownloadDocx={onDownloadDocx}
         isDownloadingPdf={isDownloadingPdf}
         isDownloadingExcel={isDownloadingExcel}
-        onViewAudit={() => setActiveTab("eval")}
+        isDownloadingDocx={isDownloadingDocx}
+        onViewAudit={() => setActiveTab("compliance")}
       />
 
       {/* ── 2. Primary Financial Multiples & Key Metrics Grid ─────────────── */}
@@ -186,7 +184,7 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
         </div>
       </div>
 
-      {/* ── 3. Section Navigation Tabs ────────────────────────────────────── */}
+      {/* ── 3. Section Navigation Tabs: 5 Essential Institutional Sections ──── */}
       <div className="flex items-center justify-between border-b border-[#E2DFD6] pb-2 overflow-x-auto gap-2">
         <div className="flex items-center gap-1.5">
           <button
@@ -202,18 +200,6 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
           </button>
 
           <button
-            onClick={() => setActiveTab("valuation")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === "valuation"
-                ? "bg-[#1A1917] text-white shadow-xs"
-                : "text-[#7A7569] hover:text-[#1A1917] hover:bg-[#EFECE6]"
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Valuation & DCF</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab("statements")}
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
               activeTab === "statements"
@@ -223,6 +209,18 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>5-Year Financials</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("valuation")}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === "valuation"
+                ? "bg-[#1A1917] text-white shadow-xs"
+                : "text-[#7A7569] hover:text-[#1A1917] hover:bg-[#EFECE6]"
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Valuation & DCF</span>
           </button>
 
           <button
@@ -257,32 +255,29 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
             <Scale className="w-3.5 h-3.5" />
             <span>Regulatory Disclosures</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab("eval")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === "eval"
-                ? "bg-[#1A1917] text-white shadow-xs"
-                : "text-[#7A7569] hover:text-[#1A1917] hover:bg-[#EFECE6]"
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Agent Correctness & Eval</span>
-            {financialAudit && (
-              <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
-                  financialAudit.verdict === "CERTIFIED_AUTHENTIC"
-                    ? "bg-emerald-100 text-emerald-800"
-                    : financialAudit.verdict === "VALIDATED_WITH_WARNINGS"
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-rose-100 text-rose-800"
-                }`}
-              >
-                {financialAudit.overallScore}/100
-              </span>
-            )}
-          </button>
         </div>
+
+        {/* Quick Launch into Agent Studio (Live Modeler / Doc Editor) */}
+        {onOpenAgentStudio && (
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto pl-2">
+            <button
+              onClick={() => onOpenAgentStudio("excel")}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#002060] border border-[#BFDBFE] hover:border-[#3B82F6] rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              title="Open interactive 3-statement spreadsheet modeler in Agent Studio"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Modeler in Agent</span>
+            </button>
+            <button
+              onClick={() => onOpenAgentStudio("word")}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#1D4ED8] border border-blue-200 hover:border-blue-400 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              title="Open in-app research note editor in Agent Studio"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-600" />
+              <span>Editor in Agent</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Tab 1: Overview & Investment Thesis ────────────────────────────── */}
@@ -372,31 +367,6 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
 
           {/* SWOT Matrix */}
           <SwotMatrix reportData={reportData} />
-
-          {/* AI Copilot Quick Prompt Suggestions */}
-          <div className="bg-[#FAF8F5] border border-[#E3DFD5] rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center gap-2 mb-3">
-              <MessageSquare className="w-4 h-4 text-amber-600" />
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-[#1A1917]">
-                  Have questions? Ask the AI Research Copilot
-                </h3>
-                <p className="text-[11px] text-[#7A7569]">Click any question below to inspect instant research answers in Agent mode</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {quickQuestions.map((q, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onAskCopilotPrompt && onAskCopilotPrompt(q)}
-                  className="text-left text-xs bg-white hover:bg-amber-50 text-[#3D3A32] hover:text-[#1A1917] border border-[#DCD7CC] hover:border-amber-400/60 px-3 py-2 rounded-xl transition-all shadow-2xs font-medium cursor-pointer"
-                >
-                  💬 {q}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
@@ -497,20 +467,32 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
       {activeTab === "statements" && (
         <div className="space-y-5">
           <div className="bg-white border border-[#E3DFD5] rounded-2xl p-6 shadow-xs">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-sm font-extrabold text-[#1A1917]">5-Year Summary Financial Statements</h3>
                 <p className="text-xs text-[#7A7569]">Audited historicals and consensus forward estimates</p>
               </div>
-              {onDownloadExcel && (
-                <button
-                  onClick={onDownloadExcel}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Export 3-Statement Model (.xlsx)</span>
-                </button>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {onOpenAgentStudio && (
+                  <button
+                    onClick={() => onOpenAgentStudio("excel")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#002060] hover:bg-[#001848] text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    title="Open live interactive spreadsheet model with drivers and sensitivities in Agent Studio"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Open Live Modeler</span>
+                  </button>
+                )}
+                {onDownloadExcel && (
+                  <button
+                    onClick={onDownloadExcel}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#D5D0C3] hover:border-[#1A1917] text-[#1A1917] rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Export Model (.xlsx)</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {Array.isArray(reportData?.fiveYearSummary) && reportData.fiveYearSummary.length > 0 ? (
@@ -709,15 +691,6 @@ ${forensic ? `• Quality Score: ${forensic.overallHealthScore}/100 (${forensic.
             <div>Audit Status: PASSED ALL CHECKS</div>
           </div>
         </div>
-      )}
-
-      {/* ── Tab 6: Agent Run Correctness & Startup Eval Scorecard ──────────── */}
-      {activeTab === "eval" && (
-        <AgentEvalScorecard
-          auditData={financialAudit}
-          ticker={ticker}
-          companyName={companyName}
-        />
       )}
     </div>
   );

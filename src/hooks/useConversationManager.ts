@@ -83,6 +83,19 @@ export function useConversationManager({
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed?.nodes && Object.keys(parsed.nodes).length > 0) {
+            // Clean up any stale streaming or stopped nodes with empty content
+            Object.values(parsed.nodes).forEach((n: unknown) => {
+              const node = n as ChatNode;
+              if (node.status === "stopped" && !node.content?.trim()) {
+                node.content = "Analysis generation stopped by analyst.";
+              }
+              if (node.status === "streaming") {
+                node.status = "stopped";
+                if (!node.content?.trim()) {
+                  node.content = "Analysis generation stopped by analyst.";
+                }
+              }
+            });
             return parsed;
           }
         }
@@ -239,6 +252,7 @@ export function useConversationManager({
             ...prev.nodes,
             [streamingMessageId]: {
               ...existing,
+              content: existing.content?.trim() || "Analysis generation stopped by analyst.",
               status: "stopped",
             },
           },

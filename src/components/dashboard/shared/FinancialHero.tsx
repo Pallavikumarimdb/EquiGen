@@ -23,8 +23,10 @@ interface FinancialHeroProps {
   ticker?: string;
   onDownloadPdf?: () => void;
   onDownloadExcel?: () => void;
+  onDownloadDocx?: () => void;
   isDownloadingPdf?: boolean;
   isDownloadingExcel?: boolean;
+  isDownloadingDocx?: boolean;
   onViewAudit?: () => void;
 }
 
@@ -34,8 +36,10 @@ export function FinancialHero({
   ticker,
   onDownloadPdf,
   onDownloadExcel,
+  onDownloadDocx,
   isDownloadingPdf,
   isDownloadingExcel,
+  isDownloadingDocx,
   onViewAudit,
 }: FinancialHeroProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
@@ -267,11 +271,11 @@ const auditFreshness = useMemo(
           )}
 
           {/* Quick Export Downloads Dropdown */}
-          {(onDownloadPdf || onDownloadExcel) && (
+          {(onDownloadPdf || onDownloadExcel || onDownloadDocx) && (
             <div className="relative ml-auto sm:ml-0" ref={downloadRef}>
               <button
                 onClick={() => setIsDownloadOpen(!isDownloadOpen)}
-                disabled={isDownloadingPdf || isDownloadingExcel}
+                disabled={isDownloadingPdf || isDownloadingExcel || isDownloadingDocx}
                 title="Download Report & Financial Model"
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap disabled:opacity-60 ${
                   isDownloadOpen
@@ -281,10 +285,12 @@ const auditFreshness = useMemo(
               >
                 <Download className="w-3.5 h-3.5 text-amber-400" />
                 <span>
-                  {isDownloadingPdf
-                    ? "Exporting PDF..."
-                    : isDownloadingExcel
+                  {isDownloadingExcel
                     ? "Exporting Excel..."
+                    : isDownloadingDocx
+                    ? "Exporting Word..."
+                    : isDownloadingPdf
+                    ? "Exporting PDF..."
                     : "Download"}
                 </span>
                 <ChevronDown
@@ -295,38 +301,10 @@ const auditFreshness = useMemo(
               </button>
 
               {isDownloadOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl border border-[#E2DFD6] shadow-xl p-1.5 z-40 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-2xl border border-[#E2DFD6] shadow-xl p-1.5 z-40 animate-in fade-in slide-in-from-top-1 duration-150">
                   <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E988A]">
-                    Export Options
+                    Institutional Deliverables
                   </div>
-
-                  {onDownloadPdf && (
-                    <button
-                      onClick={() => {
-                        setIsDownloadOpen(false);
-                        onDownloadPdf();
-                      }}
-                      disabled={isDownloadingPdf}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-[#1A1917] hover:bg-[#F4F1EA] transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
-                        <FileText className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-[#1A1917] flex items-center justify-between">
-                          <span>PDF Report</span>
-                          {isDownloadingPdf && (
-                            <span className="text-[10px] text-amber-600 font-semibold animate-pulse">
-                              Exporting...
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-[#7A7569] truncate">
-                          Institutional Research Note (.pdf)
-                        </div>
-                      </div>
-                    </button>
-                  )}
 
                   {onDownloadExcel && (
                     <button
@@ -342,7 +320,7 @@ const auditFreshness = useMemo(
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-bold text-[#1A1917] flex items-center justify-between">
-                          <span>Excel Model</span>
+                          <span>Excel Model (.xlsx)</span>
                           {isDownloadingExcel && (
                             <span className="text-[10px] text-emerald-600 font-semibold animate-pulse">
                               Exporting...
@@ -350,7 +328,63 @@ const auditFreshness = useMemo(
                           )}
                         </div>
                         <div className="text-[10px] text-[#7A7569] truncate">
-                          3-Statement DCF Model (.xlsx)
+                          Live Formulas & Assumptions
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {onDownloadDocx && (
+                    <button
+                      onClick={() => {
+                        setIsDownloadOpen(false);
+                        onDownloadDocx();
+                      }}
+                      disabled={isDownloadingDocx}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-[#1A1917] hover:bg-[#F4F1EA] transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center shrink-0 border border-blue-100">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-[#1A1917] flex items-center justify-between">
+                          <span>Word Document (.docx)</span>
+                          {isDownloadingDocx && (
+                            <span className="text-[10px] text-blue-600 font-semibold animate-pulse">
+                              Exporting...
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#7A7569] truncate">
+                          Editable Research Note & Memo
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {onDownloadPdf && (
+                    <button
+                      onClick={() => {
+                        setIsDownloadOpen(false);
+                        onDownloadPdf();
+                      }}
+                      disabled={isDownloadingPdf}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-[#1A1917] hover:bg-[#F4F1EA] transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-[#1A1917] flex items-center justify-between">
+                          <span>PDF Report (.pdf)</span>
+                          {isDownloadingPdf && (
+                            <span className="text-[10px] text-amber-600 font-semibold animate-pulse">
+                              Exporting...
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#7A7569] truncate">
+                          Signed Institutional Research Note
                         </div>
                       </div>
                     </button>

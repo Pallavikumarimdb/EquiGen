@@ -12,8 +12,9 @@ import {
   Sparkles,
   Settings,
   Square,
+  Crown,
 } from "lucide-react";
-import { DashboardHistoryItem, HistoryFilterType } from "./types";
+import { DashboardHistoryItem, HistoryFilterType, UserSessionProfile } from "./types";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 
 interface CoverageSidebarProps {
@@ -29,6 +30,7 @@ interface CoverageSidebarProps {
   searchQuery: string;
   onOpenNewResearch: () => void;
   isLoading?: boolean;
+  user?: UserSessionProfile | null;
 }
 
 export function CoverageSidebar({
@@ -43,6 +45,7 @@ export function CoverageSidebar({
   searchQuery,
   onOpenNewResearch,
   isLoading = false,
+  user,
 }: CoverageSidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<DashboardHistoryItem | null>(null);
 
@@ -281,7 +284,32 @@ export function CoverageSidebar({
 
       {/* Bottom Actions */}
       {isOpen ? (
-        <div className="p-2.5 border-t border-[#E2DFD6] shrink-0 bg-[#E8E5DF] space-y-2">
+        <div className="p-2.5 border-t border-[#E2DFD6] shrink-0 bg-[#E8E5DF] space-y-1.5">
+          {/* Plan & Subscription Badge */}
+          <Link
+            href="/billing"
+            className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-[#FAF8F5] border border-[#DDD9CE] hover:border-[#C5C0B4] rounded-xl text-xs font-semibold text-[#1A1917] transition-all shadow-2xs group cursor-pointer"
+            title={`${user?.plan?.name ?? "Freemium"} plan — view usage & change plan`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
+                <Crown className={`w-3.5 h-3.5 ${user?.plan?.id && user.plan.id !== "free" ? "text-amber-600" : "text-[#7A7569]"}`} />
+              </div>
+              <div className="truncate text-left">
+                <div className="text-[11px] font-black leading-tight text-[#1A1917] truncate">
+                  {user?.plan?.name ?? "Freemium"} Plan
+                </div>
+                <div className="text-[9px] font-medium text-[#7A7569] leading-none mt-0.5">
+                  Usage &amp; Billing
+                </div>
+              </div>
+            </div>
+            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-[#F4F1EA] text-[#6E695E] border border-[#DDD9CE] uppercase shrink-0 group-hover:bg-[#1A1917] group-hover:text-white transition-all">
+              {user?.plan?.id && user.plan.id !== "free" ? "ACTIVE" : "FREE"}
+            </span>
+          </Link>
+
+          {/* Settings & API Keys */}
           <Link
             href="/settings"
             className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-[#6E695E] hover:text-[#1A1917] hover:bg-[#DFDBD2] rounded-xl transition-all"
@@ -289,22 +317,22 @@ export function CoverageSidebar({
           >
             <div className="flex items-center gap-2">
               <Settings className="w-3.5 h-3.5 text-[#7A7569]" />
-              <span>Settings & API Keys</span>
+              <span>Settings &amp; API Keys</span>
             </div>
             <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-white border border-[#DDD9CE] text-[#59554A] uppercase">
               BYOK
             </span>
           </Link>
-          <button
-            onClick={onOpenNewResearch}
-            className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1917] hover:bg-[#2C2A26] text-white rounded-xl text-xs font-bold transition-all shadow-xs"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Launch Research</span>
-          </button>
         </div>
       ) : (
         <div className="p-2 border-t border-[#E2DFD6] shrink-0 bg-[#E8E5DF] flex flex-col items-center gap-2">
+          <Link
+            href="/billing"
+            title={`${user?.plan?.name ?? "Freemium"} Plan — View Billing`}
+            className="p-2 text-[#7A7569] hover:text-amber-600 hover:bg-[#DFDBD2] rounded-xl transition-all flex justify-center"
+          >
+            <Crown className="w-4 h-4 text-amber-600" />
+          </Link>
           <Link
             href="/settings"
             title="User Settings, Profile & LLM API Keys"

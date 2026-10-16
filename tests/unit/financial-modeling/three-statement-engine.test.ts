@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { runThreeStatementModel, ThreeStatementDrivers } from "@/lib/financial-modeling/three-statement-engine";
 import { excelGenerationService } from "@/lib/excel/excel-generator";
+import { docxGenerationService } from "@/lib/docx/docx-generator";
 import ExcelJS from "exceljs";
 
 describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
@@ -141,35 +142,59 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
 
     const sheetNames = workbook.worksheets.map((w) => w.name);
     expect(sheetNames).toContain("Executive Summary");
+    expect(sheetNames).toContain("Assumptions");
     expect(sheetNames).toContain("3-Statement Model");
     expect(sheetNames).toContain("DCF Valuation");
     expect(sheetNames).toContain("Disclosures & SEBI Attestation");
 
-    // Inspect 3-Statement Model formulas
+    // Inspect Assumptions sheet: Wall Street color-coding (blue font #002060 for inputs)
+    const assumpSheet = workbook.getWorksheet("Assumptions")!;
+    let inputCellCount = 0;
+    assumpSheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (cell.font?.color?.argb === "FF002060") {
+          inputCellCount++;
+        }
+      });
+    });
+    expect(inputCellCount).toBeGreaterThan(10);
+
+    // Inspect 3-Statement Model formulas: must reference 'Assumptions'!
     const modelSheet = workbook.getWorksheet("3-Statement Model")!;
     let formulaCount = 0;
+    let referencesAssumptionsCount = 0;
     modelSheet.eachRow((row) => {
       row.eachCell((cell) => {
         if (cell.formula) {
           formulaCount++;
+          if (typeof cell.formula === "string" && cell.formula.includes("Assumptions")) {
+            referencesAssumptionsCount++;
+          }
         }
       });
     });
 
     // Must have comprehensive live formulas across statements (>100 formula cells)
+    // and live links referencing the Assumptions sheet
     expect(formulaCount).toBeGreaterThan(100);
+    expect(referencesAssumptionsCount).toBeGreaterThan(10);
 
-    // Inspect DCF Valuation sheet formulas
+    // Inspect DCF Valuation sheet formulas: must link to Assumptions and 3-Statement Model
     const dcfSheet = workbook.getWorksheet("DCF Valuation")!;
     let dcfFormulaCount = 0;
+    let dcfAssumptionsLinks = 0;
     dcfSheet.eachRow((row) => {
       row.eachCell((cell) => {
         if (cell.formula) {
           dcfFormulaCount++;
+          if (typeof cell.formula === "string" && cell.formula.includes("Assumptions")) {
+            dcfAssumptionsLinks++;
+          }
         }
       });
     });
     expect(dcfFormulaCount).toBeGreaterThan(15);
+    expect(dcfAssumptionsLinks).toBeGreaterThan(0);
   });
 
   it("5. Decomposes revenue growth into Volume × Pricing drivers dynamically", () => {
@@ -282,5 +307,63 @@ describe("Issue 2: Integrated 3-Statement Model & Driver-Based DCF", () => {
 
     expect(highGdpModel.effectiveRevenueGrowth).toBeGreaterThan(stressedGdpModel.effectiveRevenueGrowth);
     expect(highGdpModel.targetPrice).toBeGreaterThan(stressedGdpModel.targetPrice);
+  });
+
+  it("8. Generates institutional Word document (.docx) with structured tables and SEBI disclosures", async () => {
+    const mockReport = {
+      company: {
+        name: "Acme Industrial Tech Ltd",
+        ticker: "ACMEIND",
+        sector: "Capital Goods",
+      },
+      recommendation: {
+        rating: "BUY",
+        targetPrice: 320,
+        currentPrice: 245,
+        upsidePotential: 30.6,
+      },
+      executiveSummary: "Strong market positioning with multi-year order book visibility and expanding operating leverage.",
+      investmentThesis: [
+        "Capacity utilization reaching 88% with upcoming brownfield commissioning in Q3.",
+        "Pricing power resilient against commodity inflation through contractual cost pass-through.",
+      ],
+      modelingData: {
+        assumptions: {
+          baseRevenue: 10000,
+          volumeGrowthRate: 0.08,
+          pricingGrowthRate: 0.03,
+          ebitdaMargin: 0.18,
+          regulatoryImpactBps: 50,
+          regulatoryDetails: "Production Linked Incentive subsidy benefits",
+          taxRate: 0.25,
+          wacc: 0.115,
+          terminalGrowthRate: 0.05,
+          sharesOutstanding: 100,
+        },
+      },
+      forensicAnalysis: {
+        overallHealthScore: 84,
+        riskLevel: "LOW",
+        cfoToPatRatio: { ratio: 1.15, interpretation: "High quality earnings conversion" },
+        altmanZScore: { score: 3.9, zone: "Safe", interpretation: "Distress risk negligible" },
+        governanceFlags: { promoterPledgePct: 0.0, isPledgeHigh: false },
+      },
+    };
+
+    const docxBuffer = await docxGenerationService.generateReportDocx(
+      mockReport as unknown as Parameters<typeof docxGenerationService.generateReportDocx>[0],
+      "approved",
+      {
+        reviewerName: "Dr. Arvind Rao",
+        sebiRegNo: "INH000009876",
+        approvedAt: new Date(),
+        contentHash: "sha256-abc123mockhash",
+        orgName: "Alpha Capital Partners",
+      }
+    );
+
+    expect(docxBuffer).toBeInstanceOf(Buffer);
+    // Institutional Word docx with tables and disclosures should be a non-trivial file
+    expect(docxBuffer.length).toBeGreaterThan(8000);
   });
 });

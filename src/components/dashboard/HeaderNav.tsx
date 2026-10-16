@@ -20,8 +20,8 @@ import {
 import { UserSessionProfile } from "./types";
 
 interface HeaderNavProps {
-  activeViewMode: "report" | "agent";
-  onViewModeChange: (mode: "report" | "agent") => void;
+  activeViewMode: "report" | "agent" | "screener";
+  onViewModeChange: (mode: "report" | "agent" | "screener") => void;
   activeCompanyName?: string;
   activeTicker?: string;
   onOpenNewResearch: () => void;
@@ -87,33 +87,46 @@ export function HeaderNav({
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-[#E3DFD5]" />
 
-        {/* ── Primary Mode Switcher: Report vs Agent ────────── */}
+        {/* ── Primary Mode Switcher: Report vs Agent vs Screener ────────── */}
         <div className="flex items-center bg-[#F4F1EA] p-1 rounded-xl border border-[#E2DFD6] text-xs font-semibold shadow-2xs">
           <button
             onClick={() => onViewModeChange("report")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
               activeViewMode === "report"
                 ? "bg-[#1A1917] text-white font-bold shadow-xs"
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
             title="Switch to equity research report view"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="w-3.5 h-3.5" />
             <span>Report</span>
           </button>
 
           <button
             onClick={() => onViewModeChange("agent")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
               activeViewMode === "agent"
                 ? "bg-[#1A1917] text-white font-bold shadow-xs"
                 : "text-[#6E695E] hover:text-[#1A1917]"
             }`}
             title="Switch to interactive AI research agent"
           >
-            <Bot className="w-4 h-4 text-amber-500" />
+            <Bot className="w-3.5 h-3.5 text-amber-500" />
             <span>Agent</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          </button>
+
+          <button
+            onClick={() => onViewModeChange("screener")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
+              activeViewMode === "screener"
+                ? "bg-[#1A1917] text-white font-bold shadow-xs"
+                : "text-[#6E695E] hover:text-[#1A1917]"
+            }`}
+            title="Open Market Stock Screener"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Screener</span>
           </button>
         </div>
       </div>
@@ -137,32 +150,15 @@ export function HeaderNav({
 
       {/* ── Right: New Research & Profile ─────────────────────────────────── */}
       <div className="flex items-center gap-3">
-        {/* Primary Action Button: + New Research */}
+        {/* Primary Action Button: Launch Research */}
         <button
           onClick={onOpenNewResearch}
-          className="h-10 flex items-center gap-2 px-4 bg-[#1A1917] hover:bg-[#2C2A26] text-white text-xs font-bold rounded-xl shadow-xs active:scale-[0.98] transition-all cursor-pointer"
+          className="h-10 flex items-center gap-2 px-4 bg-[#1A1917] hover:bg-[#2C2A26] text-white text-xs font-bold rounded-xl shadow-xs active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+          title="Launch deep research on a new company"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-          <span>New Research</span>
+          <span>Launch Research</span>
         </button>
-
-        {/* Vertical Divider */}
-        <div className="h-6 w-px bg-[#E3DFD5]" />
-
-        {/* Org Plan Badge -> Billing */}
-        <Link
-          href="/billing"
-          title={`${user?.plan?.name ?? "Freemium"} plan — view usage and change plan`}
-          className="h-8 flex items-center gap-1.5 px-2.5 bg-[#F1EFEA] border border-[#E3DFD5] rounded-lg text-[10px] font-bold uppercase tracking-wider text-[#6E695E] hover:bg-white hover:border-[#D5D0C3] transition-all shrink-0 cursor-pointer"
-        >
-          <Crown
-            className={`w-3 h-3 ${
-              user?.plan?.id && user.plan.id !== "free" ? "text-amber-600" : "text-[#8C877D]"
-            }`}
-          />
-          <span className="hidden md:inline">{user?.plan?.name ?? "Freemium"} Plan</span>
-          {(!user?.plan?.id || user.plan.id === "free") && <span className="md:hidden">Free</span>}
-        </Link>
 
         {/* Interactive User Avatar & Profile Dropdown */}
         <div className="relative" ref={profileMenuRef}>

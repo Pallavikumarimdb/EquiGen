@@ -8,6 +8,7 @@ import { NewResearchModal, type LaunchResearchParams } from "./dashboard/NewRese
 import { AgentChatView } from "./dashboard/views/AgentChatView";
 import { SignoffModal } from "./dashboard/SignoffModal";
 import { UnifiedReportView } from "./dashboard/views/UnifiedReportView";
+import { StockScreener } from "./dashboard/StockScreener";
 import {
   DashboardHistoryItem,
   UserSessionProfile,
@@ -26,7 +27,7 @@ import {
 
 interface DashboardProps {
   initialReportId?: string;
-  initialViewMode?: "report" | "agent";
+  initialViewMode?: "report" | "agent" | "screener";
 }
 
 export default function Dashboard({ initialReportId, initialViewMode = "report" }: DashboardProps) {
@@ -34,8 +35,9 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
 
 
-  // Navigation & Primary View Mode (Report vs Agent)
-  const [activeViewMode, setActiveViewMode] = useState<"report" | "agent">(initialViewMode);
+  // Navigation & Primary View Mode (Report vs Agent vs Screener)
+  const [activeViewMode, setActiveViewMode] = useState<"report" | "agent" | "screener">(initialViewMode);
+  const [agentStudioTab, setAgentStudioTab] = useState<"split" | "chat" | "excel" | "word" | "pipeline">("split");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNewResearchOpen, setIsNewResearchOpen] = useState(false);
   const [isSignoffOpen, setIsSignoffOpen] = useState(false);
@@ -63,10 +65,15 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
   const [toasts, setToasts] = useState<DashboardToast[]>([]);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
+  const [isDownloadingDocx, setIsDownloadingDocx] = useState(false);
 
   // URL Synchronization Helper (shallow SPA update without triggering Next.js route remount)
-  const syncUrl = useCallback((reportId: string | null, mode: "report" | "agent") => {
+  const syncUrl = useCallback((reportId: string | null, mode: "report" | "agent" | "screener") => {
     if (typeof window === "undefined") return;
+
+    if (mode === "screener") {
+      return;
+    }
 
     if (!reportId) {
       if (window.location.pathname !== "/") {
@@ -684,6 +691,29 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
+  // Launch / Switch research from the embedded Stock Screener
+  const handleLaunchResearchFromScreener = ({ name, ticker: selectedTicker }: { name: string; ticker: string }) => {
+    const cleanTicker = (selectedTicker || "").trim().toUpperCase();
+    const existing = history.find((h) => {
+      const hTicker = (h.reportData?.company?.ticker || "").trim().toUpperCase();
+      const hName = (h.companyName || "").trim().toLowerCase();
+      return (cleanTicker && hTicker === cleanTicker) || hName === name.trim().toLowerCase();
+    });
+
+    if (existing) {
+      handleSelectReport(existing);
+      showToast(`Switched active workspace to ${existing.companyName}`, "info");
+      return;
+    }
+
+    void handleLaunchResearch({
+      companyName: name,
+      ticker: selectedTicker,
+      depth: "standard",
+      sourcePolicy: "filings_only",
+    });
+  };
+
   // Live Report Update Handler (called by Copilot to update/fix/modify the report)
   const handleUpdateReportData = (updated: EquityResearchData) => {
     setReportData(updated);
@@ -832,6 +862,34 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     }
   };
 
+  // Word Document (.docx) Download Trigger
+  const handleDownloadDocx = async () => {
+    if (!activeReportId) return;
+    setIsDownloadingDocx(true);
+    showToast("Exporting research note to Word (.docx)...", "info");
+
+    try {
+      const cleanId = activeReportId.replace(/^rep_/, "");
+      const res = await fetch(`/api/docx/export?reportId=${encodeURIComponent(cleanId)}`);
+      if (!res.ok) throw new Error("Word export failed.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${companyName.replace(/[^a-zA-Z0-9]/g, "_")}_Research_Note.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      showToast("Word document (.docx) exported successfully!", "success");
+    } catch {
+      showToast("Word export failed.", "error");
+    } finally {
+      setIsDownloadingDocx(false);
+    }
+  };
+
   // Sign out
   const handleSignOut = async () => {
     try {
@@ -845,7 +903,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
 
   const ticker = reportData?.company?.ticker || undefined;
 
-  const handleViewModeChange = (mode: "report" | "agent") => {
+  const handleViewModeChange = (mode: "report" | "agent" | "screener") => {
     setActiveViewMode(mode);
     if (activeReportId) {
       syncUrl(activeReportId, mode);
@@ -899,6 +957,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           searchQuery={searchQuery}
           onOpenNewResearch={() => setIsNewResearchOpen(true)}
           isLoading={isLoadingHistory}
+          user={user}
         />
 
         {/* ── Primary Central Stage ─────────────────────────────────────── */}
@@ -914,6 +973,13 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               </p>
             </div>
           </main>
+        ) : activeViewMode === "screener" ? (
+          /* Global Dedicated Stock Screener */
+          <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-white animate-fadeIn">
+            <StockScreener
+              onLaunchResearch={handleLaunchResearchFromScreener}
+            />
+          </main>
         ) : activeViewMode === "report" || (!activeReportId && !reportData && history.length === 0) ? (
           /* Unified Report View & Universe Empty State: Complete Equity Research Report Page */
           <main className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto p-4 sm:p-6 transition-all duration-300">
@@ -925,10 +991,19 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
                 onOpenSignoff={() => setIsSignoffOpen(true)}
                 onDownloadPdf={handleDownloadPdf}
                 onDownloadExcel={handleDownloadExcel}
+                onDownloadDocx={handleDownloadDocx}
                 isDownloadingPdf={isDownloadingPdf}
                 isDownloadingExcel={isDownloadingExcel}
-                onAskCopilotPrompt={(_prompt) => {
+                isDownloadingDocx={isDownloadingDocx}
+                onOpenAgentStudio={(tab) => {
+                  setAgentStudioTab(tab || "excel");
                   setActiveViewMode("agent");
+                  syncUrl(activeReportId, "agent");
+                }}
+                onAskCopilotPrompt={(_prompt) => {
+                  setAgentStudioTab("chat");
+                  setActiveViewMode("agent");
+                  syncUrl(activeReportId, "agent");
                 }}
                 reviewerName={reviewerName}
                 sebiRegNo={sebiRegNo}
@@ -971,6 +1046,16 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
               onSwitchToReport={handleSwitchToReport}
               onPlanComplete={handlePlanComplete}
               onStopAgent={() => handleStopProcess(undefined, activeReportId || undefined)}
+              initialStudioTab={agentStudioTab}
+              onDownloadPdf={handleDownloadPdf}
+              onDownloadExcel={handleDownloadExcel}
+              onDownloadDocx={handleDownloadDocx}
+              isDownloadingPdf={isDownloadingPdf}
+              isDownloadingExcel={isDownloadingExcel}
+              isDownloadingDocx={isDownloadingDocx}
+              reviewerName={reviewerName}
+              sebiRegNo={sebiRegNo}
+              approvedAt={approvedAt}
             />
           </main>
         )}
