@@ -13,6 +13,7 @@ import {
   SynthesiseMilestone,
   ComplianceAuditMilestone,
   MilestoneStatus,
+  SourcePolicy,
 } from "@/types/plan4";
 
 // ─── Cost & latency estimates per milestone type ───────────────────────────────
@@ -110,12 +111,14 @@ function makeModelingMilestone(depth: ResearchDepth): BuildFinancialModelMilesto
   };
 }
 
-function makePeerMilestone(depth: ResearchDepth, peerTickers: string[]): PeerBenchmarkMilestone {
+function makePeerMilestone(depth: ResearchDepth, peerTickers: string[], sourcePolicy: SourcePolicy = "filings_only"): PeerBenchmarkMilestone {
   return {
     id: "m_peer",
     type: "peer_benchmark",
-    label: "Peer Benchmarking",
-    description: `Compare against ${peerTickers.length > 0 ? peerTickers.join(", ") : "sector peers"} on key valuation multiples.`,
+    label: sourcePolicy === "filings_only" ? "Peer Benchmarking (BSE/NSE Disclosures)" : "Peer Benchmarking",
+    description: sourcePolicy === "filings_only"
+      ? `Compare against ${peerTickers.length > 0 ? peerTickers.join(", ") : "sector peers"} using audited exchange disclosures (strict filings-only).`
+      : `Compare against ${peerTickers.length > 0 ? peerTickers.join(", ") : "sector peers"} on key valuation multiples.`,
     agentType: "market_intel",
     estimatedMinutes: Math.ceil(MILESTONE_LATENCY_S.peer_benchmark[depth] / 60),
     estimatedCostUsd: MILESTONE_COST_USD.peer_benchmark[depth],
@@ -124,16 +127,19 @@ function makePeerMilestone(depth: ResearchDepth, peerTickers: string[]): PeerBen
     config: {
       peerTickers,
       metrics: ["pe", "ev_ebitda", "pb", "roe", "revenue_growth", "ebitda_margin"],
+      sourcePolicy,
     },
   };
 }
 
-function makeSynthesisMilestone(depth: ResearchDepth): SynthesiseMilestone {
+function makeSynthesisMilestone(depth: ResearchDepth, sourcePolicy: SourcePolicy = "filings_only"): SynthesiseMilestone {
   return {
     id: "m_synthesise",
     type: "synthesise",
-    label: "Synthesise Research Report",
-    description: "Draft all report sections from research corpus.",
+    label: sourcePolicy === "filings_only" ? "Synthesise Report (Filings Grounding)" : "Synthesise Research Report",
+    description: sourcePolicy === "filings_only"
+      ? "Draft all report sections strictly grounded in verified company filings and exchange disclosures."
+      : "Draft all report sections from research corpus.",
     agentType: "synthesis",
     estimatedMinutes: Math.ceil(MILESTONE_LATENCY_S.synthesise[depth] / 60),
     estimatedCostUsd: MILESTONE_COST_USD.synthesise[depth],
@@ -151,6 +157,7 @@ function makeSynthesisMilestone(depth: ResearchDepth): SynthesiseMilestone {
         "management_qa_highlights",
         "disclosures",
       ],
+      sourcePolicy,
     },
   };
 }
@@ -218,6 +225,7 @@ export class MasterPlannerAgent {
     apiKey?: string
   ): Promise<ResearchPlanRecord> {
     const { depth, ticker, goalText, sessionId } = goal;
+    const sourcePolicy = goal.sourcePolicy ?? "filings_only";
 
     // Step 1: Extract peer tickers from the goal text (LLM-assisted, bounded to 3s to prevent serverless timeouts)
     const peerPromise = extractPeerTickers(goalText, ticker, apiKey);
@@ -229,8 +237,8 @@ export class MasterPlannerAgent {
       makeFetchMilestone(depth, goal.uploadedDocument),
       makeExtractMilestone(depth),
       makeModelingMilestone(depth),
-      makePeerMilestone(depth, peerTickers),
-      makeSynthesisMilestone(depth),
+      makePeerMilestone(depth, peerTickers, sourcePolicy),
+      makeSynthesisMilestone(depth, sourcePolicy),
       makeComplianceMilestone(depth),
     ];
 
@@ -266,6 +274,7 @@ export class MasterPlannerAgent {
         companyName: String(planRecord.companyName ?? goal.companyName),
         milestones,
         depth: planRecord.depth as ResearchDepth,
+        sourcePolicy,
         costEstimate: Number(planRecord.costEstimate ?? 0),
         latencyEstS: Number(planRecord.latencyEstS ?? 0),
         status: (planRecord.status ?? "pending") as ResearchPlanRecord["status"],

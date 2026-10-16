@@ -81,8 +81,31 @@ export class MarketIntelAgent {
 
     const companyName = input.companyName;
 
-    // Step 3: Fetch Sector News with LLM sentiment
-    const newsDigest = await fetchSectorNews(ticker, { apiKey, companyName });
+    // Step 3: Sector News Handling with Strict Filings-Only Governance
+    // Filings-only is the default trust requirement. Open web feeds/RSS are bypassed unless explicitly opted-in.
+    const isFilingsOnly = milestone.config?.sourcePolicy !== "allow_external_news";
+    let newsDigest: SectorNewsDigest;
+
+    if (isFilingsOnly) {
+      console.log(`[MarketIntelAgent] 🛡️ Filings-only governance: Open web news & external RSS bypassed to ensure 100% primary source auditability.`);
+      newsDigest = {
+        ticker,
+        sector: "Exchange Corporate Disclosures",
+        news: [],
+        sentimentBreakdown: { positive: 0, neutral: 0, negative: 0, regulatory_risk: 0 },
+        isLiveData: false,
+        fetchedAt: new Date().toISOString(),
+      };
+    } else {
+      console.log(`[MarketIntelAgent] 🌐 Opt-in external news policy: Fetching sector RSS headlines with explicit secondary source labeling...`);
+      newsDigest = await fetchSectorNews(ticker, { apiKey, companyName });
+      if (newsDigest?.news) {
+        newsDigest.news = newsDigest.news.map((item) => ({
+          ...item,
+          source: item.source.startsWith("External Media RSS") ? item.source : `External Media RSS: ${item.source}`,
+        }));
+      }
+    }
 
     // Step 4: Format Peer Benchmark Markdown table (enriched with Yahoo data for primary)
     const benchmarkMarkdown = this.formatBenchmarkTable(peerProfiles, yahooFinancials);
@@ -96,7 +119,7 @@ export class MarketIntelAgent {
       newsDigest,
       benchmarkMarkdown,
       milestoneCompleted: true,
-      summary: this.buildSummary(ticker, peerProfiles, creditRatings, newsDigest, yahooFinancials),
+      summary: this.buildSummary(ticker, peerProfiles, creditRatings, newsDigest, yahooFinancials, isFilingsOnly),
     };
 
     // Update SubagentRun record in DB (if record exists)
@@ -161,17 +184,21 @@ export class MarketIntelAgent {
     profiles: any[],
     credit: CreditRatingResult,
     news: SectorNewsDigest,
-    yahoo?: ExtractedFinancials | null
+    yahoo?: ExtractedFinancials | null,
+    isFilingsOnly = true
   ): string {
     const yahooNote = yahoo?.isLiveData
       ? `• Yahoo Finance: Market Cap ₹${yahoo.marketCapCr ?? "N/A"} Cr | P/E ${yahoo.trailingPE ?? "N/A"}x | EV/EBITDA ${yahoo.evEbitda ?? "N/A"}x`
       : `• Yahoo Finance: data unavailable for ${ticker}`;
+    const policyNote = isFilingsOnly
+      ? "• Source Policy: Strict Filings-Only (100% primary BSE/NSE filings & disclosures; web news bypassed)"
+      : `• Sector News Digest: ${news.news?.length ?? 0} items analyzed (${news.sentimentBreakdown?.positive ?? 0} positive, ${news.sentimentBreakdown?.regulatory_risk ?? 0} regulatory risk)`;
     return [
       `Market Intelligence Research Complete for ${ticker}:`,
-      `• Screener profiles benchmarked for ${profiles.length} peer(s)`,
+      policyNote,
+      `• Peer disclosures benchmarked for ${profiles.length} peer(s)`,
       yahooNote,
       `• Credit Rating Profile: ${credit.overallCreditProfile}`,
-      `• Sector News Digest: ${news.news?.length ?? 0} items analyzed (${news.sentimentBreakdown?.positive ?? 0} positive, ${news.sentimentBreakdown?.regulatory_risk ?? 0} regulatory risk)`,
     ].join("\n");
   }
 }

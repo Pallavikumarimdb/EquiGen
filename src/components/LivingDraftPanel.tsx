@@ -495,14 +495,40 @@ export function LivingDraftPanel({
                       Source Citations & Provenance
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {currentSection.citations.map((cite, i) => (
-                        <span
-                          key={i}
-                          className="px-2.5 py-1 rounded-lg bg-[#FAF8F5] border border-[#E3DFD5] text-[#1A1917] font-mono text-[10px] font-bold shadow-sm"
-                        >
-                          ref: {cite}
-                        </span>
-                      ))}
+                      {currentSection.citations.map((cite, i) => {
+                        const isExternal =
+                          cite.startsWith("external") ||
+                          cite.startsWith("news") ||
+                          cite === "sector_news";
+
+                        let label = cite;
+                        if (cite === "bse_filings") label = "BSE Regulatory Disclosures";
+                        else if (cite === "nse_filings") label = "NSE Exchange Disclosures";
+                        else if (cite === "annual_report") label = "Audited Annual Report / DRHP";
+                        else if (cite === "concall_transcript") label = "Earnings Concall Transcript";
+                        else if (cite === "dcf_model") label = "Primary DCF Financial Model";
+                        else if (cite === "credit_rating" || cite === "regulatory_filings") label = "Exchange Filing Disclosures";
+                        else if (cite === "audited_financials") label = "Audited Financial Statements";
+                        else if (cite === "exchange_peer_multiples" || cite === "screener_peer_multiples" || cite === "screener_financials" || cite === "screener_market_intel") label = "Exchange-Derived Peer Disclosures";
+                        else if (isExternal) label = `External Context: ${cite.replace(/^external_/, "").replace(/_/g, " ")}`;
+
+                        return (
+                          <span
+                            key={i}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-mono text-[10px] font-bold shadow-sm border ${
+                              isExternal
+                                ? "bg-amber-500/10 border-amber-400/40 text-amber-800"
+                                : "bg-emerald-500/10 border-emerald-400/40 text-emerald-900"
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${isExternal ? "bg-amber-500" : "bg-emerald-500"}`} />
+                            <span className="opacity-75 uppercase text-[9px] tracking-wider">
+                              {isExternal ? "External" : "Primary"}
+                            </span>
+                            <span>{label}</span>
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

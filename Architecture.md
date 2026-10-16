@@ -416,6 +416,11 @@ To prevent hallucinated data in financial research, EquiGen implements strict da
    ```
 2. **Fallback Disclaimers**: If exchange filings cannot be retrieved (e.g. network rate limit or unlisted security), the pipeline marks `modelFallback: true` and explicitly appends statutory disclaimers to both the UI draft and the exported PDF.
 3. **No Synthetic Data in Researched Reports**: `/api/download` prioritizes the real researched sections from `ReportHistory` over ad-hoc synthetic heuristics.
+4. **Strict "Filings-Only" Default Mode & Provenance Citations**:
+   - **Institutional Trust Posture**: To satisfy the strictest buy-side and sell-side diligence standards, EquiGen operates in **`filings_only` mode by default**.
+   - **Primary Grounding**: All financial models, historical series, margin assertions, and valuation multiples are sourced strictly from audited company filings (BSE/NSE statutory corporate filings, audited annual reports, quarterly investor presentations, and exchange-filed earnings concalls).
+   - **Gated Secondary Media**: External news (Google News / Economic Times RSS) is disabled by default. If an analyst opts into `allow_external_news` for sector context, external signals are segregated and tagged with explicit `[External Source: ...]` badges so they can never be mistaken for primary filings.
+   - **Granular Citation Tagging**: In the Living Draft and exported artifacts, citations clearly distinguish **Primary Statutory Disclosures** (emerald badge) from **Optional Outside Sources** (amber badge).
 
 ---
 

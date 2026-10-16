@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { goalText, ticker, companyName, depth, sessionId, isin, uploadedDocument } = body as Partial<ResearchGoal> & {
+    const { goalText, ticker, companyName, depth, sourcePolicy, sessionId, isin, uploadedDocument } = body as Partial<ResearchGoal> & {
       uploadedDocument?: {
         fileName: string;
         textSummary?: string;
@@ -142,6 +142,7 @@ export async function POST(req: NextRequest) {
       ticker: resolvedTicker.toUpperCase(),
       companyName: resolvedCompanyName,
       depth: depth ?? "standard",
+      sourcePolicy: sourcePolicy ?? "filings_only",
       sessionId: resolvedSessionId,
       isin,
       uploadedDocument,

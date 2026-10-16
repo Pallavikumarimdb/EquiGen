@@ -489,6 +489,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
     companyName: compName,
     ticker: tickerInput,
     depth = "standard",
+    sourcePolicy = "filings_only",
     promptGoal: goalText,
     file,
   }: LaunchResearchParams) => {
@@ -521,6 +522,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
         planId: tempPlanId,
         fileName: reportFileName,
         status: "running",
+        sourcePolicy,
       } as unknown as EquityResearchData,
       reportPdfBase64: null,
       status: "running",
@@ -605,6 +607,7 @@ export default function Dashboard({ initialReportId, initialViewMode = "report" 
           companyName: compName,
           ticker: cleanInputTicker || undefined,
           depth,
+          sourcePolicy,
           sessionId: newSessionId,
           uploadedDocument: uploadedDocPayload,
         }),

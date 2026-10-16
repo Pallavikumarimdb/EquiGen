@@ -7,6 +7,13 @@
 
 export type ResearchDepth = "quick" | "standard" | "deep";
 
+/**
+ * Data source governance policy.
+ * - "filings_only": Strict primary source mode (BSE/NSE exchange disclosures, audited annual reports, DRHPs, concall transcripts). Web news & open web feeds are bypassed.
+ * - "allow_external_news": Opt-in mode that allows external RSS feeds (e.g. Google News / Economic Times) as explicitly labeled secondary context.
+ */
+export type SourcePolicy = "filings_only" | "allow_external_news";
+
 export interface ResearchGoal {
   /** Plain-language description of the research intent */
   goalText: string;
@@ -18,6 +25,8 @@ export interface ResearchGoal {
   isin?: string;
   /** Research depth setting */
   depth: ResearchDepth;
+  /** Source governance: defaults to "filings_only" for institutional trust */
+  sourcePolicy?: SourcePolicy;
   /** sessionId (ResearchSession FK) */
   sessionId: string;
   /** Optional user-uploaded filing (Annual Report / DRHP PDF) to enrich the swarm */
@@ -90,6 +99,7 @@ export interface PeerBenchmarkMilestone extends BaseMilestone {
   config: {
     peerTickers: string[];
     metrics: string[];
+    sourcePolicy?: SourcePolicy;
   };
 }
 
@@ -97,6 +107,7 @@ export interface SynthesiseMilestone extends BaseMilestone {
   type: "synthesise";
   config: {
     sections: ReportSectionName[];
+    sourcePolicy?: SourcePolicy;
   };
 }
 
@@ -129,6 +140,8 @@ export interface ResearchPlanRecord {
   companyName?: string;
   milestones: MilestonePlan[];
   depth: ResearchDepth;
+  /** Source governance: defaults to "filings_only" */
+  sourcePolicy?: SourcePolicy;
   costEstimate: number;  // USD total
   latencyEstS: number;   // seconds total
   status: ResearchPlanStatus;

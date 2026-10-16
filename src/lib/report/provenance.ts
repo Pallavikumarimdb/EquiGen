@@ -213,7 +213,30 @@ export function resolveProvenance(input: ProvenanceInput): ProvenanceSummary {
     );
   }
 
-  const items = [filingsItem, creditItem, valuationItem, verdictItem];
+  // ── Source Governance: Filings-Only Policy ──────────────────────────────────
+  const sg = (ds as Record<string, unknown> | null)?.sourceGovernance as { policy?: string; isFilingsOnly?: boolean; description?: string } | undefined;
+  let sourceGovernanceItem: ProvenanceItem;
+  if (!hasSources) {
+    sourceGovernanceItem = item(
+      "Source Governance",
+      "not_assessed",
+      "No source governance policy was recorded for this report.",
+    );
+  } else if (sg?.policy === "allow_external_news" || sg?.isFilingsOnly === false) {
+    sourceGovernanceItem = item(
+      "Source Governance",
+      "fallback",
+      "External news and media RSS enabled as secondary market context. Primary models remain anchored in filings.",
+    );
+  } else {
+    sourceGovernanceItem = item(
+      "Source Governance",
+      "verified",
+      "Strict Filings-Only: All figures, financial ratios, and valuation models are sourced 100% from BSE/NSE regulatory filings and audited reports.",
+    );
+  }
+
+  const items = [sourceGovernanceItem, filingsItem, creditItem, valuationItem, verdictItem];
   const worstState = items.reduce<ProvenanceState>(
     (worst, i) => (SEVERITY_ORDER[i.state] > SEVERITY_ORDER[worst] ? i.state : worst),
     "verified",

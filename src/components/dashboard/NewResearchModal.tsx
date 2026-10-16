@@ -10,12 +10,15 @@ import {
   FileBadge2,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
+  Globe,
 } from "lucide-react";
 
 export interface LaunchResearchParams {
   companyName: string;
   ticker?: string;
   depth?: "quick" | "standard" | "deep";
+  sourcePolicy?: "filings_only" | "allow_external_news";
   promptGoal?: string;
   file?: File | null;
 }
@@ -35,6 +38,7 @@ export function NewResearchModal({
   const [targetCompany, setTargetCompany] = useState("");
   const [targetTicker, setTargetTicker] = useState("");
   const [researchDepth, setResearchDepth] = useState<"quick" | "standard" | "deep">("standard");
+  const [sourcePolicy, setSourcePolicy] = useState<"filings_only" | "allow_external_news">("filings_only");
   const [customFocus, setCustomFocus] = useState("");
 
   // Optional PDF upload (Annual Report / DRHP)
@@ -86,6 +90,7 @@ export function NewResearchModal({
       companyName: targetCompany.trim(),
       ticker: targetTicker.trim() || undefined,
       depth: researchDepth,
+      sourcePolicy,
       promptGoal: fullGoal,
       file: selectedFile,
     });
@@ -201,6 +206,61 @@ export function NewResearchModal({
                       <p className="text-[10px] mt-1 text-[#8C877D] leading-tight">{d.desc}</p>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Data Source Governance Policy (Trust Requirement) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-[#A6A095] uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    Data Source Governance &amp; Provenance
+                  </label>
+                  <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Institutional Trust Default
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div
+                    onClick={() => setSourcePolicy("filings_only")}
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                      sourcePolicy === "filings_only"
+                        ? "bg-emerald-500/10 border-emerald-500/80 shadow-sm shadow-emerald-500/10"
+                        : "bg-[#1F1D19] border-[#2E2B24] hover:border-[#3E3B34]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <ShieldCheck className={`w-3.5 h-3.5 ${sourcePolicy === "filings_only" ? "text-emerald-400" : "text-[#8C877D]"}`} />
+                        Strict Filings-Only
+                      </span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Default</span>
+                    </div>
+                    <p className="text-[10px] mt-1 text-[#8C877D] leading-tight">
+                      100% primary exchange disclosures (BSE/NSE, Annual Reports, concalls). Open web &amp; news strictly blocked.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setSourcePolicy("allow_external_news")}
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                      sourcePolicy === "allow_external_news"
+                        ? "bg-amber-400/10 border-amber-400/80 shadow-sm shadow-amber-500/10"
+                        : "bg-[#1F1D19] border-[#2E2B24] hover:border-[#3E3B34]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Globe className={`w-3.5 h-3.5 ${sourcePolicy === "allow_external_news" ? "text-amber-400" : "text-[#8C877D]"}`} />
+                        Include External News
+                      </span>
+                      <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-black/40 text-amber-300">Opt-in</span>
+                    </div>
+                    <p className="text-[10px] mt-1 text-[#8C877D] leading-tight">
+                      Adds Google News / ET RSS sector headlines as secondary context. All external claims are labeled.
+                    </p>
+                  </div>
                 </div>
               </div>
 

@@ -14,6 +14,7 @@ import {
   ModelingOutput,
   ReportSection,
   ReportSectionName,
+  SourcePolicy,
 } from "@/types/plan4";
 import { ConsistencyCheckerTool, ConsistencyCheckResult } from "../tools/consistency-checker-tool";
 import { SectionStore } from "@/lib/report/section-store";
@@ -29,6 +30,7 @@ export interface SynthesisInput {
   ticker: string;
   companyName: string;
   depth?: string;
+  sourcePolicy?: SourcePolicy;
   documentData?: {
     filings?: unknown[];
     /** Typed filing titles & URLs for business description context */
@@ -112,16 +114,22 @@ Rules:
 async function generateSectionWithLLM(
   sectionName: string,
   prompt: string,
-  apiKey?: string
+  apiKey?: string,
+  sourcePolicy: SourcePolicy = "filings_only"
 ): Promise<string | null> {
   console.log(`[SynthesisAgent] 📝 Synthesizing section '${sectionName}' via LLM...`);
+  const isFilingsOnly = sourcePolicy !== "allow_external_news";
+  const systemPrompt = isFilingsOnly
+    ? `${SYNTHESIS_SYSTEM_PROMPT}\n- CRITICAL TRUST RULE: Strict Filings-Only mode is active. You must derive every single numerical figure, financial ratio, and operational metric strictly from audited company filings, BSE/NSE exchange disclosures, or the DCF valuation model. Never cite or introduce outside media/web figures.`
+    : `${SYNTHESIS_SYSTEM_PROMPT}\n- External market news permitted as secondary context only. Clearly attribute external items.`;
+
   try {
     const { model, modelName } = await getModelForRequest(
       { provider: "groq", apiKey },
       prompt,
     );
     const response = await model.invoke([
-      new SystemMessage(SYNTHESIS_SYSTEM_PROMPT),
+      new SystemMessage(systemPrompt),
       new HumanMessage(prompt),
     ]);
     const content = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
@@ -135,7 +143,7 @@ async function generateSectionWithLLM(
       console.log(`[SynthesisAgent] 🔄 Falling back to '${FALLBACK_GROQ_MODEL}' for section '${sectionName}'...`);
       const fallbackModel = getFallbackGroqModel({ provider: "groq", apiKey });
       const fallbackResponse = await fallbackModel.invoke([
-        new SystemMessage(SYNTHESIS_SYSTEM_PROMPT),
+        new SystemMessage(systemPrompt),
         new HumanMessage(prompt),
       ]);
       const fallbackContent = typeof fallbackResponse.content === "string" ? fallbackResponse.content : JSON.stringify(fallbackResponse.content);
@@ -395,32 +403,40 @@ export class SynthesisAgent {
       { agent: "synthesis", summary: `Synthesizing report sections for ${input.companyName} (${input.ticker}) using live research data...` }
     );
 
+    const isFilingsOnly = input.sourcePolicy !== "allow_external_news";
+
     // Generate all sections via LLM, sequentially to respect rate limits
     const sectionDefs: { name: ReportSectionName; promptFn: () => string; citationsHint: string[] }[] = [
       {
         name: "executive_summary",
         promptFn: () => buildExecutiveSummaryPrompt(input),
-        citationsHint: ["bse_filings", "dcf_model", "screener_market_intel"],
+        citationsHint: isFilingsOnly
+          ? ["bse_filings", "dcf_model", "exchange_disclosures"]
+          : ["bse_filings", "dcf_model", "screener_market_intel"],
       },
       {
         name: "business_description",
         promptFn: () => buildBusinessDescriptionPrompt(input),
-        citationsHint: ["annual_report"],
+        citationsHint: ["annual_report", "exchange_filings"],
       },
       {
         name: "financial_analysis",
         promptFn: () => buildFinancialAnalysisPrompt(input),
-        citationsHint: ["screener_financials", "dcf_model"],
+        citationsHint: ["audited_financials", "dcf_model"],
       },
       {
         name: "valuation",
         promptFn: () => buildValuationSectionPrompt(input),
-        citationsHint: ["dcf_model", "screener_peer_multiples"],
+        citationsHint: isFilingsOnly
+          ? ["dcf_model", "exchange_peer_multiples"]
+          : ["dcf_model", "screener_peer_multiples"],
       },
       {
         name: "key_risks",
         promptFn: () => buildRisksSectionPrompt(input),
-        citationsHint: ["sector_news", "credit_rating"],
+        citationsHint: isFilingsOnly
+          ? ["regulatory_filings", "credit_rating"]
+          : ["credit_rating", "external_news_rss"],
       },
       {
         name: "management_qa_highlights",
@@ -434,7 +450,7 @@ export class SynthesisAgent {
     for (const def of sectionDefs) {
       const prompt = def.promptFn();
       const content =
-        (await generateSectionWithLLM(def.name, prompt, apiKey)) ??
+        (await generateSectionWithLLM(def.name, prompt, apiKey, input.sourcePolicy ?? "filings_only")) ??
         `[${def.name} — data pending: LLM generation unavailable. ` +
         `Please ensure an API key is configured and retry.]`;
 

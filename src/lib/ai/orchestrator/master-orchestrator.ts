@@ -10,7 +10,7 @@
  * Fallback extraction from goalText is provided when the plan predates this fix.
  */
 
-import { MilestonePlan } from "@/types/plan4";
+import { MilestonePlan, SourcePolicy } from "@/types/plan4";
 import { documentAgent } from "../subagents/document-agent";
 import { modelingAgent } from "../subagents/modeling-agent";
 import { marketIntelAgent } from "../subagents/market-intel-agent";
@@ -96,6 +96,10 @@ export class MasterOrchestrator {
     const fallback = extractTickerFromGoalText(goalText);
     let ticker: string = (plan as Record<string, unknown>).ticker as string ?? fallback.ticker;
     let companyName: string = (plan as Record<string, unknown>).companyName as string ?? fallback.companyName;
+    const sourcePolicy: SourcePolicy =
+      ((plan as Record<string, unknown>).sourcePolicy as SourcePolicy) ||
+      ((milestones.find((m) => (m.config as Record<string, unknown> | undefined)?.sourcePolicy)?.config as Record<string, unknown> | undefined)?.sourcePolicy as SourcePolicy) ||
+      "filings_only";
 
     // Auto-resolve ticker if unknown, missing or a naive slice like PONDYOXIDE
     if (!ticker || ticker === "UNKNOWN" || ticker.length > 8 || ticker === "PONDYOXIDE" || ticker.includes(" ")) {
@@ -426,7 +430,7 @@ export class MasterOrchestrator {
             estimatedCostUsd: 0.20,
             status: "running" as const,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            config: (milestone as any).config ?? { peerTickers: [], metrics: ["pe", "ev_ebitda"] },
+            config: { ...((milestone as any).config ?? { peerTickers: [], metrics: ["pe", "ev_ebitda"] }), sourcePolicy },
           };
           marketIntelOutput = await marketIntelAgent.run({
             planId,
@@ -474,6 +478,7 @@ export class MasterOrchestrator {
             planId,
             ticker,
             companyName,
+            sourcePolicy,
             documentData: {
               filings: docOut?.fetchedDocuments ?? [],
               filingTitles,
@@ -753,7 +758,17 @@ export class MasterOrchestrator {
         // computed and then discarded, making them unenforceable.
         consistencyCheck: (synthOut?.consistencyCheck as Record<string, unknown>) ?? null,
         complianceAudit: ((complianceOutput as { auditResult?: unknown } | null)?.auditResult ?? null) as Record<string, unknown> | null,
-        dataSources: reportDataSources,
+        sourcePolicy,
+        dataSources: {
+          ...((reportDataSources as Record<string, unknown> | null) ?? {}),
+          sourceGovernance: {
+            policy: sourcePolicy,
+            isFilingsOnly: sourcePolicy === "filings_only",
+            description: sourcePolicy === "filings_only"
+              ? "Strict Primary Filings Only: All model metrics and assertions derived strictly from BSE/NSE exchange filings and audited disclosures."
+              : "External Context Enabled: Secondary news feeds permitted alongside primary filings.",
+          },
+        },
         completedAt: new Date().toISOString(),
         dataFetchedAt: reportedFetchedAt,
         dataAsOf,

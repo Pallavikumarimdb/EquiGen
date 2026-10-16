@@ -144,6 +144,7 @@ describe("MarketIntelAgent", () => {
         config: {
           peerTickers: ["INFY"],
           metrics: ["PE", "MarketCap"],
+          sourcePolicy: "allow_external_news",
         },
         estimatedMinutes: 5,
         estimatedCostUsd: 0.05,
@@ -161,5 +162,39 @@ describe("MarketIntelAgent", () => {
     expect(output.newsDigest.isLiveData).toBe(true);
     expect(output.benchmarkMarkdown).toContain("Valuation & Operational Peer Benchmark");
     expect(output.summary).toContain("TCS");
+  });
+
+  it("enforces strict filings-only governance by bypassing external web news", async () => {
+    const agent = new MarketIntelAgent();
+    const input: MarketIntelAgentInput = {
+      planId: "plan-1",
+      runId: "run-2",
+      ticker: "TCS",
+      companyName: "Tata Consultancy Services",
+      milestone: {
+        id: "m-2",
+        label: "Peer Benchmarking (BSE/NSE Filings)",
+        type: "peer_benchmark",
+        description: "Benchmark TCS vs INFY strictly using company filings",
+        agentType: "market_intel",
+        config: {
+          peerTickers: ["INFY"],
+          metrics: ["PE", "MarketCap"],
+          sourcePolicy: "filings_only",
+        },
+        estimatedMinutes: 5,
+        estimatedCostUsd: 0.05,
+        status: "pending",
+      },
+    };
+
+    const output = await agent.run(input);
+
+    expect(output.ticker).toBe("TCS");
+    expect(output.milestoneCompleted).toBe(true);
+    // In filings-only mode, news is bypassed (isLiveData: false) to guarantee 100% filing grounding
+    expect(output.newsDigest.isLiveData).toBe(false);
+    expect(output.newsDigest.news).toHaveLength(0);
+    expect(output.summary).toContain("Strict Filings-Only");
   });
 });
