@@ -3,26 +3,11 @@
 import React, { useState, useMemo } from "react";
 import {
   FileText,
-  Download,
-  Sparkles,
-  RefreshCw,
-  Bold,
-  Italic,
-  Underline,
-  List,
-  ListOrdered,
-  Heading1,
-  Heading2,
-  Quote,
   Undo2,
-  Redo2,
   Check,
-  Send,
   Plus,
   Trash2,
   ShieldCheck,
-  Building2,
-  FileSpreadsheet,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
 
@@ -52,7 +37,7 @@ export function InAppWordEditor({
   isDownloadingPdf,
   reviewerName,
   sebiRegNo,
-  approvedAt,
+  approvedAt: _approvedAt,
   status = "draft",
   onSendChatPrompt,
   onUpdateReportData: _onUpdateReportData,
@@ -73,9 +58,10 @@ export function InAppWordEditor({
       `${companyName} demonstrates resilient market leadership with compounding earnings growth, disciplined capacity expansion, and high operating cash flow conversion. Our DCF valuation yields a 12-month base target fair value of ₹${targetPrice}, presenting an attractive risk-reward profile for institutional portfolios.`
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const initialThesis: string[] = Array.isArray((reportData as any).investmentThesis)
-    ? (reportData as any).investmentThesis.map((t: unknown) => (typeof t === "string" ? t : (t as { point?: string }).point || JSON.stringify(t)))
+  const rawRecord = reportData as unknown as Record<string, unknown>;
+  const rawThesis = rawRecord?.investmentThesis;
+  const initialThesis: string[] = Array.isArray(rawThesis)
+    ? rawThesis.map((t: unknown) => (typeof t === "string" ? t : (t as { point?: string })?.point || JSON.stringify(t)))
     : reportData.recommendation?.rationale || [
         "Sustained volume expansion backed by 88% capacity utilization and brownfield line commercialization in H2.",
         "Pricing discipline enables full pass-through of raw material input inflation to protect gross margins.",
@@ -97,10 +83,6 @@ export function InAppWordEditor({
     ]
   );
   const [newRiskInput, setNewRiskInput] = useState<string>("");
-
-  // AI Copilot state
-  const [aiPrompt, setAiPrompt] = useState<string>("");
-  const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
   const [aiNotification, setAiNotification] = useState<string | null>(null);
 
   // Undo history stack
@@ -112,14 +94,13 @@ export function InAppWordEditor({
     return fullText.trim().split(/\s+/).filter(Boolean).length;
   }, [docTitle, execSummary, thesisPillars, analystNotes, downsideRisks]);
 
-  const readingTimeMinutes = Math.max(1, Math.round(totalWords / 200));
+  const _readingTimeMinutes = Math.max(1, Math.round(totalWords / 200));
 
   // AI Editing Handler
   const handleExecuteAi = (promptOverride?: string) => {
-    const text = (promptOverride || aiPrompt).trim().toLowerCase();
+    const text = (promptOverride || "").trim().toLowerCase();
     if (!text) return;
 
-    setIsAiProcessing(true);
     setHistoryStack((prev) => [execSummary, ...prev]);
 
     setTimeout(() => {
@@ -148,8 +129,6 @@ export function InAppWordEditor({
         setAiNotification("AI: Polished and appended FY26 management guidance commentary.");
       }
 
-      setIsAiProcessing(false);
-      setAiPrompt("");
       setTimeout(() => setAiNotification(null), 4000);
     }, 450);
   };

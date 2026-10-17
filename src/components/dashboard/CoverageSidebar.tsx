@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Trash2,
   Building2,
-  Sparkles,
   Settings,
   Square,
   Crown,

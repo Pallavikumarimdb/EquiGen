@@ -13,7 +13,6 @@ import {
   User,
   Building2,
   Shield,
-  Crown,
   CreditCard,
   ChevronDown,
 } from "lucide-react";

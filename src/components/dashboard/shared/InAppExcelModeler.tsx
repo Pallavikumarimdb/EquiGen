@@ -3,23 +3,9 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   FileSpreadsheet,
-  Download,
-  Sparkles,
   RefreshCw,
-  Search,
-  Check,
-  ChevronRight,
   ChevronDown,
-  TrendingUp,
-  TrendingDown,
-  Info,
-  DollarSign,
-  Percent,
-  Bold,
-  Undo2,
-  Sliders,
   ShieldCheck,
-  Send,
   Zap,
 } from "lucide-react";
 import { EquityResearchData } from "@/types";
@@ -28,7 +14,6 @@ import {
   ThreeStatementDrivers,
   MacroDriverConfig,
 } from "@/lib/financial-modeling/three-statement-engine";
-import { DriverRationale } from "@/types/plan4";
 
 interface InAppExcelModelerProps {
   reportData: EquityResearchData;
@@ -42,21 +27,10 @@ interface InAppExcelModelerProps {
 
 type SheetTab = "Assumptions" | "3-Statement Model" | "DCF Valuation" | "Sensitivity Matrix";
 
-interface EditableCell {
-  sheet: SheetTab;
-  cellId: string;
-  label: string;
-  value: number;
-  format: "percent" | "number" | "currency" | "bps";
-  driverKey: string;
-  formula?: string;
-  provenance: string;
-}
-
 export function InAppExcelModeler({
   reportData,
-  companyName,
-  ticker,
+  companyName: _companyName,
+  ticker: _ticker,
   onDownloadExcel,
   isDownloadingExcel,
   onSendChatPrompt,
@@ -65,7 +39,6 @@ export function InAppExcelModeler({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawAny = reportData as any;
   const assumptions = rawAny?.modelingData?.assumptions || {};
-  const reportDriverRationales: DriverRationale[] = rawAny?.modelingData?.driverRationales || [];
 
   // Active sheet tab
   const [activeTab, setActiveTab] = useState<SheetTab>("Assumptions");
@@ -176,12 +149,10 @@ export function InAppExcelModeler({
 
   // Top-down Macro States
   const [realGdp, setRealGdp] = useState<number>(6.5);
-  const [inflationRate, setInflationRate] = useState<number>(4.5);
-  const [macroMultiple, setMacroMultiple] = useState<number>(1.1);
+  const [inflationRate] = useState<number>(4.5);
+  const [macroMultiple] = useState<number>(1.1);
 
-  // AI Agent Copilot state
-  const [aiPrompt, setAiPrompt] = useState<string>("");
-  const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
+  // Modifications Log
   const [aiModificationsLog, setAiModificationsLog] = useState<Array<{
     timestamp: string;
     description: string;
@@ -315,73 +286,6 @@ export function InAppExcelModeler({
     setEditingCellId(null);
   };
 
-  // AI Agent Modifier
-  const handleRunAiAgent = (promptText?: string) => {
-    const text = (promptText || aiPrompt).trim().toLowerCase();
-    if (!text) return;
-
-    setIsAiProcessing(true);
-    setTimeout(() => {
-      let logMsg = "";
-      let modifiedDriver = "";
-      let oldV = 0;
-      let newV = 0;
-
-      if (text.includes("bull") || text.includes("high growth")) {
-        oldV = volumeGrowth;
-        newV = Math.round((volumeGrowth + 3.5) * 10) / 10;
-        setVolumeGrowth(newV);
-        setRegulatoryBps(regulatoryBps + 50);
-        logMsg = "AI Agent: Applied Bull Case (+3.5% volume, +50 bps PLI incentive)";
-        modifiedDriver = "Volume Growth & PLI";
-      } else if (text.includes("bear") || text.includes("recession") || text.includes("downside")) {
-        oldV = volumeGrowth;
-        newV = Math.max(1.0, Math.round((volumeGrowth - 4.0) * 10) / 10);
-        setVolumeGrowth(newV);
-        setRegulatoryBps(-100);
-        logMsg = "AI Agent: Applied Bear Case (-4.0% volume, -100 bps compliance headwind)";
-        modifiedDriver = "Volume Growth & Regulation";
-      } else if (text.includes("pli") || text.includes("subsidy") || text.includes("incentive")) {
-        oldV = regulatoryBps;
-        newV = 75;
-        setRegulatoryBps(newV);
-        logMsg = "AI Agent: Factored +75 bps Production Linked Incentive (PLI) subsidy";
-        modifiedDriver = "Regulatory Policy Shock";
-      } else if (text.includes("stress") || text.includes("working capital") || text.includes("dso")) {
-        oldV = dso;
-        newV = dso + 15;
-        setDso(newV);
-        logMsg = `AI Agent: Stressed working capital receivables (+15 days DSO: ${oldV}d -> ${newV}d)`;
-        modifiedDriver = "Working Capital DSO";
-      } else if (text.includes("wacc") || text.includes("interest rate")) {
-        oldV = wacc;
-        newV = Math.round((wacc + 0.75) * 100) / 100;
-        setWacc(newV);
-        logMsg = `AI Agent: Bumped sovereign cost of capital (+75 bps WACC: ${oldV}% -> ${newV}%)`;
-        modifiedDriver = "WACC";
-      } else {
-        oldV = volumeGrowth;
-        newV = Math.round((volumeGrowth + 1.5) * 10) / 10;
-        setVolumeGrowth(newV);
-        logMsg = `AI Agent: Adjusted volume growth (+1.5% to ${newV}%) based on capacity pipeline`;
-        modifiedDriver = "Volume Growth";
-      }
-
-      setAiModificationsLog((prev) => [
-        {
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-          description: logMsg,
-          driver: modifiedDriver,
-          oldVal: oldV,
-          newVal: newV,
-        },
-        ...prev,
-      ]);
-
-      setIsAiProcessing(false);
-      setAiPrompt("");
-    }, 450);
-  };
 
   const applyScenario = (type: "base" | "bull" | "bear" | "pli" | "dso") => {
     setActiveScenario(type);
@@ -1301,7 +1205,7 @@ export function InAppExcelModeler({
                 <tr>
                   <td className="p-2 text-center bg-[#F8FAFC] font-mono text-[10px] text-[#94A3B8]">8</td>
                   <td className="p-2 text-[#64748B]">Less: Net Debt (Total Debt - Cash)</td>
-                  <td className="p-2 font-mono text-[10px] text-[#64748B] text-center">='Assumptions'!$C$22</td>
+                  <td className="p-2 font-mono text-[10px] text-[#64748B] text-center">{"='Assumptions'!$C$22"}</td>
                   <td className="p-2 text-right font-mono text-[#B91C1C]">
                     ₹{Math.round(modelResult.netDebt).toLocaleString("en-IN")}
                   </td>
@@ -1317,7 +1221,7 @@ export function InAppExcelModeler({
                 <tr>
                   <td className="p-2 text-center bg-[#F8FAFC] font-mono text-[10px] text-[#94A3B8]">10</td>
                   <td className="p-2 text-[#64748B]">Diluted Shares Outstanding</td>
-                  <td className="p-2 font-mono text-[10px] text-[#64748B] text-center">='Assumptions'!$C$26</td>
+                  <td className="p-2 font-mono text-[10px] text-[#64748B] text-center">{"='Assumptions'!$C$26"}</td>
                   <td className="p-2 text-right font-mono text-[#64748B]">
                     {sharesCr.toFixed(2)} Cr
                   </td>

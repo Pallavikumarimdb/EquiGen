@@ -21,7 +21,6 @@ import { SwotMatrix } from "../shared/SwotMatrix";
 import { ForensicAuditCard } from "../shared/ForensicAuditCard";
 import { ValuationBandsChart } from "../shared/ValuationBandsChart";
 import { FileText } from "lucide-react";
-import type { FinancialEvaluationReport } from "@/lib/eval/financial-eval-engine";
 
 export interface UnifiedReportViewProps {
   reportData: EquityResearchData;
@@ -65,8 +64,6 @@ export function UnifiedReportView({
   const [activeTab, setActiveTab] = useState<ReportTab>("thesis");
   const [copiedMemo, setCopiedMemo] = useState(false);
 
-  // Deep financial audit & correctness evaluation report
-  const financialAudit = (reportData as unknown as { financialAudit?: FinancialEvaluationReport })?.financialAudit ?? null;
 
   const isApproved = status === "approved" || status === "published" || Boolean(approvedAt);
   const rec = reportData?.recommendation;

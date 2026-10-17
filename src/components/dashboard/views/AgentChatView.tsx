@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   Bot,
   User,
   Send,
-  Sparkles,
   RotateCcw,
   Loader2,
   CheckCircle2,
@@ -17,16 +16,12 @@ import {
   Check,
   Key,
   Activity,
-  Split,
   Square,
-  Clock,
-  AlertCircle,
   ChevronLeft,
   ChevronRight,
   Edit2,
   RotateCw,
   ArrowDown,
-  BarChart2,
   FileSpreadsheet,
   Maximize2,
   Minimize2,
